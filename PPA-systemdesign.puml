@@ -1,0 +1,80 @@
+@startuml
+!theme plain
+skinparam componentStyle rectangle
+skinparam shadowing false
+skinparam defaultTextAlignment center
+skinparam linetype ortho
+skinparam nodesep 80
+skinparam ranksep 100
+skinparam backgroundColor white
+skinparam handwritten false
+
+' Legend
+rectangle "Legend" as L {
+  [::] - Non-Agentic Service  
+  [**] - Agentic Service  
+}
+
+' Client Layer
+actor "Patient/Doctor" as User
+rectangle "Client Layer" {
+  [Web App]
+  [Mobile App]
+}
+
+' API Gateway Layer
+rectangle "API Gateway" as Gateway {
+  [Auth]
+  [Rate Limiter]
+}
+
+' Core Services
+package "Core Services" {
+  [Auth Service]
+  [Health Service]
+  [Nutrition Service]
+}
+
+' Agentic Layer
+package "AI Agents" {
+  [HealthTrackingAgent]
+  [NutritionAgent]
+  [InsightsAgent]
+  [VoiceAgent]
+}
+
+' Event Bus
+cloud "Kafka" as Kafka {
+  [Events]
+}
+
+' Databases
+database "Database" {
+  [User Data]
+  [Health Data]
+}
+
+' Core Connections
+User --> [Web App]
+User --> [Mobile App]
+[Web App] --> Gateway
+[Mobile App] --> Gateway
+
+Gateway --> [Auth]
+[Auth] --> [Auth Service]
+[Auth Service] --> [User Data]
+
+[Health Service] --> [Health Data]
+[Nutrition Service] --> [Health Data]
+
+Kafka --> [HealthTrackingAgent]
+Kafka --> [NutritionAgent]
+Kafka --> [InsightsAgent]
+Kafka --> [VoiceAgent]
+
+[HealthTrackingAgent] --> [Health Data]
+[NutritionAgent] --> [Health Data]
+[InsightsAgent] --> [Health Data]
+[VoiceAgent] --> [Health Data]
+
+@enduml

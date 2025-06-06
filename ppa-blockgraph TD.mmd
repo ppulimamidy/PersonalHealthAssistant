@@ -1,0 +1,23 @@
+flowchart TD
+    A[Mobile App\nReact Native + Expo]
+    A --> B[API Gateway\nFastAPI]
+    B --> C1[Firebase Auth]
+    B --> C2[Business Logic Service]
+    B --> C3[AI Agent Service]
+    B --> C4[OCR Parsing Service]
+
+    C2 --> D1[PostgreSQL\nSupabase]
+    C3 --> D1
+    C2 --> D2[Redis Cache]
+    C3 --> D2
+
+    C4 --> D1
+    D1 --> E1[PDF Generator\nWeasyPrint/Puppeteer]
+
+    C3 --> F1[Health Knowledge Graph\nNeo4j]
+    C3 --> F2[Vector DB\nQdrant/Weaviate]
+    C3 --> F3[PubMed / BioBERT / RxNorm]
+
+    E1 --> G[Doctor Mode / Report Dashboard]
+    D2 --> G
+    A --> G

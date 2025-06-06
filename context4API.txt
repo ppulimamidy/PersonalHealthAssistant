@@ -1,0 +1,204 @@
+Great — since you already have a comprehensive schema for the **VitaSense Personal Physician Assistant**, I’ll now map out a complete set of **FastAPI-style RESTful API endpoints**, grouped by domain.
+
+These endpoints assume:
+
+* REST principles (GET, POST, PUT, DELETE)
+* Supabase or PostgreSQL backend
+* Auth handled via headers or middleware
+* You may optionally split into microservices later (e.g., AI, medical, device)
+
+---
+
+## 🧾 1. **Authentication & User**
+
+| Method | Path                   | Description              |
+| ------ | ---------------------- | ------------------------ |
+| POST   | `/auth/signup`         | Create a new user        |
+| POST   | `/auth/login`          | Log in and get tokens    |
+| POST   | `/auth/logout`         | Log out user             |
+| POST   | `/auth/reset-password` | Request a password reset |
+| POST   | `/auth/verify-email`   | Verify user email        |
+| GET    | `/me`                  | Get current user info    |
+| PUT    | `/me/profile`          | Update user profile      |
+| GET    | `/me/profile`          | Get user profile         |
+
+---
+
+## 🧑‍⚕️ 2. **User Medical Data**
+
+| Method | Path                 | Description             |
+| ------ | -------------------- | ----------------------- |
+| GET    | `/me/conditions`     | List medical conditions |
+| POST   | `/me/conditions`     | Add new condition       |
+| GET    | `/me/medications`    | List medications        |
+| POST   | `/me/medications`    | Add new medication      |
+| GET    | `/me/symptoms`       | List reported symptoms  |
+| POST   | `/me/symptoms`       | Add symptom             |
+| GET    | `/me/vitals`         | List vital signs        |
+| POST   | `/me/vitals`         | Record vitals           |
+| GET    | `/me/health-metrics` | Get custom metrics      |
+| POST   | `/me/health-metrics` | Add new metric          |
+
+---
+
+## 📅 3. **Devices & Tracking**
+
+| Method | Path                 | Description            |
+| ------ | -------------------- | ---------------------- |
+| GET    | `/devices`           | List connected devices |
+| POST   | `/devices`           | Connect a device       |
+| GET    | `/devices/{id}/data` | Get data for device    |
+| POST   | `/devices/{id}/data` | Sync data manually     |
+| GET    | `/me/activity`       | List activity sessions |
+| POST   | `/me/activity`       | Add activity session   |
+| GET    | `/me/sleep`          | List sleep sessions    |
+| POST   | `/me/sleep`          | Add sleep session      |
+
+---
+
+## 🥗 4. **Nutrition**
+
+| Method | Path                     | Description             |
+| ------ | ------------------------ | ----------------------- |
+| GET    | `/me/nutrition/logs`     | Get nutrition logs      |
+| POST   | `/me/nutrition/logs`     | Add nutrition entry     |
+| GET    | `/me/nutrition/photos`   | Get food photos         |
+| POST   | `/me/nutrition/photos`   | Upload photo            |
+| GET    | `/me/nutrition/analysis` | AI results              |
+| GET    | `/me/supplements`        | List supplements        |
+| POST   | `/me/supplements`        | Add user supplement     |
+| GET    | `/me/supplements/logs`   | Get intake logs         |
+| POST   | `/me/supplements/logs`   | Add supplement intake   |
+| GET    | `/me/supplements/photos` | View supplement photos  |
+| POST   | `/me/supplements/photos` | Upload supplement photo |
+
+---
+
+## 🏥 5. **Medical Reports & Imaging**
+
+| Method | Path               | Description         |
+| ------ | ------------------ | ------------------- |
+| GET    | `/me/reports`      | Get medical reports |
+| POST   | `/me/reports`      | Upload report       |
+| GET    | `/me/images`       | List medical images |
+| POST   | `/me/images`       | Upload image        |
+| GET    | `/me/images/{id}`  | View image detail   |
+| GET    | `/me/reports/{id}` | View report detail  |
+
+---
+
+## 👨‍⚕️ 6. **Healthcare Providers**
+
+| Method | Path                       | Description                            |
+| ------ | -------------------------- | -------------------------------------- |
+| GET    | `/providers`               | Search for providers                   |
+| POST   | `/providers/connect`       | Link provider                          |
+| GET    | `/me/providers`            | List connected providers               |
+| GET    | `/providers/{id}/patients` | List assigned patients (for providers) |
+| GET    | `/providers/appointments`  | View appointments (future scope)       |
+
+---
+
+## 🏢 7. **Facilities & Insurance**
+
+| Method | Path                   | Description              |
+| ------ | ---------------------- | ------------------------ |
+| GET    | `/facilities`          | List hospitals/clinics   |
+| GET    | `/me/insurance`        | List user insurance      |
+| POST   | `/me/insurance`        | Add policy               |
+| GET    | `/insurance/companies` | List insurance companies |
+
+---
+
+## 📦 8. **E-commerce Store**
+
+| Method | Path                   | Description         |
+| ------ | ---------------------- | ------------------- |
+| GET    | `/store/products`      | List store items    |
+| GET    | `/store/products/{id}` | View product detail |
+| POST   | `/store/orders`        | Create an order     |
+| GET    | `/me/orders`           | View user orders    |
+| GET    | `/me/orders/{id}`      | View specific order |
+
+---
+
+## 📊 9. **Health Goals & Insights**
+
+| Method | Path           | Description             |
+| ------ | -------------- | ----------------------- |
+| GET    | `/me/goals`    | Get goals               |
+| POST   | `/me/goals`    | Create/update goal      |
+| GET    | `/me/insights` | View AI health insights |
+
+---
+
+## 🧬 10. **Lab Results & Genomics**
+
+| Method | Path             | Description        |
+| ------ | ---------------- | ------------------ |
+| GET    | `/me/labs`       | List lab results   |
+| POST   | `/me/labs`       | Upload lab result  |
+| GET    | `/me/biomarkers` | List biomarkers    |
+| GET    | `/me/genomics`   | View user genomics |
+| POST   | `/me/genomics`   | Add genomic data   |
+
+---
+
+## 🧠 11. **Explainability & AI Events**
+
+| Method | Path                | Description           |
+| ------ | ------------------- | --------------------- |
+| GET    | `/me/events`        | User's event timeline |
+| GET    | `/me/events/causes` | View cause-effect     |
+| GET    | `/me/event-logs`    | View logged events    |
+| GET    | `/me/voice`         | List voice inputs     |
+| POST   | `/me/voice`         | Upload voice input    |
+
+---
+
+## 📈 12. **Analytics & Alerts**
+
+| Method | Path                    | Description        |
+| ------ | ----------------------- | ------------------ |
+| GET    | `/me/analytics/daily`   | Daily metrics      |
+| GET    | `/me/analytics/weekly`  | Weekly summary     |
+| GET    | `/me/analytics/monthly` | Monthly trends     |
+| GET    | `/me/alerts`            | List health alerts |
+
+---
+
+## 🔐 13. **Privacy, Consent & Audit**
+
+| Method | Path             | Description          |
+| ------ | ---------------- | -------------------- |
+| GET    | `/me/consents`   | List consents        |
+| POST   | `/me/consents`   | Submit consent       |
+| GET    | `/me/audit-logs` | View your audit logs |
+
+---
+
+## 🧰 Optional DevOps / Admin
+
+| Method | Path                  | Description             |
+| ------ | --------------------- | ----------------------- |
+| GET    | `/admin/users`        | List users (admin only) |
+| GET    | `/admin/data/summary` | Platform-wide stats     |
+| GET    | `/admin/monitoring`   | Healthcheck endpoint    |
+
+---
+
+## 🧩 Formats
+
+Each endpoint should support:
+
+* **JSON requests/responses**
+* **Auth token headers**
+* **Rate limiting and logging**
+
+---
+
+Would you like:
+
+* A **FastAPI router breakdown** (`@router.get(...)`)?
+* A **Postman collection**?
+* Auto-generated **OpenAPI schema** based on your SQL?

@@ -1,0 +1,59 @@
+graph TD
+    %% Legend
+    subgraph Legend
+        A[Non-Agentic Service]
+        B[Agentic Service]
+    end
+
+    %% Client Layer
+    User((Patient/Doctor))
+    subgraph ClientLayer[Client Layer]
+        WebApp[Web App]
+        MobileApp[Mobile App]
+    end
+
+    %% API Gateway
+    subgraph Gateway[API Gateway]
+        Auth[Auth Service]
+        RateLimiter[Rate Limiter]
+    end
+
+    %% Core Services
+    subgraph CoreServices[Core Services]
+        AuthService[Auth Service]
+        HealthService[Health Service]
+        NutritionService[Nutrition Service]
+        MedicalService[Medical Records]
+        AIService[AI Insights]
+        VoiceService[Voice Input]
+    end
+
+    %% Databases
+    subgraph Databases
+        PG[(PostgreSQL)]
+        TS[(TimescaleDB)]
+    end
+
+    %% Connections
+    User --> WebApp
+    User --> MobileApp
+    WebApp --> Auth
+    MobileApp --> Auth
+    Auth --> AuthService
+    Auth --> HealthService
+    Auth --> NutritionService
+    Auth --> MedicalService
+    Auth --> AIService
+    Auth --> VoiceService
+
+    %% Service to Database
+    AuthService --> PG
+    HealthService --> TS
+    NutritionService --> PG
+    MedicalService --> PG
+    AIService --> PG
+    VoiceService --> PG
+
+    %% Service Interactions
+    AIService --> HealthService
+    NutritionService --> AIService 

@@ -1,0 +1,19 @@
+flowchart TD
+    A1[User Logs Food\nText/Voice/Photo]
+    A2[User Logs Symptoms]
+    A3[User Logs Medication]
+    A4[Wearables Sync\nApple Health / Google Fit]
+
+    A1 --> B[Business Logic Service]
+    A2 --> B
+    A3 --> B
+    A4 --> B
+
+    B --> C[PostgreSQL\nUser Logs]
+    B --> D[Redis\nShort-Term Cache]
+    B --> E[Weaviate\nLong-Term Memory]
+    B --> F[PubMed\nMedical Literature]
+    B --> G[Neo4j\nDrug-Diet-Symptom Graph]
+
+    C --> H[Health Summary Report]
+    C --> I[AI Agent\nLangChain + GPT-4] 

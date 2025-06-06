@@ -1,0 +1,7 @@
+flowchart TD
+    A[Lab Report Upload\nPDF/Image]
+    A --> B[OCR Service\nTesseract + LayoutLM]
+    B --> C[Extracted Biomarkers\n& Lab Data]
+    C --> D[PostgreSQL\nUser Lab Records]
+    D --> E[PDF Generator\nWeasyPrint / Puppeteer]
+    E --> F[Health Summary Report\nExportable]

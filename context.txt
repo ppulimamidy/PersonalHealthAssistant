@@ -1,0 +1,266 @@
+# context.md
+
+# VitaSense PPA – Microservices & Agentic Architecture Specification
+
+---
+
+## 🧠 Purpose
+
+This document defines the architecture, responsibilities, API endpoints, and agentic capabilities of the **VitaSense Personal Physician Assistant (PPA)** platform. It is intended for backend engineers implementing microservices and agentic services using Python (FastAPI), PostgreSQL, and optional AI modules.
+
+---
+
+## 🔧 Technology Stack
+
+- **API Framework**: FastAPI (Python 3.10+)
+- **Database**: PostgreSQL with `pgvector` extension
+- **Authentication**: Supabase Auth (JWT)
+- **Deployment**: Docker Compose / Supabase
+- **Optional Agents**: Celery workers, LangChain, or cron jobs
+- **Vector Search**: `pgvector` or external (Weaviate, Qdrant)
+- **Messaging (Optional)**: Redis Streams, NATS
+
+---
+
+## 🗂️ Microservices
+
+---
+
+### 1. Auth Service
+
+**Responsibility**: Authentication, JWT, sessions, email verification  
+**Agentic?** ❌
+
+**Endpoints**
+- `POST /auth/signup`
+- `POST /auth/login`
+- `POST /auth/logout`
+- `POST /auth/verify-email`
+- `POST /auth/reset-password`
+
+---
+
+### 2. User Profile Service
+
+**Responsibility**: Personal and demographic data  
+**Agentic?** ❌
+
+**Endpoints**
+- `GET /me/profile`
+- `PUT /me/profile`
+
+---
+
+### 3. Health Tracking Service
+
+**Responsibility**: Vitals, symptoms, goals, metrics  
+**Agentic?** ✅  
+> Suggests goals, monitors changes, detects deviations
+
+**Endpoints**
+- `GET /me/vitals`
+- `POST /me/vitals`
+- `GET /me/symptoms`
+- `POST /me/symptoms`
+- `GET /me/goals`
+- `POST /me/goals`
+
+---
+
+### 4. Device Data Service
+
+**Responsibility**: Wearables, sensors, sync  
+**Agentic?** ✅  
+> Flags missing or corrupt data
+
+**Endpoints**
+- `GET /devices`
+- `POST /devices`
+- `POST /devices/{id}/sync`
+
+---
+
+### 5. Activity & Sleep Service
+
+**Responsibility**: Physical and sleep tracking  
+**Agentic?** ✅  
+> Detects sleep debt, inactivity trends
+
+**Endpoints**
+- `GET /me/activity`
+- `POST /me/activity`
+- `GET /me/sleep`
+- `POST /me/sleep`
+
+---
+
+### 6. Nutrition Service
+
+**Responsibility**: Meals, analysis, supplements  
+**Agentic?** ✅  
+> AI photo analysis, imbalance warnings
+
+**Endpoints**
+- `GET /me/nutrition/logs`
+- `POST /me/nutrition/logs`
+- `POST /me/nutrition/photos`
+- `GET /me/supplements`
+- `POST /me/supplements`
+- `POST /me/supplements/logs`
+
+---
+
+### 7. Medical Records Service
+
+**Responsibility**: Lab results, imaging, reports  
+**Agentic?** ❌  
+> Static by default (but used by agents)
+
+**Endpoints**
+- `GET /me/reports`
+- `POST /me/reports`
+- `GET /me/images`
+- `POST /me/images`
+- `GET /me/labs`
+- `POST /me/labs`
+
+---
+
+### 8. Doctor Collaboration Service
+
+**Responsibility**: Provider linkage, annotation  
+**Agentic?** ✅  
+> Generates summaries, flags priorities
+
+**Endpoints**
+- `GET /providers`
+- `POST /providers/connect`
+- `GET /me/providers`
+- `POST /providers/annotate`
+
+---
+
+### 9. AI Insights Service
+
+**Responsibility**: User-specific health insights  
+**Agentic?** ✅  
+> Detects risk, sends recommendations
+
+**Endpoints**
+- `GET /me/insights`
+- `GET /me/analytics/daily`
+- `GET /me/alerts`
+
+---
+
+### 10. Explainability Service
+
+**Responsibility**: Cause-effect inference  
+**Agentic?** ✅  
+> "Why did this happen?" answers
+
+**Endpoints**
+- `GET /me/events`
+- `GET /me/causes`
+
+---
+
+### 11. Voice & Input Processing Service
+
+**Responsibility**: Voice, OCR, raw inputs  
+**Agentic?** ✅  
+> Converts voice to health logs or commands
+
+**Endpoints**
+- `POST /me/voice`
+- `GET /me/voice`
+
+---
+
+### 12. Genomics Service
+
+**Responsibility**: Gene variants and health links  
+**Agentic?** ✅  
+> Generates long-term risk profiles
+
+**Endpoints**
+- `GET /me/genomics`
+- `POST /me/genomics`
+
+---
+
+### 13. Medical Knowledge Graph Service
+
+**Responsibility**: Semantic search, drug/food interactions  
+**Agentic?** ✅  
+> Learns from new research, adapts interactions
+
+**Endpoints**
+- `GET /search?q=term`
+- `GET /interactions`
+
+---
+
+### 14. Consent & Audit Service
+
+**Responsibility**: Privacy controls, audit logs  
+**Agentic?** ❌
+
+**Endpoints**
+- `GET /me/consents`
+- `POST /me/consents`
+- `GET /me/audit-logs`
+
+---
+
+## 🤖 Agentic System Overview
+
+| Domain | Intelligent Behavior |
+|--------|----------------------|
+| Health Tracking | Suggest goals, detect anomalies |
+| Nutrition | AI photo classification, warn on imbalances |
+| Sleep | Detect poor sleep patterns |
+| Medical | Auto-generate summaries for doctors |
+| Explainability | Causal graphs, personalized insights |
+| Genomics | Gene-to-risk interpretation |
+| Knowledge | Auto-updated interactions via literature embeddings |
+
+---
+
+## 🔁 Service Communication
+
+| Source | Destination | Purpose |
+|--------|-------------|---------|
+| Nutrition → AI | Analyze food |
+| Health → Insights | Flag anomalies |
+| Device → Analytics | Generate reports |
+| Explainability → Doctor | Causal timelines |
+| Knowledge → Insights | Suggest new risks |
+
+---
+
+## 🚀 Developer Notes
+
+- Use `auth.uid()` or JWT tokens for user context
+- Store logs/events in `event_logs`
+- Store vectors using `pgvector`
+- All POSTs must validate user identity via middleware
+- Each service has its own schema or database
+
+---
+
+## 📌 TODO (Future Expansion)
+
+- Add **Notifications Service**
+- Add **Scheduler Agent**
+- Add **Billing Service**
+- Add **Research API Gateway**
+
+---
+
+## 📎 Contact
+
+For technical support or questions:  
+**tech@vitasense.ai**  
+**Engineering Slack: `#backend-dev`**
+

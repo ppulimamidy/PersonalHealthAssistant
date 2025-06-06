@@ -1,0 +1,299 @@
+Here's a **complete technical specification document** for the VitaSense Personal Physician Assistant (PPA) microservices architecture. This spec is structured for junior software engineers to **understand, implement, and scale** the system confidently — with a clear breakdown of **microservices**, **endpoints**, and **agentic layers** for automation and intelligence.
+
+---
+
+# 📘 VitaSense PPA Microservices & Agentic System Design Specification
+
+---
+
+## ✅ Overview
+
+VitaSense is a modular health platform composed of multiple microservices. Services expose RESTful APIs, communicate via HTTP (and optionally message queues), and are organized by functional boundaries. Key features like health analytics, explainable AI, and doctor collaboration are built with **agentic layers** that enable autonomy and decision-making.
+
+---
+
+## 🗂️ Microservices Blueprint
+
+### 1. **Auth Service**
+
+Handles user login, token lifecycle, email verification.
+
+**Endpoints**
+
+| Method | Path                   | Description            |
+| ------ | ---------------------- | ---------------------- |
+| POST   | `/auth/signup`         | Register new user      |
+| POST   | `/auth/login`          | User login             |
+| POST   | `/auth/logout`         | User logout            |
+| POST   | `/auth/verify-email`   | Verify email           |
+| POST   | `/auth/reset-password` | Password reset request |
+
+> 🔐 Stateless JWT-based; no agentic behavior
+
+---
+
+### 2. **User Profile Service**
+
+Stores demographic and personal health settings.
+
+**Endpoints**
+
+| Method | Path          | Description    |
+| ------ | ------------- | -------------- |
+| GET    | `/me/profile` | Fetch profile  |
+| PUT    | `/me/profile` | Update profile |
+
+---
+
+### 3. **Health Tracking Service**
+
+Tracks symptoms, vitals, metrics, goals.
+
+**Tables**: `vital_signs`, `symptoms`, `health_metrics`, `health_goals`
+
+**Endpoints**
+
+| Method | Path           | Description        |
+| ------ | -------------- | ------------------ |
+| GET    | `/me/vitals`   | List vitals        |
+| POST   | `/me/vitals`   | Add vitals         |
+| GET    | `/me/symptoms` | View symptoms      |
+| POST   | `/me/symptoms` | Add symptom        |
+| GET    | `/me/goals`    | View health goals  |
+| POST   | `/me/goals`    | Add or update goal |
+
+> 🧠 **Agentic Layer**: Checks for deviations, trends, and non-compliance with goals. Suggests goals based on patterns.
+
+---
+
+### 4. **Device Data Service**
+
+Handles wearable/device sync, raw sensor ingestion.
+
+**Tables**: `devices`, `device_data_types`, `device_data_points`
+
+**Endpoints**
+
+| Method | Path                 | Description            |
+| ------ | -------------------- | ---------------------- |
+| GET    | `/devices`           | List connected devices |
+| POST   | `/devices`           | Register new device    |
+| POST   | `/devices/{id}/sync` | Sync device data       |
+
+> 🧠 **Agentic Layer**: Monitors quality of device data and flags anomalies.
+
+---
+
+### 5. **Activity & Sleep Service**
+
+Handles physical activity and sleep data.
+
+**Tables**: `activity_sessions`, `sleep_sessions`
+
+**Endpoints**
+
+| Method | Path           | Description       |
+| ------ | -------------- | ----------------- |
+| GET    | `/me/activity` | List sessions     |
+| POST   | `/me/activity` | Add activity      |
+| GET    | `/me/sleep`    | View sleep logs   |
+| POST   | `/me/sleep`    | Add sleep session |
+
+---
+
+### 6. **Nutrition Service**
+
+Logs meals, supplements, and analyzes food intake.
+
+**Tables**: `nutrition_logs`, `nutrition_photos`, `nutrition_analysis`, `user_supplements`, `supplement_logs`
+
+**Endpoints**
+
+| Method | Path                   | Description           |
+| ------ | ---------------------- | --------------------- |
+| GET    | `/me/nutrition/logs`   | View meals            |
+| POST   | `/me/nutrition/logs`   | Log meal              |
+| POST   | `/me/nutrition/photos` | Upload food photo     |
+| GET    | `/me/supplements`      | List supplements      |
+| POST   | `/me/supplements`      | Add supplement        |
+| POST   | `/me/supplements/logs` | Log supplement intake |
+
+> 🧠 **Agentic Layer**: Uses AI to analyze food quality, calories, and supplement balance. Suggests corrections.
+
+---
+
+### 7. **Medical Records Service**
+
+Handles lab results, imaging, consultations.
+
+**Tables**: `medical_reports`, `medical_images`, `lab_results`, `biomarkers`
+
+**Endpoints**
+
+| Method | Path          | Description        |
+| ------ | ------------- | ------------------ |
+| GET    | `/me/reports` | Get reports        |
+| POST   | `/me/reports` | Upload report      |
+| GET    | `/me/images`  | Get images         |
+| POST   | `/me/images`  | Upload image       |
+| GET    | `/me/labs`    | View lab reports   |
+| POST   | `/me/labs`    | Upload lab results |
+
+---
+
+### 8. **Doctor Collaboration Service**
+
+Manages connections to providers, hospitals.
+
+**Tables**: `healthcare_providers`, `user_provider_relationships`, `clinician_annotations`, `report_templates`
+
+**Endpoints**
+
+| Method | Path                  | Description            |
+| ------ | --------------------- | ---------------------- |
+| GET    | `/providers`          | Search doctors         |
+| POST   | `/providers/connect`  | Connect doctor         |
+| GET    | `/me/providers`       | My doctors             |
+| POST   | `/providers/annotate` | Doctor note/annotation |
+
+> 🧠 **Agentic Layer**: Prepares summaries, highlights key risks, auto-generates templated reports.
+
+---
+
+### 9. **AI Insights Service**
+
+Creates user-specific, AI-powered health insights.
+
+**Tables**: `health_insights`, `analytics_snapshots`, `anomaly_alerts`
+
+**Endpoints**
+
+| Method | Path                  | Description            |
+| ------ | --------------------- | ---------------------- |
+| GET    | `/me/insights`        | View insights          |
+| GET    | `/me/analytics/daily` | Daily snapshot         |
+| GET    | `/me/alerts`          | Critical health alerts |
+
+> 🧠 **Agentic Layer**: Autonomously detects risk patterns and notifies user and doctor.
+
+---
+
+### 10. **Explainability Service**
+
+Creates causal graphs and timelines from events.
+
+**Tables**: `event_logs`, `causal_inferences`, `event_timelines`
+
+**Endpoints**
+
+| Method | Path         | Description      |
+| ------ | ------------ | ---------------- |
+| GET    | `/me/events` | View timeline    |
+| GET    | `/me/causes` | Cause-effect map |
+
+> 🧠 **Agentic Layer**: Explains outcomes, like “Why did your energy drop?” using logs and causal inference.
+
+---
+
+### 11. **Voice & Input Processing Service**
+
+Handles multimodal inputs like audio and OCR.
+
+**Tables**: `voice_logs`, `raw_input_data`
+
+**Endpoints**
+
+| Method | Path        | Description  |
+| ------ | ----------- | ------------ |
+| POST   | `/me/voice` | Upload voice |
+| GET    | `/me/voice` | Get logs     |
+
+> 🧠 **Agentic Layer**: Interprets voice input as intents or health updates (e.g. “I feel tired”).
+
+---
+
+### 12. **Genomics Service**
+
+Stores gene variants, biomarkers, health flags.
+
+**Tables**: `genomic_markers`, `user_genomics`
+
+**Endpoints**
+
+| Method | Path           | Description    |
+| ------ | -------------- | -------------- |
+| GET    | `/me/genomics` | View profile   |
+| POST   | `/me/genomics` | Upload results |
+
+> 🧠 **Agentic Layer**: Maps genes to health recommendations, e.g. “APOE4 found, watch cholesterol.”
+
+---
+
+### 13. **Medical Knowledge Graph Service**
+
+Supports semantic search and interaction graph.
+
+**Tables**: `medical_literature`, `medical_terms`, `interaction_graph`
+
+**Endpoints**
+
+| Method | Path             | Description            |
+| ------ | ---------------- | ---------------------- |
+| GET    | `/search?q=term` | Semantic search        |
+| GET    | `/interactions`  | Term-term interactions |
+
+> 🧠 **Agentic Layer**: Autonomously scans literature to update rules (e.g., magnesium + caffeine conflict).
+
+---
+
+### 14. **Consent & Audit Service**
+
+Tracks user consents and logs all access.
+
+**Tables**: `consent_records`, `audit_logs`
+
+**Endpoints**
+
+| Method | Path             | Description    |
+| ------ | ---------------- | -------------- |
+| GET    | `/me/consents`   | View consents  |
+| POST   | `/me/consents`   | Submit consent |
+| GET    | `/me/audit-logs` | Activity logs  |
+
+---
+
+## 🔁 Internal Service Communication
+
+| From                         | To                        | Why |
+| ---------------------------- | ------------------------- | --- |
+| AI Insights → Explainability | To get cause chains       |     |
+| Nutrition → AI               | For food photo analysis   |     |
+| Health Tracking → Insights   | To detect anomalies       |     |
+| Device Service → Analytics   | For metrics               |     |
+| Doctor → Records, Insights   | For summaries and reports |     |
+
+---
+
+## 🧠 Agentic Capabilities Overview
+
+| Domain          | Behavior                                               |
+| --------------- | ------------------------------------------------------ |
+| AI Insights     | Proactive alerting, personalized recommendations       |
+| Nutrition       | Food classification, caloric analysis, trend detection |
+| Explainability  | “Why” analysis, temporal reasoning                     |
+| Genomics        | Interpretation of gene variants                        |
+| Doctor Mode     | Auto-annotated summaries from all available data       |
+| Knowledge Graph | Drug/food/gene effect prediction and suggestion        |
+
+---
+
+## 🧱 Developer Notes
+
+* **Language**: Python 3.10+, FastAPI
+* **DB**: PostgreSQL (with pgvector), one DB per service (or schema-level isolation)
+* **Deployment**: Dockerized microservices, communicate via REST
+* **Optional Messaging**: NATS/Redis Streams for async agent triggers
+* **CI/CD**: GitHub Actions + Supabase CLI (or Heroku)
+
+---
+
