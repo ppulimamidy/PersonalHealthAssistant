@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: user-profile-service
+  namespace: personal-health-assistant
+  labels:
+    app: user-profile-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: user-profile-service
+  template:
+    metadata:
+      labels:
+        app: user-profile-service
+    spec:
+      imagePullSecrets:
+        - name: ghcr-login
+      containers:
+        - name: user-profile-service
+          image: ghcr.io/ppulimamidy/user-profile-service:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8001
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: user-profile-secrets
+                  key: database-url
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: user-profile-secrets
+                  key: redis-url
+            - name: SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: user-profile-secrets
+                  key: secret-key
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8001
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8001
+            initialDelaySeconds: 10
+            periodSeconds: 20 

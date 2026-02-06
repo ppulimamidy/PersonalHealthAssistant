@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: user-profile-service
+  namespace: personal-health-assistant
+  labels:
+    app: user-profile-service
+spec:
+  type: ClusterIP
+  selector:
+    app: user-profile-service
+  ports:
+    - protocol: TCP
+      port: 8001
+      targetPort: 8001 
