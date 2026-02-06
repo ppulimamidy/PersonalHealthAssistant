@@ -1,0 +1,208 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: auth-service-monitor
+  namespace: personal-health-assistant
+  labels:
+    app: auth-service
+    component: authentication
+    release: prometheus
+spec:
+  selector:
+    matchLabels:
+      app: auth-service
+  endpoints:
+  - port: http
+    path: /metrics
+    interval: 30s
+    scrapeTimeout: 10s
+    honorLabels: true
+    metricRelabelings:
+    - sourceLabels: [__name__]
+      regex: 'auth_.*'
+      action: keep
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: auth-service-alerts
+  namespace: personal-health-assistant
+  labels:
+    app: auth-service
+    component: authentication
+    release: prometheus
+spec:
+  groups:
+  - name: auth-service
+    rules:
+    # High error rate
+    - alert: AuthServiceHighErrorRate
+      expr: rate(auth_errors_total[5m]) > 0.1
+      for: 2m
+      labels:
+        severity: warning
+        service: auth-service
+      annotations:
+        summary: "High error rate in auth service"
+        description: "Auth service is experiencing a high error rate of {{ $value }} errors per second"
+    
+    # High response time
+    - alert: AuthServiceHighResponseTime
+      expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{service="auth-service"}[5m])) > 2
+      for: 2m
+      labels:
+        severity: warning
+        service: auth-service
+      annotations:
+        summary: "High response time in auth service"
+        description: "95th percentile response time is {{ $value }} seconds"
+    
+    # Service down
+    - alert: AuthServiceDown
+      expr: up{service="auth-service"} == 0
+      for: 1m
+      labels:
+        severity: critical
+        service: auth-service
+      annotations:
+        summary: "Auth service is down"
+        description: "Auth service has been down for more than 1 minute"
+    
+    # High login failure rate
+    - alert: AuthServiceHighLoginFailureRate
+      expr: rate(auth_login_failure_total[5m]) / rate(auth_login_attempts_total[5m]) > 0.5
+      for: 2m
+      labels:
+        severity: warning
+        service: auth-service
+      annotations:
+        summary: "High login failure rate"
+        description: "Login failure rate is {{ $value | humanizePercentage }}"
+    
+    # Suspicious activity
+    - alert: AuthServiceSuspiciousActivity
+      expr: rate(auth_suspicious_activity_total[5m]) > 0
+      for: 1m
+      labels:
+        severity: critical
+        service: auth-service
+      annotations:
+        summary: "Suspicious activity detected"
+        description: "Suspicious activity detected in auth service"
+    
+    # Database connection issues
+    - alert: AuthServiceDatabaseConnectionIssues
+      expr: rate(auth_database_connection_errors_total[5m]) > 0
+      for: 2m
+      labels:
+        severity: warning
+        service: auth-service
+      annotations:
+        summary: "Database connection issues"
+        description: "Auth service is experiencing database connection issues"
+    
+    # Redis connection issues
+    - alert: AuthServiceRedisConnectionIssues
+      expr: rate(auth_redis_connection_errors_total[5m]) > 0
+      for: 2m
+      labels:
+        severity: warning
+        service: auth-service
+      annotations:
+        summary: "Redis connection issues"
+        description: "Auth service is experiencing Redis connection issues"
+    
+    # High memory usage
+    - alert: AuthServiceHighMemoryUsage
+      expr: (container_memory_usage_bytes{container="auth-service"} / container_spec_memory_limit_bytes{container="auth-service"}) > 0.8
+      for: 5m
+      labels:
+        severity: warning
+        service: auth-service
+      annotations:
+        summary: "High memory usage"
+        description: "Auth service is using {{ $value | humanizePercentage }} of memory"
+    
+    # High CPU usage
+    - alert: AuthServiceHighCPUUsage
+      expr: (rate(container_cpu_usage_seconds_total{container="auth-service"}[5m]) * 100) > 80
+      for: 5m
+      labels:
+        severity: warning
+        service: auth-service
+      annotations:
+        summary: "High CPU usage"
+        description: "Auth service is using {{ $value }}% CPU"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: auth-service-grafana-dashboard
+  namespace: personal-health-assistant
+  labels:
+    app: auth-service
+    component: monitoring
+data:
+  auth-service-dashboard.json: |
+    {
+      "dashboard": {
+        "id": null,
+        "title": "Auth Service Dashboard",
+        "tags": ["auth-service", "authentication"],
+        "timezone": "browser",
+        "panels": [
+          {
+            "id": 1,
+            "title": "Request Rate",
+            "type": "graph",
+            "targets": [
+              {
+                "expr": "rate(http_requests_total{service=\"auth-service\"}[5m])",
+                "legendFormat": "{{method}} {{endpoint}}"
+              }
+            ]
+          },
+          {
+            "id": 2,
+            "title": "Response Time",
+            "type": "graph",
+            "targets": [
+              {
+                "expr": "histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{service=\"auth-service\"}[5m]))",
+                "legendFormat": "95th percentile"
+              }
+            ]
+          },
+          {
+            "id": 3,
+            "title": "Error Rate",
+            "type": "graph",
+            "targets": [
+              {
+                "expr": "rate(http_requests_total{service=\"auth-service\", status=~\"5..\"}[5m])",
+                "legendFormat": "5xx errors"
+              }
+            ]
+          },
+          {
+            "id": 4,
+            "title": "Authentication Metrics",
+            "type": "stat",
+            "targets": [
+              {
+                "expr": "auth_login_success_total",
+                "legendFormat": "Successful Logins"
+              },
+              {
+                "expr": "auth_login_failure_total",
+                "legendFormat": "Failed Logins"
+              },
+              {
+                "expr": "auth_sessions_active",
+                "legendFormat": "Active Sessions"
+              }
+            ]
+          }
+        ]
+      }
+    } 

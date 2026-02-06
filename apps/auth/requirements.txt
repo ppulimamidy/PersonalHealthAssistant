@@ -1,0 +1,69 @@
+# Core Dependencies
+fastapi>=0.104.1
+uvicorn[standard]>=0.24.0
+sqlalchemy>=2.0.23
+psycopg2-binary>=2.9.9
+python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.4
+python-multipart>=0.0.6
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+pydantic[email]>=2.5.0
+email-validator>=2.0.0
+python-dotenv>=1.0.0
+httpx>=0.25.2
+redis>=5.0.1
+requests>=2.31.0
+supabase>=2.0.0
+
+# Security
+cryptography>=41.0.8
+bcrypt==3.2.2
+
+# Monitoring & Logging
+structlog>=23.2.0
+prometheus-client>=0.19.0
+sentry-sdk[fastapi]>=1.38.0
+
+# OpenTelemetry for distributed tracing and metrics
+opentelemetry-api>=1.21.0
+opentelemetry-sdk>=1.21.0
+opentelemetry-instrumentation-fastapi>=0.42b0
+opentelemetry-instrumentation-sqlalchemy>=0.42b0
+opentelemetry-instrumentation-httpx>=0.42b0
+opentelemetry-instrumentation-redis>=0.42b0
+opentelemetry-exporter-jaeger>=1.21.0
+deprecated>=1.2.14
+
+# Resilience patterns
+tenacity>=8.2.3
+pybreaker>=1.0.1
+
+# Rate limiting
+aioredis>=2.0.1
+
+# Health checks
+healthcheck>=1.3.3
+
+# Authentication & Authorization Dependencies
+authlib>=1.2.1
+itsdangerous>=2.1.2
+pyotp>=2.9.0  # For MFA/TOTP
+qrcode[pil]>=7.4.2  # For MFA QR codes
+auth0-python>=4.4.0  # Auth0 integration
+
+# Development Dependencies
+pytest>=7.4.3
+pytest-asyncio>=0.21.1
+pytest-cov>=4.1.0
+pytest-mock>=3.12.0
+black>=23.11.0
+flake8>=6.1.0
+mypy>=1.7.1
+isort>=5.12.0
+bandit>=1.7.5
+safety>=2.3.0
+
+# Additional Dependencies
+asyncpg>=0.27.0
+greenlet>=3.0.0 
