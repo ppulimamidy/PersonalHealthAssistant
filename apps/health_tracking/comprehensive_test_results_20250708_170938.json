@@ -1,0 +1,713 @@
+{
+  "summary": {
+    "total_tests": 58,
+    "successful_tests": 10,
+    "failed_tests": 48,
+    "success_rate": 17.24137931034483,
+    "timestamp": "2025-07-08T17:09:38.254425",
+    "base_url": "http://localhost:8002"
+  },
+  "performance": {
+    "average_duration": 0.42551724137931035,
+    "max_duration": 9.032,
+    "min_duration": 0.0
+  },
+  "status_codes": {
+    "200": 10,
+    "500": 23,
+    "405": 2,
+    "404": 10,
+    "422": 6,
+    "400": 2,
+    "0": 5
+  },
+  "detailed_results": [
+    {
+      "method": "GET",
+      "endpoint": "/health",
+      "status_code": 200,
+      "duration": 0.052,
+      "success": true,
+      "response_size": 309,
+      "timestamp": "2025-07-08T17:09:13.626501",
+      "data": {
+        "success": true,
+        "message": "Health Tracking Service is healthy",
+        "timestamp": "2025-07-08T17:09:13.609181",
+        "request_id": null,
+        "data": {
+          "status": "healthy",
+          "service": "health-tracking-service",
+          "version": "2.0.0",
+          "timestamp": 1751994553.6055017,
+          "checks": {
+            "database": true,
+            "analytics": true,
+            "insights": true,
+            "agents": true
+          }
+        }
+      }
+    },
+    {
+      "method": "GET",
+      "endpoint": "/ready",
+      "status_code": 200,
+      "duration": 0.002,
+      "success": true,
+      "response_size": 95,
+      "timestamp": "2025-07-08T17:09:13.628233",
+      "data": {
+        "status": "ready",
+        "service": "health-tracking-service",
+        "timestamp": "2025-07-08T17:09:13.626922"
+      }
+    },
+    {
+      "method": "GET",
+      "endpoint": "/metrics",
+      "status_code": 200,
+      "duration": 0.025,
+      "success": true,
+      "response_size": 218747,
+      "timestamp": "2025-07-08T17:09:13.653133",
+      "data": "# HELP python_gc_objects_collected_total Objects collected during gc\n# TYPE python_gc_objects_collected_total counter\npython_gc_objects_collected_total{generation=\"0\"} 59812.0\npython_gc_objects_collec"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/docs",
+      "status_code": 200,
+      "duration": 0.001,
+      "success": true,
+      "response_size": 955,
+      "timestamp": "2025-07-08T17:09:13.654602",
+      "data": "\n    <!DOCTYPE html>\n    <html>\n    <head>\n    <link type=\"text/css\" rel=\"stylesheet\" href=\"https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.9.0/swagger-ui.css\">\n    <link rel=\"shortcut icon\" href=\"http"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/redoc",
+      "status_code": 200,
+      "duration": 0.001,
+      "success": true,
+      "response_size": 907,
+      "timestamp": "2025-07-08T17:09:13.655801",
+      "data": "\n    <!DOCTYPE html>\n    <html>\n    <head>\n    <title>Health Tracking Service - ReDoc</title>\n    <!-- needed for adaptive design -->\n    <meta charset=\"utf-8\"/>\n    <meta name=\"viewport\" content=\"wid"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/api/v1/health-tracking/metrics",
+      "status_code": 500,
+      "duration": 0.007,
+      "success": false,
+      "response_size": 113,
+      "timestamp": "2025-07-08T17:09:13.663186",
+      "error": "{\"success\":false,\"error\":\"Failed to retrieve metrics\",\"error_code\":\"HTTP_500\",\"details\":{\"request_id\":\"unknown\"}}"
+    },
+    {
+      "method": "POST",
+      "endpoint": "/api/v1/health-tracking/metrics",
+      "status_code": 405,
+      "duration": 0.002,
+      "success": false,
+      "response_size": 31,
+      "timestamp": "2025-07-08T17:09:13.665041",
+      "error": "{\"detail\":\"Method Not Allowed\"}"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/api/v1/health-tracking/metrics/22222222-2222-2222-2222-222222222222",
+      "status_code": 500,
+      "duration": 0.031,
+      "success": false,
+      "response_size": 112,
+      "timestamp": "2025-07-08T17:09:13.695890",
+      "error": "{\"success\":false,\"error\":\"Failed to retrieve metric\",\"error_code\":\"HTTP_500\",\"details\":{\"request_id\":\"unknown\"}}"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/api/v1/health-tracking/metrics/22222222-2222-2222-2222-222222222222/heart_rate",
+      "status_code": 404,
+      "duration": 0.002,
+      "success": false,
+      "response_size": 22,
+      "timestamp": "2025-07-08T17:09:13.697931",
+      "error": "{\"detail\":\"Not Found\"}"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/api/v1/health-tracking/metrics/22222222-2222-2222-2222-222222222222/summary",
+      "status_code": 404,
+      "duration": 0.002,
+      "success": false,
+      "response_size": 22,
+      "timestamp": "2025-07-08T17:09:13.699506",
+      "error": "{\"detail\":\"Not Found\"}"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/api/v1/health-tracking/metrics/22222222-2222-2222-2222-222222222222/trends",
+      "status_code": 404,
+      "duration": 0.001,
+      "success": false,
+      "response_size": 22,
+      "timestamp": "2025-07-08T17:09:13.700507",
+      "error": "{\"detail\":\"Not Found\"}"
+    },
+    {
+      "method": "DELETE",
+      "endpoint": "/api/v1/health-tracking/metrics/1",
+      "status_code": 500,
+      "duration": 0.014,
+      "success": false,
+      "response_size": 110,
+      "timestamp": "2025-07-08T17:09:13.714627",
+      "error": "{\"success\":false,\"error\":\"Failed to delete metric\",\"error_code\":\"HTTP_500\",\"details\":{\"request_id\":\"unknown\"}}"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/api/v1/health-tracking/goals",
+      "status_code": 200,
+      "duration": 0.012,
+      "success": true,
+      "response_size": 2,
+      "timestamp": "2025-07-08T17:09:13.726874",
+      "data": []
+    },
+    {
+      "method": "POST",
+      "endpoint": "/api/v1/health-tracking/goals",
+      "status_code": 422,
+      "duration": 0.008,
+      "success": false,
+      "response_size": 344,
+      "timestamp": "2025-07-08T17:09:13.734762",
+      "error": "{\"success\":false,\"error\":\"Request validation failed\",\"error_code\":\"VALIDATION_ERROR\",\"details\":{\"request_id\":\"unknown\",\"validation_errors\":[{\"field\":\"body -> metric_type\",\"message\":\"Field required\",\"t"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/api/v1/health-tracking/goals/22222222-2222-2222-2222-222222222222",
+      "status_code": 404,
+      "duration": 0.006,
+      "success": false,
+      "response_size": 101,
+      "timestamp": "2025-07-08T17:09:13.740656",
+      "error": "{\"success\":false,\"error\":\"Goal not found\",\"error_code\":\"HTTP_404\",\"details\":{\"request_id\":\"unknown\"}}"
+    },
+    {
+      "method": "PUT",
+      "endpoint": "/api/v1/health-tracking/goals/1",
+      "status_code": 400,
+      "duration": 0.012,
+      "success": false,
+      "response_size": 1260,
+      "timestamp": "2025-07-08T17:09:13.752561",
+      "error": "{\"success\":false,\"error\":\"Failed to update goal: (sqlalchemy.dialects.postgresql.asyncpg.Error) <class 'asyncpg.exceptions.DataError'>: invalid input for query argument $1: '1' (invalid UUID '1': leng"
+    },
+    {
+      "method": "DELETE",
+      "endpoint": "/api/v1/health-tracking/goals/1",
+      "status_code": 500,
+      "duration": 0.011,
+      "success": false,
+      "response_size": 108,
+      "timestamp": "2025-07-08T17:09:13.763252",
+      "error": "{\"success\":false,\"error\":\"Failed to delete goal\",\"error_code\":\"HTTP_500\",\"details\":{\"request_id\":\"unknown\"}}"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/api/v1/health-tracking/symptoms",
+      "status_code": 200,
+      "duration": 0.01,
+      "success": true,
+      "response_size": 2,
+      "timestamp": "2025-07-08T17:09:13.773272",
+      "data": []
+    },
+    {
+      "method": "POST",
+      "endpoint": "/api/v1/health-tracking/symptoms",
+      "status_code": 422,
+      "duration": 0.007,
+      "success": false,
+      "response_size": 379,
+      "timestamp": "2025-07-08T17:09:13.779852",
+      "error": "{\"success\":false,\"error\":\"Request validation failed\",\"error_code\":\"VALIDATION_ERROR\",\"details\":{\"request_id\":\"unknown\",\"validation_errors\":[{\"field\":\"body -> symptom_name\",\"message\":\"Field required\",\""
+    },
+    {
+      "method": "GET",
+      "endpoint": "/api/v1/health-tracking/symptoms/22222222-2222-2222-2222-222222222222",
+      "status_code": 404,
+      "duration": 0.006,
+      "success": false,
+      "response_size": 104,
+      "timestamp": "2025-07-08T17:09:13.786217",
+      "error": "{\"success\":false,\"error\":\"Symptom not found\",\"error_code\":\"HTTP_404\",\"details\":{\"request_id\":\"unknown\"}}"
+    },
+    {
+      "method": "PUT",
+      "endpoint": "/api/v1/health-tracking/symptoms/1",
+      "status_code": 500,
+      "duration": 0.013,
+      "success": false,
+      "response_size": 2334,
+      "timestamp": "2025-07-08T17:09:13.799228",
+      "error": "{\"success\":false,\"error\":\"Failed to update symptom: (sqlalchemy.dialects.postgresql.asyncpg.Error) <class 'asyncpg.exceptions.DataError'>: invalid input for query argument $1: '1' (invalid UUID '1': l"
+    },
+    {
+      "method": "DELETE",
+      "endpoint": "/api/v1/health-tracking/symptoms/1",
+      "status_code": 500,
+      "duration": 0.012,
+      "success": false,
+      "response_size": 2334,
+      "timestamp": "2025-07-08T17:09:13.811572",
+      "error": "{\"success\":false,\"error\":\"Failed to delete symptom: (sqlalchemy.dialects.postgresql.asyncpg.Error) <class 'asyncpg.exceptions.DataError'>: invalid input for query argument $1: '1' (invalid UUID '1': l"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/api/v1/health-tracking/vitals",
+      "status_code": 500,
+      "duration": 3.027,
+      "success": false,
+      "response_size": 146,
+      "timestamp": "2025-07-08T17:09:16.838868",
+      "error": "{\"success\":false,\"error\":\"An unexpected error occurred\",\"error_code\":\"INTERNAL_ERROR\",\"details\":{\"request_id\":\"unknown\",\"error_type\":\"Exception\"}}"
+    },
+    {
+      "method": "POST",
+      "endpoint": "/api/v1/health-tracking/vitals",
+      "status_code": 0,
+      "duration": 0.001,
+      "success": false,
+      "error": "Server disconnected",
+      "timestamp": "2025-07-08T17:09:16.839844"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/api/v1/health-tracking/vitals/22222222-2222-2222-2222-222222222222",
+      "status_code": 500,
+      "duration": 9.032,
+      "success": false,
+      "response_size": 146,
+      "timestamp": "2025-07-08T17:09:25.871902",
+      "error": "{\"success\":false,\"error\":\"An unexpected error occurred\",\"error_code\":\"INTERNAL_ERROR\",\"details\":{\"request_id\":\"unknown\",\"error_type\":\"Exception\"}}"
+    },
+    {
+      "method": "PUT",
+      "endpoint": "/api/v1/health-tracking/vitals/1",
+      "status_code": 422,
+      "duration": 0.006,
+      "success": false,
+      "response_size": 302,
+      "timestamp": "2025-07-08T17:09:25.878179",
+      "error": "{\"success\":false,\"error\":\"Request validation failed\",\"error_code\":\"VALIDATION_ERROR\",\"details\":{\"request_id\":\"unknown\",\"validation_errors\":[{\"field\":\"path -> vital_sign_id\",\"message\":\"Input should be "
+    },
+    {
+      "method": "DELETE",
+      "endpoint": "/api/v1/health-tracking/vitals/1",
+      "status_code": 422,
+      "duration": 0.003,
+      "success": false,
+      "response_size": 302,
+      "timestamp": "2025-07-08T17:09:25.881375",
+      "error": "{\"success\":false,\"error\":\"Request validation failed\",\"error_code\":\"VALIDATION_ERROR\",\"details\":{\"request_id\":\"unknown\",\"validation_errors\":[{\"field\":\"path -> vital_sign_id\",\"message\":\"Input should be "
+    },
+    {
+      "method": "GET",
+      "endpoint": "/api/v1/health-tracking/analytics/22222222-2222-2222-2222-222222222222/summary",
+      "status_code": 404,
+      "duration": 0.001,
+      "success": false,
+      "response_size": 22,
+      "timestamp": "2025-07-08T17:09:25.882668",
+      "error": "{\"detail\":\"Not Found\"}"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/api/v1/health-tracking/analytics/22222222-2222-2222-2222-222222222222/trends",
+      "status_code": 404,
+      "duration": 0.001,
+      "success": false,
+      "response_size": 22,
+      "timestamp": "2025-07-08T17:09:25.883588",
+      "error": "{\"detail\":\"Not Found\"}"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/api/v1/health-tracking/analytics/22222222-2222-2222-2222-222222222222/correlations",
+      "status_code": 404,
+      "duration": 0.001,
+      "success": false,
+      "response_size": 22,
+      "timestamp": "2025-07-08T17:09:25.884325",
+      "error": "{\"detail\":\"Not Found\"}"
+    },
+    {
+      "method": "POST",
+      "endpoint": "/api/v1/health-tracking/analytics/22222222-2222-2222-2222-222222222222/anomaly-detection",
+      "status_code": 404,
+      "duration": 0.001,
+      "success": false,
+      "response_size": 22,
+      "timestamp": "2025-07-08T17:09:25.885146",
+      "error": "{\"detail\":\"Not Found\"}"
+    },
+    {
+      "method": "POST",
+      "endpoint": "/api/v1/health-tracking/analytics/22222222-2222-2222-2222-222222222222/pattern-recognition",
+      "status_code": 404,
+      "duration": 0.001,
+      "success": false,
+      "response_size": 22,
+      "timestamp": "2025-07-08T17:09:25.886050",
+      "error": "{\"detail\":\"Not Found\"}"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/api/v1/health-tracking/insights",
+      "status_code": 500,
+      "duration": 0.012,
+      "success": false,
+      "response_size": 151,
+      "timestamp": "2025-07-08T17:09:25.897714",
+      "error": "{\"success\":false,\"error\":\"An unexpected error occurred\",\"error_code\":\"INTERNAL_ERROR\",\"details\":{\"request_id\":\"unknown\",\"error_type\":\"AttributeError\"}}"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/api/v1/health-tracking/insights/22222222-2222-2222-2222-222222222222",
+      "status_code": 500,
+      "duration": 0.012,
+      "success": false,
+      "response_size": 113,
+      "timestamp": "2025-07-08T17:09:25.909778",
+      "error": "{\"success\":false,\"error\":\"Failed to retrieve insight\",\"error_code\":\"HTTP_500\",\"details\":{\"request_id\":\"unknown\"}}"
+    },
+    {
+      "method": "POST",
+      "endpoint": "/api/v1/health-tracking/insights/generate",
+      "status_code": 405,
+      "duration": 0.001,
+      "success": false,
+      "response_size": 31,
+      "timestamp": "2025-07-08T17:09:25.910983",
+      "error": "{\"detail\":\"Method Not Allowed\"}"
+    },
+    {
+      "method": "PUT",
+      "endpoint": "/api/v1/health-tracking/insights/1",
+      "status_code": 400,
+      "duration": 0.01,
+      "success": false,
+      "response_size": 1347,
+      "timestamp": "2025-07-08T17:09:25.920798",
+      "error": "{\"success\":false,\"error\":\"Failed to update insight: (sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <class 'asyncpg.exceptions.UndefinedColumnError'>: column health_insights.insight_metadata"
+    },
+    {
+      "method": "DELETE",
+      "endpoint": "/api/v1/health-tracking/insights/1",
+      "status_code": 500,
+      "duration": 0.011,
+      "success": false,
+      "response_size": 111,
+      "timestamp": "2025-07-08T17:09:25.931483",
+      "error": "{\"success\":false,\"error\":\"Failed to delete insight\",\"error_code\":\"HTTP_500\",\"details\":{\"request_id\":\"unknown\"}}"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/api/v1/health-tracking/devices",
+      "status_code": 500,
+      "duration": 0.005,
+      "success": false,
+      "response_size": 223,
+      "timestamp": "2025-07-08T17:09:25.936472",
+      "error": "{\"success\":false,\"error\":\"Failed to list devices: cannot import name 'HealthDevice' from 'health_tracking.models.devices' (/app/health_tracking/models/devices.py)\",\"error_code\":\"HTTP_500\",\"details\":{\""
+    },
+    {
+      "method": "GET",
+      "endpoint": "/api/v1/health-tracking/devices/22222222-2222-2222-2222-222222222222",
+      "status_code": 500,
+      "duration": 0.004,
+      "success": false,
+      "response_size": 226,
+      "timestamp": "2025-07-08T17:09:25.940285",
+      "error": "{\"success\":false,\"error\":\"Failed to retrieve device: cannot import name 'HealthDevice' from 'health_tracking.models.devices' (/app/health_tracking/models/devices.py)\",\"error_code\":\"HTTP_500\",\"details\""
+    },
+    {
+      "method": "POST",
+      "endpoint": "/api/v1/health-tracking/devices",
+      "status_code": 422,
+      "duration": 0.004,
+      "success": false,
+      "response_size": 483,
+      "timestamp": "2025-07-08T17:09:25.944465",
+      "error": "{\"success\":false,\"error\":\"Request validation failed\",\"error_code\":\"VALIDATION_ERROR\",\"details\":{\"request_id\":\"unknown\",\"validation_errors\":[{\"field\":\"body -> device_name\",\"message\":\"Field required\",\"t"
+    },
+    {
+      "method": "PUT",
+      "endpoint": "/api/v1/health-tracking/devices/1",
+      "status_code": 500,
+      "duration": 0.005,
+      "success": false,
+      "response_size": 224,
+      "timestamp": "2025-07-08T17:09:25.949082",
+      "error": "{\"success\":false,\"error\":\"Failed to update device: cannot import name 'HealthDevice' from 'health_tracking.models.devices' (/app/health_tracking/models/devices.py)\",\"error_code\":\"HTTP_500\",\"details\":{"
+    },
+    {
+      "method": "DELETE",
+      "endpoint": "/api/v1/health-tracking/devices/1",
+      "status_code": 500,
+      "duration": 0.004,
+      "success": false,
+      "response_size": 224,
+      "timestamp": "2025-07-08T17:09:25.952744",
+      "error": "{\"success\":false,\"error\":\"Failed to delete device: cannot import name 'HealthDevice' from 'health_tracking.models.devices' (/app/health_tracking/models/devices.py)\",\"error_code\":\"HTTP_500\",\"details\":{"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/api/v1/health-tracking/alerts",
+      "status_code": 500,
+      "duration": 0.004,
+      "success": false,
+      "response_size": 219,
+      "timestamp": "2025-07-08T17:09:25.956898",
+      "error": "{\"success\":false,\"error\":\"Failed to list alerts: cannot import name 'HealthAlert' from 'health_tracking.models.alerts' (/app/health_tracking/models/alerts.py)\",\"error_code\":\"HTTP_500\",\"details\":{\"requ"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/api/v1/health-tracking/alerts/22222222-2222-2222-2222-222222222222",
+      "status_code": 500,
+      "duration": 0.003,
+      "success": false,
+      "response_size": 222,
+      "timestamp": "2025-07-08T17:09:25.960378",
+      "error": "{\"success\":false,\"error\":\"Failed to retrieve alert: cannot import name 'HealthAlert' from 'health_tracking.models.alerts' (/app/health_tracking/models/alerts.py)\",\"error_code\":\"HTTP_500\",\"details\":{\"r"
+    },
+    {
+      "method": "POST",
+      "endpoint": "/api/v1/health-tracking/alerts",
+      "status_code": 422,
+      "duration": 0.004,
+      "success": false,
+      "response_size": 510,
+      "timestamp": "2025-07-08T17:09:25.964254",
+      "error": "{\"success\":false,\"error\":\"Request validation failed\",\"error_code\":\"VALIDATION_ERROR\",\"details\":{\"request_id\":\"unknown\",\"validation_errors\":[{\"field\":\"body -> alert_type\",\"message\":\"Input should be 'vi"
+    },
+    {
+      "method": "PUT",
+      "endpoint": "/api/v1/health-tracking/alerts/1",
+      "status_code": 500,
+      "duration": 0.004,
+      "success": false,
+      "response_size": 220,
+      "timestamp": "2025-07-08T17:09:25.968258",
+      "error": "{\"success\":false,\"error\":\"Failed to update alert: cannot import name 'HealthAlert' from 'health_tracking.models.alerts' (/app/health_tracking/models/alerts.py)\",\"error_code\":\"HTTP_500\",\"details\":{\"req"
+    },
+    {
+      "method": "DELETE",
+      "endpoint": "/api/v1/health-tracking/alerts/1",
+      "status_code": 500,
+      "duration": 0.004,
+      "success": false,
+      "response_size": 220,
+      "timestamp": "2025-07-08T17:09:25.971818",
+      "error": "{\"success\":false,\"error\":\"Failed to delete alert: cannot import name 'HealthAlert' from 'health_tracking.models.alerts' (/app/health_tracking/models/alerts.py)\",\"error_code\":\"HTTP_500\",\"details\":{\"req"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/agents/health",
+      "status_code": 200,
+      "duration": 0.003,
+      "success": true,
+      "response_size": 1254,
+      "timestamp": "2025-07-08T17:09:25.974394",
+      "data": {
+        "success": true,
+        "message": "Agent health status retrieved",
+        "timestamp": "2025-07-08T17:09:25.972967",
+        "request_id": null,
+        "data": {
+          "anomaly_detector": {
+            "agent_name": "anomaly_detector",
+            "status": "idle",
+            "last_run": "2025-07-08T17:06:36.740569",
+            "run_count": 3,
+            "error_count": 0,
+            "success_rate": 1.0,
+            "circuit_breaker_state": "closed"
+          },
+          "trend_analyzer": {
+            "agent_name": "trend_analyzer",
+            "status": "idle",
+            "last_run": "2025-07-08T17:06:39.771187",
+            "run_count": 3,
+            "error_count": 0,
+            "success_rate": 1.0,
+            "circuit_breaker_state": "closed"
+          },
+          "goal_suggester": {
+            "agent_name": "goal_suggester",
+            "status": "idle",
+            "last_run": "2025-07-08T17:06:42.806999",
+            "run_count": 3,
+            "error_count": 0,
+            "success_rate": 1.0,
+            "circuit_breaker_state": "closed"
+          },
+          "health_coach": {
+            "agent_name": "health_coach",
+            "status": "idle",
+            "last_run": "2025-07-08T17:06:45.836072",
+            "run_count": 3,
+            "error_count": 0,
+            "success_rate": 1.0,
+            "circuit_breaker_state": "closed"
+          },
+          "risk_assessor": {
+            "agent_name": "risk_assessor",
+            "status": "idle",
+            "last_run": "2025-07-08T17:06:48.873810",
+            "run_count": 3,
+            "error_count": 0,
+            "success_rate": 1.0,
+            "circuit_breaker_state": "closed"
+          },
+          "pattern_recognizer": {
+            "agent_name": "pattern_recognizer",
+            "status": "idle",
+            "last_run": "2025-07-08T17:06:51.902290",
+            "run_count": 3,
+            "error_count": 0,
+            "success_rate": 1.0,
+            "circuit_breaker_state": "closed"
+          }
+        }
+      }
+    },
+    {
+      "method": "POST",
+      "endpoint": "/agents/anomaly-detection",
+      "status_code": 500,
+      "duration": 3.027,
+      "success": false,
+      "response_size": 146,
+      "timestamp": "2025-07-08T17:09:29.001475",
+      "error": "{\"success\":false,\"error\":\"An unexpected error occurred\",\"error_code\":\"INTERNAL_ERROR\",\"details\":{\"request_id\":\"unknown\",\"error_type\":\"Exception\"}}"
+    },
+    {
+      "method": "POST",
+      "endpoint": "/agents/trend-analysis",
+      "status_code": 0,
+      "duration": 0.0,
+      "success": false,
+      "error": "Server disconnected",
+      "timestamp": "2025-07-08T17:09:29.001987"
+    },
+    {
+      "method": "POST",
+      "endpoint": "/agents/goal-suggestions",
+      "status_code": 500,
+      "duration": 3.056,
+      "success": false,
+      "response_size": 146,
+      "timestamp": "2025-07-08T17:09:32.057804",
+      "error": "{\"success\":false,\"error\":\"An unexpected error occurred\",\"error_code\":\"INTERNAL_ERROR\",\"details\":{\"request_id\":\"unknown\",\"error_type\":\"Exception\"}}"
+    },
+    {
+      "method": "POST",
+      "endpoint": "/agents/health-coaching",
+      "status_code": 0,
+      "duration": 0.001,
+      "success": false,
+      "error": "Server disconnected",
+      "timestamp": "2025-07-08T17:09:32.058445"
+    },
+    {
+      "method": "POST",
+      "endpoint": "/agents/risk-assessment",
+      "status_code": 500,
+      "duration": 3.047,
+      "success": false,
+      "response_size": 146,
+      "timestamp": "2025-07-08T17:09:35.105097",
+      "error": "{\"success\":false,\"error\":\"An unexpected error occurred\",\"error_code\":\"INTERNAL_ERROR\",\"details\":{\"request_id\":\"unknown\",\"error_type\":\"Exception\"}}"
+    },
+    {
+      "method": "POST",
+      "endpoint": "/agents/pattern-recognition",
+      "status_code": 0,
+      "duration": 0.002,
+      "success": false,
+      "error": "Server disconnected",
+      "timestamp": "2025-07-08T17:09:35.106956"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/dashboard/summary",
+      "status_code": 500,
+      "duration": 3.103,
+      "success": false,
+      "response_size": 146,
+      "timestamp": "2025-07-08T17:09:38.210431",
+      "error": "{\"success\":false,\"error\":\"An unexpected error occurred\",\"error_code\":\"INTERNAL_ERROR\",\"details\":{\"request_id\":\"unknown\",\"error_type\":\"Exception\"}}"
+    },
+    {
+      "method": "POST",
+      "endpoint": "/test/create-goal",
+      "status_code": 0,
+      "duration": 0.001,
+      "success": false,
+      "error": "Server disconnected",
+      "timestamp": "2025-07-08T17:09:38.211081"
+    },
+    {
+      "method": "POST",
+      "endpoint": "/test/create-symptom",
+      "status_code": 200,
+      "duration": 0.029,
+      "success": true,
+      "response_size": 281,
+      "timestamp": "2025-07-08T17:09:38.240504",
+      "data": {
+        "success": true,
+        "message": "Test symptom created successfully",
+        "timestamp": "2025-07-08T17:09:38.235081",
+        "request_id": null,
+        "data": {
+          "id": "43fdc24a-98e2-4752-8b4e-3afaab1b2e75",
+          "symptom_name": "Headache",
+          "category": "general",
+          "severity": "mild",
+          "created_at": "2025-07-08T17:09:38.217944"
+        }
+      }
+    },
+    {
+      "method": "POST",
+      "endpoint": "/test/create-vital-sign",
+      "status_code": 200,
+      "duration": 0.013,
+      "success": true,
+      "response_size": 450,
+      "timestamp": "2025-07-08T17:09:38.253144",
+      "data": {
+        "success": true,
+        "message": "Test vital signs created successfully",
+        "timestamp": "2025-07-08T17:09:38.251009",
+        "request_id": null,
+        "data": {
+          "id": "c33a6096-47e1-416a-b006-4fced4a36826",
+          "vital_sign_type": "blood_pressure",
+          "measurement_method": "digital_device",
+          "systolic": 120.0,
+          "diastolic": 80.0,
+          "heart_rate": 72.0,
+          "temperature": 98.6,
+          "respiratory_rate": 16.0,
+          "oxygen_saturation": 98.0,
+          "measurement_notes": "Normal reading",
+          "created_at": "2025-07-08T17:09:38.244975"
+        }
+      }
+    }
+  ]
+}

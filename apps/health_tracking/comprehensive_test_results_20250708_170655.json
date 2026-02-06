@@ -1,0 +1,542 @@
+{
+  "summary": {
+    "total_tests": 58,
+    "successful_tests": 0,
+    "failed_tests": 58,
+    "success_rate": 0.0,
+    "timestamp": "2025-07-08T17:06:55.034486",
+    "base_url": "http://localhost:8002"
+  },
+  "performance": {
+    "average_duration": 0.6363275862068967,
+    "max_duration": 12.054,
+    "min_duration": 0.001
+  },
+  "status_codes": {
+    "0": 58
+  },
+  "detailed_results": [
+    {
+      "method": "GET",
+      "endpoint": "/health",
+      "status_code": 0,
+      "duration": 0.05,
+      "success": false,
+      "error": "'ClientResponse' object has no attribute 'status_code'",
+      "timestamp": "2025-07-08T17:06:18.173372"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/ready",
+      "status_code": 0,
+      "duration": 0.004,
+      "success": false,
+      "error": "'ClientResponse' object has no attribute 'status_code'",
+      "timestamp": "2025-07-08T17:06:18.177427"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/metrics",
+      "status_code": 0,
+      "duration": 0.023,
+      "success": false,
+      "error": "'ClientResponse' object has no attribute 'status_code'",
+      "timestamp": "2025-07-08T17:06:18.200007"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/docs",
+      "status_code": 0,
+      "duration": 0.002,
+      "success": false,
+      "error": "'ClientResponse' object has no attribute 'status_code'",
+      "timestamp": "2025-07-08T17:06:18.201592"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/redoc",
+      "status_code": 0,
+      "duration": 0.001,
+      "success": false,
+      "error": "'ClientResponse' object has no attribute 'status_code'",
+      "timestamp": "2025-07-08T17:06:18.202854"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/api/v1/health-tracking/metrics",
+      "status_code": 0,
+      "duration": 0.006,
+      "success": false,
+      "error": "'ClientResponse' object has no attribute 'status_code'",
+      "timestamp": "2025-07-08T17:06:18.208651"
+    },
+    {
+      "method": "POST",
+      "endpoint": "/api/v1/health-tracking/metrics",
+      "status_code": 0,
+      "duration": 0.002,
+      "success": false,
+      "error": "'ClientResponse' object has no attribute 'status_code'",
+      "timestamp": "2025-07-08T17:06:18.210543"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/api/v1/health-tracking/metrics/22222222-2222-2222-2222-222222222222",
+      "status_code": 0,
+      "duration": 0.143,
+      "success": false,
+      "error": "'ClientResponse' object has no attribute 'status_code'",
+      "timestamp": "2025-07-08T17:06:18.353973"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/api/v1/health-tracking/metrics/22222222-2222-2222-2222-222222222222/heart_rate",
+      "status_code": 0,
+      "duration": 0.002,
+      "success": false,
+      "error": "'ClientResponse' object has no attribute 'status_code'",
+      "timestamp": "2025-07-08T17:06:18.355576"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/api/v1/health-tracking/metrics/22222222-2222-2222-2222-222222222222/summary",
+      "status_code": 0,
+      "duration": 0.001,
+      "success": false,
+      "error": "'ClientResponse' object has no attribute 'status_code'",
+      "timestamp": "2025-07-08T17:06:18.356648"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/api/v1/health-tracking/metrics/22222222-2222-2222-2222-222222222222/trends",
+      "status_code": 0,
+      "duration": 0.001,
+      "success": false,
+      "error": "'ClientResponse' object has no attribute 'status_code'",
+      "timestamp": "2025-07-08T17:06:18.357599"
+    },
+    {
+      "method": "DELETE",
+      "endpoint": "/api/v1/health-tracking/metrics/1",
+      "status_code": 0,
+      "duration": 0.011,
+      "success": false,
+      "error": "'ClientResponse' object has no attribute 'status_code'",
+      "timestamp": "2025-07-08T17:06:18.368727"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/api/v1/health-tracking/goals",
+      "status_code": 0,
+      "duration": 0.011,
+      "success": false,
+      "error": "'ClientResponse' object has no attribute 'status_code'",
+      "timestamp": "2025-07-08T17:06:18.380214"
+    },
+    {
+      "method": "POST",
+      "endpoint": "/api/v1/health-tracking/goals",
+      "status_code": 0,
+      "duration": 0.008,
+      "success": false,
+      "error": "'ClientResponse' object has no attribute 'status_code'",
+      "timestamp": "2025-07-08T17:06:18.388030"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/api/v1/health-tracking/goals/22222222-2222-2222-2222-222222222222",
+      "status_code": 0,
+      "duration": 0.008,
+      "success": false,
+      "error": "'ClientResponse' object has no attribute 'status_code'",
+      "timestamp": "2025-07-08T17:06:18.395779"
+    },
+    {
+      "method": "PUT",
+      "endpoint": "/api/v1/health-tracking/goals/1",
+      "status_code": 0,
+      "duration": 0.014,
+      "success": false,
+      "error": "'ClientResponse' object has no attribute 'status_code'",
+      "timestamp": "2025-07-08T17:06:18.409672"
+    },
+    {
+      "method": "DELETE",
+      "endpoint": "/api/v1/health-tracking/goals/1",
+      "status_code": 0,
+      "duration": 0.012,
+      "success": false,
+      "error": "'ClientResponse' object has no attribute 'status_code'",
+      "timestamp": "2025-07-08T17:06:18.421230"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/api/v1/health-tracking/symptoms",
+      "status_code": 0,
+      "duration": 0.027,
+      "success": false,
+      "error": "'ClientResponse' object has no attribute 'status_code'",
+      "timestamp": "2025-07-08T17:06:18.448261"
+    },
+    {
+      "method": "POST",
+      "endpoint": "/api/v1/health-tracking/symptoms",
+      "status_code": 0,
+      "duration": 0.006,
+      "success": false,
+      "error": "'ClientResponse' object has no attribute 'status_code'",
+      "timestamp": "2025-07-08T17:06:18.454830"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/api/v1/health-tracking/symptoms/22222222-2222-2222-2222-222222222222",
+      "status_code": 0,
+      "duration": 0.009,
+      "success": false,
+      "error": "'ClientResponse' object has no attribute 'status_code'",
+      "timestamp": "2025-07-08T17:06:18.464098"
+    },
+    {
+      "method": "PUT",
+      "endpoint": "/api/v1/health-tracking/symptoms/1",
+      "status_code": 0,
+      "duration": 0.012,
+      "success": false,
+      "error": "'ClientResponse' object has no attribute 'status_code'",
+      "timestamp": "2025-07-08T17:06:18.475780"
+    },
+    {
+      "method": "DELETE",
+      "endpoint": "/api/v1/health-tracking/symptoms/1",
+      "status_code": 0,
+      "duration": 0.011,
+      "success": false,
+      "error": "'ClientResponse' object has no attribute 'status_code'",
+      "timestamp": "2025-07-08T17:06:18.486447"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/api/v1/health-tracking/vitals",
+      "status_code": 0,
+      "duration": 3.041,
+      "success": false,
+      "error": "'ClientResponse' object has no attribute 'status_code'",
+      "timestamp": "2025-07-08T17:06:21.527326"
+    },
+    {
+      "method": "POST",
+      "endpoint": "/api/v1/health-tracking/vitals",
+      "status_code": 0,
+      "duration": 0.004,
+      "success": false,
+      "error": "'ClientResponse' object has no attribute 'status_code'",
+      "timestamp": "2025-07-08T17:06:21.531291"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/api/v1/health-tracking/vitals/22222222-2222-2222-2222-222222222222",
+      "status_code": 0,
+      "duration": 12.054,
+      "success": false,
+      "error": "'ClientResponse' object has no attribute 'status_code'",
+      "timestamp": "2025-07-08T17:06:33.584934"
+    },
+    {
+      "method": "PUT",
+      "endpoint": "/api/v1/health-tracking/vitals/1",
+      "status_code": 0,
+      "duration": 0.005,
+      "success": false,
+      "error": "'ClientResponse' object has no attribute 'status_code'",
+      "timestamp": "2025-07-08T17:06:33.590465"
+    },
+    {
+      "method": "DELETE",
+      "endpoint": "/api/v1/health-tracking/vitals/1",
+      "status_code": 0,
+      "duration": 0.005,
+      "success": false,
+      "error": "'ClientResponse' object has no attribute 'status_code'",
+      "timestamp": "2025-07-08T17:06:33.595657"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/api/v1/health-tracking/analytics/22222222-2222-2222-2222-222222222222/summary",
+      "status_code": 0,
+      "duration": 0.001,
+      "success": false,
+      "error": "'ClientResponse' object has no attribute 'status_code'",
+      "timestamp": "2025-07-08T17:06:33.597182"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/api/v1/health-tracking/analytics/22222222-2222-2222-2222-222222222222/trends",
+      "status_code": 0,
+      "duration": 0.001,
+      "success": false,
+      "error": "'ClientResponse' object has no attribute 'status_code'",
+      "timestamp": "2025-07-08T17:06:33.598057"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/api/v1/health-tracking/analytics/22222222-2222-2222-2222-222222222222/correlations",
+      "status_code": 0,
+      "duration": 0.001,
+      "success": false,
+      "error": "'ClientResponse' object has no attribute 'status_code'",
+      "timestamp": "2025-07-08T17:06:33.599293"
+    },
+    {
+      "method": "POST",
+      "endpoint": "/api/v1/health-tracking/analytics/22222222-2222-2222-2222-222222222222/anomaly-detection",
+      "status_code": 0,
+      "duration": 0.002,
+      "success": false,
+      "error": "'ClientResponse' object has no attribute 'status_code'",
+      "timestamp": "2025-07-08T17:06:33.600865"
+    },
+    {
+      "method": "POST",
+      "endpoint": "/api/v1/health-tracking/analytics/22222222-2222-2222-2222-222222222222/pattern-recognition",
+      "status_code": 0,
+      "duration": 0.001,
+      "success": false,
+      "error": "'ClientResponse' object has no attribute 'status_code'",
+      "timestamp": "2025-07-08T17:06:33.602148"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/api/v1/health-tracking/insights",
+      "status_code": 0,
+      "duration": 0.024,
+      "success": false,
+      "error": "'ClientResponse' object has no attribute 'status_code'",
+      "timestamp": "2025-07-08T17:06:33.626375"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/api/v1/health-tracking/insights/22222222-2222-2222-2222-222222222222",
+      "status_code": 0,
+      "duration": 0.015,
+      "success": false,
+      "error": "'ClientResponse' object has no attribute 'status_code'",
+      "timestamp": "2025-07-08T17:06:33.641633"
+    },
+    {
+      "method": "POST",
+      "endpoint": "/api/v1/health-tracking/insights/generate",
+      "status_code": 0,
+      "duration": 0.002,
+      "success": false,
+      "error": "'ClientResponse' object has no attribute 'status_code'",
+      "timestamp": "2025-07-08T17:06:33.643261"
+    },
+    {
+      "method": "PUT",
+      "endpoint": "/api/v1/health-tracking/insights/1",
+      "status_code": 0,
+      "duration": 0.013,
+      "success": false,
+      "error": "'ClientResponse' object has no attribute 'status_code'",
+      "timestamp": "2025-07-08T17:06:33.656190"
+    },
+    {
+      "method": "DELETE",
+      "endpoint": "/api/v1/health-tracking/insights/1",
+      "status_code": 0,
+      "duration": 0.012,
+      "success": false,
+      "error": "'ClientResponse' object has no attribute 'status_code'",
+      "timestamp": "2025-07-08T17:06:33.668524"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/api/v1/health-tracking/devices",
+      "status_code": 0,
+      "duration": 0.007,
+      "success": false,
+      "error": "'ClientResponse' object has no attribute 'status_code'",
+      "timestamp": "2025-07-08T17:06:33.675741"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/api/v1/health-tracking/devices/22222222-2222-2222-2222-222222222222",
+      "status_code": 0,
+      "duration": 0.005,
+      "success": false,
+      "error": "'ClientResponse' object has no attribute 'status_code'",
+      "timestamp": "2025-07-08T17:06:33.680468"
+    },
+    {
+      "method": "POST",
+      "endpoint": "/api/v1/health-tracking/devices",
+      "status_code": 0,
+      "duration": 0.009,
+      "success": false,
+      "error": "'ClientResponse' object has no attribute 'status_code'",
+      "timestamp": "2025-07-08T17:06:33.689676"
+    },
+    {
+      "method": "PUT",
+      "endpoint": "/api/v1/health-tracking/devices/1",
+      "status_code": 0,
+      "duration": 0.005,
+      "success": false,
+      "error": "'ClientResponse' object has no attribute 'status_code'",
+      "timestamp": "2025-07-08T17:06:33.694963"
+    },
+    {
+      "method": "DELETE",
+      "endpoint": "/api/v1/health-tracking/devices/1",
+      "status_code": 0,
+      "duration": 0.004,
+      "success": false,
+      "error": "'ClientResponse' object has no attribute 'status_code'",
+      "timestamp": "2025-07-08T17:06:33.699352"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/api/v1/health-tracking/alerts",
+      "status_code": 0,
+      "duration": 0.005,
+      "success": false,
+      "error": "'ClientResponse' object has no attribute 'status_code'",
+      "timestamp": "2025-07-08T17:06:33.704702"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/api/v1/health-tracking/alerts/22222222-2222-2222-2222-222222222222",
+      "status_code": 0,
+      "duration": 0.004,
+      "success": false,
+      "error": "'ClientResponse' object has no attribute 'status_code'",
+      "timestamp": "2025-07-08T17:06:33.708792"
+    },
+    {
+      "method": "POST",
+      "endpoint": "/api/v1/health-tracking/alerts",
+      "status_code": 0,
+      "duration": 0.004,
+      "success": false,
+      "error": "'ClientResponse' object has no attribute 'status_code'",
+      "timestamp": "2025-07-08T17:06:33.712970"
+    },
+    {
+      "method": "PUT",
+      "endpoint": "/api/v1/health-tracking/alerts/1",
+      "status_code": 0,
+      "duration": 0.004,
+      "success": false,
+      "error": "'ClientResponse' object has no attribute 'status_code'",
+      "timestamp": "2025-07-08T17:06:33.717064"
+    },
+    {
+      "method": "DELETE",
+      "endpoint": "/api/v1/health-tracking/alerts/1",
+      "status_code": 0,
+      "duration": 0.004,
+      "success": false,
+      "error": "'ClientResponse' object has no attribute 'status_code'",
+      "timestamp": "2025-07-08T17:06:33.721104"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/agents/health",
+      "status_code": 0,
+      "duration": 0.002,
+      "success": false,
+      "error": "'ClientResponse' object has no attribute 'status_code'",
+      "timestamp": "2025-07-08T17:06:33.723323"
+    },
+    {
+      "method": "POST",
+      "endpoint": "/agents/anomaly-detection",
+      "status_code": 0,
+      "duration": 3.026,
+      "success": false,
+      "error": "'ClientResponse' object has no attribute 'status_code'",
+      "timestamp": "2025-07-08T17:06:36.749347"
+    },
+    {
+      "method": "POST",
+      "endpoint": "/agents/trend-analysis",
+      "status_code": 0,
+      "duration": 3.029,
+      "success": false,
+      "error": "'ClientResponse' object has no attribute 'status_code'",
+      "timestamp": "2025-07-08T17:06:39.778758"
+    },
+    {
+      "method": "POST",
+      "endpoint": "/agents/goal-suggestions",
+      "status_code": 0,
+      "duration": 3.047,
+      "success": false,
+      "error": "'ClientResponse' object has no attribute 'status_code'",
+      "timestamp": "2025-07-08T17:06:42.826242"
+    },
+    {
+      "method": "POST",
+      "endpoint": "/agents/health-coaching",
+      "status_code": 0,
+      "duration": 3.02,
+      "success": false,
+      "error": "'ClientResponse' object has no attribute 'status_code'",
+      "timestamp": "2025-07-08T17:06:45.845867"
+    },
+    {
+      "method": "POST",
+      "endpoint": "/agents/risk-assessment",
+      "status_code": 0,
+      "duration": 3.037,
+      "success": false,
+      "error": "'ClientResponse' object has no attribute 'status_code'",
+      "timestamp": "2025-07-08T17:06:48.883215"
+    },
+    {
+      "method": "POST",
+      "endpoint": "/agents/pattern-recognition",
+      "status_code": 0,
+      "duration": 3.027,
+      "success": false,
+      "error": "'ClientResponse' object has no attribute 'status_code'",
+      "timestamp": "2025-07-08T17:06:51.910160"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/dashboard/summary",
+      "status_code": 0,
+      "duration": 3.053,
+      "success": false,
+      "error": "'ClientResponse' object has no attribute 'status_code'",
+      "timestamp": "2025-07-08T17:06:54.963497"
+    },
+    {
+      "method": "POST",
+      "endpoint": "/test/create-goal",
+      "status_code": 0,
+      "duration": 0.043,
+      "success": false,
+      "error": "'ClientResponse' object has no attribute 'status_code'",
+      "timestamp": "2025-07-08T17:06:55.006668"
+    },
+    {
+      "method": "POST",
+      "endpoint": "/test/create-symptom",
+      "status_code": 0,
+      "duration": 0.017,
+      "success": false,
+      "error": "'ClientResponse' object has no attribute 'status_code'",
+      "timestamp": "2025-07-08T17:06:55.023612"
+    },
+    {
+      "method": "POST",
+      "endpoint": "/test/create-vital-sign",
+      "status_code": 0,
+      "duration": 0.01,
+      "success": false,
+      "error": "'ClientResponse' object has no attribute 'status_code'",
+      "timestamp": "2025-07-08T17:06:55.033951"
+    }
+  ]
+}
