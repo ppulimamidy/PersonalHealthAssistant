@@ -1,0 +1,100 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: auth-service-network-policy
+  namespace: personal-health-assistant
+  labels:
+    app: auth-service
+    component: authentication
+spec:
+  podSelector:
+    matchLabels:
+      app: auth-service
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # Allow traffic from ingress controller
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: ingress-nginx
+    ports:
+    - protocol: TCP
+      port: 8000
+  # Allow traffic from monitoring
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: monitoring
+    ports:
+    - protocol: TCP
+      port: 8000
+  # Allow traffic from other services in the same namespace
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: personal-health-assistant
+    ports:
+    - protocol: TCP
+      port: 8000
+  egress:
+  # Allow DNS queries
+  - to: []
+    ports:
+    - protocol: UDP
+      port: 53
+  # Allow HTTPS traffic to external services
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 443
+  # Allow HTTP traffic to external services (for health checks)
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 80
+  # Allow traffic to database
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: database
+    ports:
+    - protocol: TCP
+      port: 5432
+  # Allow traffic to Redis
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: cache
+    ports:
+    - protocol: TCP
+      port: 6379
+  # Allow traffic to monitoring services
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: monitoring
+    ports:
+    - protocol: TCP
+      port: 9090  # Prometheus
+    - protocol: TCP
+      port: 3000  # Grafana
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: auth-service-deny-all
+  namespace: personal-health-assistant
+  labels:
+    app: auth-service
+    component: authentication
+spec:
+  podSelector:
+    matchLabels:
+      app: auth-service
+  policyTypes:
+  - Ingress
+  - Egress
+  # This policy denies all traffic by default
+  # It should be applied after the allow policies 
