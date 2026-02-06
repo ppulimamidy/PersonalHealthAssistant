@@ -1,0 +1,30 @@
+repos:
+-   repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.4.0
+    hooks:
+    -   id: trailing-whitespace
+    -   id: end-of-file-fixer
+    -   id: check-yaml
+    -   id: check-added-large-files
+
+-   repo: https://github.com/psf/black
+    rev: 22.3.0
+    hooks:
+    -   id: black
+        language_version: python3
+
+-   repo: https://github.com/PyCQA/pylint
+    rev: v2.14.0
+    hooks:
+    -   id: pylint
+        additional_dependencies: [pylint-django]
+
+-   repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.8.0
+    hooks:
+    -   id: mypy
+        additional_dependencies:
+        - types-requests
+        - types-PyYAML
+        - types-redis
+        args: [--ignore-missing-imports]

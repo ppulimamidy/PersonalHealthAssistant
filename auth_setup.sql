@@ -1,6 +1,9 @@
 -- Enable the auth schema
 CREATE SCHEMA IF NOT EXISTS auth;
 
+-- Enable the uuid-ossp extension
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
 -- Create auth.users table if it doesn't exist
 CREATE TABLE IF NOT EXISTS auth.users (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -190,6 +193,13 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
+-- Function to get the current user's ID
+CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID AS $$
+BEGIN
+    RETURN current_setting('request.jwt.claim.sub', true)::UUID;
+END;
+$$ LANGUAGE plpgsql STABLE;
+
 -- Create RLS policies for auth tables
 ALTER TABLE auth.users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE auth.sessions ENABLE ROW LEVEL SECURITY;
@@ -198,15 +208,49 @@ ALTER TABLE auth.password_resets ENABLE ROW LEVEL SECURITY;
 ALTER TABLE auth.email_verifications ENABLE ROW LEVEL SECURITY;
 
 -- Create policies for auth tables
-CREATE POLICY "Users can view their own data"
-    ON auth.users
+CREATE POLICY "Users can view their own data" ON auth.users
     FOR SELECT
     USING (auth.uid() = id);
 
-CREATE POLICY "Users can update their own data"
-    ON auth.users
+CREATE POLICY "Users can update their own data" ON auth.users
     FOR UPDATE
     USING (auth.uid() = id);
+
+CREATE POLICY "Users can delete their own data" ON auth.users
+    FOR DELETE
+    USING (auth.uid() = id);
+
+CREATE POLICY "Users can view their own sessions" ON auth.sessions
+    FOR SELECT
+    USING (user_id = auth.uid());
+
+CREATE POLICY "Users can delete their own sessions" ON auth.sessions
+    FOR DELETE
+    USING (user_id = auth.uid());
+
+CREATE POLICY "Users can view their own refresh tokens" ON auth.refresh_tokens
+    FOR SELECT
+    USING (user_id = auth.uid());
+
+CREATE POLICY "Users can delete their own refresh tokens" ON auth.refresh_tokens
+    FOR DELETE
+    USING (user_id = auth.uid());
+
+CREATE POLICY "Users can view their own password resets" ON auth.password_resets
+    FOR SELECT
+    USING (user_id = auth.uid());
+
+CREATE POLICY "Users can delete their own password resets" ON auth.password_resets
+    FOR DELETE
+    USING (user_id = auth.uid());
+
+CREATE POLICY "Users can view their own email verifications" ON auth.email_verifications
+    FOR SELECT
+    USING (user_id = auth.uid());
+
+CREATE POLICY "Users can delete their own email verifications" ON auth.email_verifications
+    FOR DELETE
+    USING (user_id = auth.uid());
 
 -- Create triggers for automatic timestamp updates
 CREATE OR REPLACE FUNCTION update_updated_at_column()

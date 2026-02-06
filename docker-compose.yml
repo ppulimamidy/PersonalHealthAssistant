@@ -1,69 +1,1350 @@
-version: '3.8'
-
 services:
-  postgres:
-    image: postgres:14
-    environment:
-      POSTGRES_DB: vitasense
-      POSTGRES_USER: admin
-      POSTGRES_PASSWORD: admin
+  # Supabase Local Development Stack
+  supabase-db:
+    platform: linux/amd64
+    image: timescale/timescaledb:latest-pg15
+    container_name: supabase_db
     ports:
-      - "5432:5432"
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-
-  supabase:
-    image: supabase/postgrest
-    depends_on:
-      - postgres
+      - "54323:5432"
     environment:
-      DB_URI: postgres://admin:admin@postgres:5432/vitasense
+      POSTGRES_PASSWORD: your-super-secret-and-long-postgres-password
+      POSTGRES_DB: postgres
+    volumes:
+      - supabase_db_data:/var/lib/postgresql/data
+      - ./scripts/setup/extensions/02_auth_setup.sql:/docker-entrypoint-initdb.d/01_auth_setup.sql
+      - ./scripts/setup/extensions/01_extensions.sql:/docker-entrypoint-initdb.d/02_extensions.sql
+      - ./schema.sql:/docker-entrypoint-initdb.d/03_schema.sql
+      - ./supabase/seed.sql:/docker-entrypoint-initdb.d/04_seed.sql
+    healthcheck:
+      test: pg_isready -U postgres -p 5432
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  supabase-auth:
+    platform: linux/amd64
+    image: supabase/gotrue:v2.132.3
+    container_name: supabase_auth
+    ports:
+      - "9999:9999"
+    environment:
+      GOTRUE_API_HOST: 0.0.0.0
+      GOTRUE_API_PORT: 9999
+      API_EXTERNAL_URL: http://localhost:8000
+      GOTRUE_DB_DRIVER: postgres
+      GOTRUE_DB_DATABASE_URL: postgres://supabase_auth_admin:your-super-secret-and-long-postgres-password@supabase-db:5432/postgres?sslmode=disable
+      GOTRUE_SITE_URL: http://localhost:3000
+      GOTRUE_URI_ALLOW_LIST: http://localhost:3000,http://localhost:3001,http://localhost:3002
+      GOTRUE_DISABLE_SIGNUP: "false"
+      GOTRUE_JWT_ADMIN_ROLES: service_role
+      GOTRUE_JWT_AUD: authenticated
+      GOTRUE_JWT_DEFAULT_GROUP_NAME: authenticated
+      GOTRUE_JWT_EXP: 3600
+      GOTRUE_JWT_SECRET: your-super-secret-jwt-token-with-at-least-32-characters-long
+      GOTRUE_EXTERNAL_EMAIL_ENABLED: "true"
+      GOTRUE_MAILER_AUTOCONFIRM: "true"
+      GOTRUE_SMTP_ADMIN_EMAIL: admin@email.com
+      GOTRUE_SMTP_HOST: supabase-mail
+      GOTRUE_SMTP_PORT: 2500
+      GOTRUE_SMTP_USER: fake_mail_user
+      GOTRUE_SMTP_PASS: fake_mail_password
+      GOTRUE_SMTP_SENDER_NAME: fake_sender
+    depends_on:
+      - supabase-db
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9999/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  supabase-rest:
+    platform: linux/amd64
+    image: postgrest/postgrest:v11.2.0
+    container_name: supabase_rest
     ports:
       - "3000:3000"
+    environment:
+      PGRST_DB_URI: postgres://postgres:your-super-secret-and-long-postgres-password@supabase-db:5432/postgres
+      PGRST_DB_SCHEMAS: public,storage,graphql_public
+      PGRST_DB_ANON_ROLE: anon
+      PGRST_JWT_SECRET: your-super-secret-jwt-token-with-at-least-32-characters-long
+      PGRST_DB_USE_LEGACY_GUCS: "false"
+    depends_on:
+      - supabase-db
 
-  zookeeper:
-    image: bitnami/zookeeper:latest
+  supabase-realtime:
+    platform: linux/amd64
+    image: supabase/realtime:v2.25.47
+    container_name: supabase_realtime
     ports:
-      - "2181:2181"
+      - "4000:4000"
+    environment:
+      DB_HOST: supabase-db
+      DB_PORT: 5432
+      DB_USER: supabase_realtime
+      DB_PASSWORD: your-super-secret-and-long-postgres-password
+      DB_NAME: postgres
+      PORT: 4000
+      JWT_SECRET: your-super-secret-jwt-token-with-at-least-32-characters-long
+      REPLICATION_MODE: RLS
+      REPLICATION_POLL_INTERVAL: 100
+      SECURE_CHANNELS: "true"
+      DB_SSL: "false"
+    depends_on:
+      - supabase-db
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  supabase-storage:
+    platform: linux/amd64
+    image: supabase/storage-api:v0.40.4
+    container_name: supabase_storage
+    ports:
+      - "5000:5000"
+    environment:
+      ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0
+      SERVICE_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU
+      PROJECT_REF: personal-health-assistant-local
+      POSTGREST_URL: http://supabase-rest:3000
+      PGRST_JWT_SECRET: your-super-secret-jwt-token-with-at-least-32-characters-long
+      DATABASE_URL: postgres://supabase_storage_admin:your-super-secret-and-long-postgres-password@supabase-db:5432/postgres
+      PGOPTIONS: "-c search_path=storage"
+      FILE_SIZE_LIMIT: 52428800
+      STORAGE_BACKEND: file
+      FILE_STORAGE_BACKEND_PATH: /var/lib/storage
+      TENANT_ID: stub
+      REGION: stub
+      GLOBAL_S3_BUCKET: stub
+    volumes:
+      - supabase_storage_data:/var/lib/storage
+    depends_on:
+      - supabase-rest
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/status"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  supabase-meta:
+    platform: linux/amd64
+    image: supabase/postgres-meta:v0.68.0
+    container_name: supabase_meta
+    ports:
+      - "8080:8080"
+    environment:
+      PG_META_PORT: 8080
+      PG_META_DB_HOST: supabase-db
+      PG_META_DB_PORT: 5432
+      PG_META_DB_NAME: postgres
+      PG_META_DB_USER: supabase_meta
+      PG_META_DB_PASSWORD: your-super-secret-and-long-postgres-password
+      PG_META_JWT_SECRET: your-super-secret-jwt-token-with-at-least-32-characters-long
+    depends_on:
+      - supabase-db
+
+  supabase-mail:
+    platform: linux/amd64
+    image: bytemark/smtp
+    container_name: supabase_mail
+    ports:
+      - "2500:2500"
+
+  supabase-studio:
+    platform: linux/amd64
+    image: supabase/studio:latest
+    container_name: supabase_studio
+    ports:
+      - "3001:3000"
+    environment:
+      STUDIO_PG_META_URL: http://supabase-meta:8080
+      POSTGRES_PASSWORD: your-super-secret-and-long-postgres-password
+      DEFAULT_ORGANIZATION_NAME: Default Organization
+      DEFAULT_PROJECT_NAME: Default Project
+      SUPABASE_URL: http://supabase-rest:3000
+      SUPABASE_PUBLIC_URL: http://localhost:3000
+      SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0
+      SUPABASE_SERVICE_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU
+    depends_on:
+      - supabase-rest
+      - supabase-meta
+
+  # Other services
+  qdrant:
+    image: qdrant/qdrant:latest
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
 
   kafka:
-    image: bitnami/kafka:latest
+    image: confluentinc/cp-kafka:7.4.0
     depends_on:
       - zookeeper
     ports:
       - "9092:9092"
     environment:
-      KAFKA_CFG_ZOOKEEPER_CONNECT: zookeeper:2181
-      ALLOW_PLAINTEXT_LISTENER: "yes"
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
 
-  qdrant:
-    image: qdrant/qdrant
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.4.0
     ports:
-      - "6333:6333"
-  
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   prometheus:
-    image: prom/prometheus
+    image: prom/prometheus:latest
+    container_name: prometheus
     ports:
       - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    depends_on:
+      - redis
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
   grafana:
-    image: grafana/grafana
+    image: grafana/grafana:latest
+    container_name: grafana
     ports:
-      - "3000:3000"
-  jaeger:
-    image: jaegertracing/all-in-one
+      - "3002:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    depends_on:
+      - prometheus
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
+    networks:
+      - default
+
+  # PostgreSQL Database for Health Assistant
+  postgres-health-assistant:
+    image: postgres:15-alpine
+    container_name: postgres-health-assistant
     ports:
-      - "16686:16686"
-  vitasense-api:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: health_assistant
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: your-super-secret-and-long-postgres-password
+    volumes:
+      - postgres_health_data:/var/lib/postgresql/data
+      - ./schema.sql:/docker-entrypoint-initdb.d/01_schema.sql
+      - ./auth_schema.sql:/docker-entrypoint-initdb.d/02_auth_schema.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # User Profile Service
+  user-profile-service:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: apps/user_profile/Dockerfile
+    container_name: personalhealthassistant-user-profile-service
+    ports:
+      - "8001:8001"
+    environment:
+      - ENVIRONMENT=development
+      - LOG_LEVEL=INFO
+      - DATABASE_URL=postgresql://postgres:your-super-secret-and-long-postgres-password@postgres-health-assistant:5432/health_assistant
+      - REDIS_URL=redis://redis:6379/0
+      - JWT_SECRET_KEY=your-super-secret-jwt-key-for-development-only
+      - ALLOWED_HOSTS=["localhost", "127.0.0.1", "user-profile-service", "user-profile.localhost"]
+      - CORS_ORIGINS=["http://localhost:3000", "http://localhost:8080"]
+      - PROMETHEUS_ENABLED=true
+      - GRAFANA_ENABLED=true
+    depends_on:
+      - postgres-health-assistant
+      - redis
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.user-profile.rule=Host(`user-profile.localhost`)"
+      - "traefik.http.routers.user-profile.entrypoints=web"
+      - "traefik.http.services.user-profile.loadbalancer.server.port=8001"
+      - "traefik.http.middlewares.user-profile-cors.headers.accesscontrolallowmethods=GET,POST,PUT,DELETE,OPTIONS"
+      - "traefik.http.middlewares.user-profile-cors.headers.accesscontrolalloworiginlist=http://localhost:3000,http://localhost:8080"
+      - "traefik.http.middlewares.user-profile-cors.headers.accesscontrolallowheaders=*"
+      - "traefik.http.middlewares.user-profile-cors.headers.accesscontrolallowcredentials=true"
+      - "traefik.http.routers.user-profile.middlewares=user-profile-cors"
+    networks:
+      - default
+
+  # Auth Service
+  auth-service:
+    build:
+      context: .
+      dockerfile: apps/auth/Dockerfile
+    container_name: personalhealthassistant-auth-service
     ports:
       - "8000:8000"
-    volumes:
-      - .:/app
+    environment:
+      - ENVIRONMENT=development
+      - LOG_LEVEL=INFO
+      - DATABASE_URL=postgresql://postgres:your-super-secret-and-long-postgres-password@postgres-health-assistant:5432/health_assistant
+      - REDIS_URL=redis://redis:6379/0
+      - JWT_SECRET_KEY=your-super-secret-jwt-key-for-development-only
+      - ALLOWED_HOSTS=["localhost", "127.0.0.1", "auth-service", "auth.localhost"]
+      - CORS_ORIGINS=["http://localhost:3000", "http://localhost:8080"]
+      - PROMETHEUS_ENABLED=true
+      - GRAFANA_ENABLED=true
+      - SUPABASE_URL=http://supabase-rest:3000
+      - SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0
+      - SUPABASE_SERVICE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU
     depends_on:
-      - postgres
+      - postgres-health-assistant
+      - redis
+      - supabase-rest
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.auth.rule=Host(`auth.localhost`)"
+      - "traefik.http.routers.auth.entrypoints=web"
+      - "traefik.http.services.auth.loadbalancer.server.port=8000"
+      - "traefik.http.middlewares.auth-cors.headers.accesscontrolallowmethods=GET,POST,PUT,DELETE,OPTIONS"
+      - "traefik.http.middlewares.auth-cors.headers.accesscontrolalloworiginlist=http://localhost:3000,http://localhost:8080"
+      - "traefik.http.middlewares.auth-cors.headers.accesscontrolallowheaders=*"
+      - "traefik.http.middlewares.auth-cors.headers.accesscontrolallowcredentials=true"
+      - "traefik.http.routers.auth.middlewares=auth-cors"
+    networks:
+      - default
+
+  # Health Tracking Service
+  health-tracking-service:
+    build:
+      context: .
+      dockerfile: apps/health_tracking/Dockerfile
+    container_name: personalhealthassistant-health-tracking-service
+    ports:
+      - "8002:8002"
+    environment:
+      - ENVIRONMENT=development
+      - LOG_LEVEL=INFO
+      - DATABASE_URL=postgresql://postgres:your-super-secret-and-long-postgres-password@postgres-health-assistant:5432/health_assistant
+      - REDIS_URL=redis://redis:6379/0
+      - JWT_SECRET_KEY=your-super-secret-jwt-key-for-development-only
+      - ALLOWED_HOSTS=["localhost", "127.0.0.1", "health-tracking-service", "health-tracking.localhost"]
+      - CORS_ORIGINS=["http://localhost:3000", "http://localhost:8080"]
+      - PROMETHEUS_ENABLED=true
+      - GRAFANA_ENABLED=true
+      - AGENT_ENABLED=true
+      - ANALYTICS_ENABLED=true
+      - INSIGHTS_ENABLED=true
+    depends_on:
+      - postgres-health-assistant
+      - redis
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.health-tracking.rule=Host(`health-tracking.localhost`)"
+      - "traefik.http.routers.health-tracking.entrypoints=web"
+      - "traefik.http.services.health-tracking.loadbalancer.server.port=8002"
+      - "traefik.http.middlewares.health-tracking-cors.headers.accesscontrolallowmethods=GET,POST,PUT,DELETE,OPTIONS"
+      - "traefik.http.middlewares.health-tracking-cors.headers.accesscontrolalloworiginlist=http://localhost:3000,http://localhost:8080"
+      - "traefik.http.middlewares.health-tracking-cors.headers.accesscontrolallowheaders=*"
+      - "traefik.http.middlewares.health-tracking-cors.headers.accesscontrolallowcredentials=true"
+      - "traefik.http.routers.health-tracking.middlewares=health-tracking-cors"
+    networks:
+      - default
+
+  # Medical Records Service
+  medical-records-service:
+    build:
+      context: .
+      dockerfile: apps/medical_records/Dockerfile
+      args:
+        - PYTHON_VERSION=3.11
+    container_name: personalhealthassistant-medical-records-service
+    ports:
+      - "8005:8005"
+    environment:
+      - ENVIRONMENT=development
+      - LOG_LEVEL=INFO
+      - DATABASE_URL=postgresql://postgres:your-super-secret-and-long-postgres-password@postgres-health-assistant:5432/health_assistant
+      - REDIS_URL=redis://redis:6379/0
+      - JWT_SECRET_KEY=your-super-secret-jwt-key-for-development-only
+      - PROMETHEUS_ENABLED=true
+      - GRAFANA_ENABLED=true
+      - AUTH_SERVICE_URL=http://auth-service:8000
+      - USER_PROFILE_SERVICE_URL=http://user-profile-service:8001
+      - HEALTH_TRACKING_SERVICE_URL=http://health-tracking-service:8002
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+      - EPIC_FHIR_PRIVATE_KEY_PATH=/certs/epic_private_key.pem
+      - EPIC_FHIR_CERTIFICATE_PATH=/certs/epi_certificate.pem
+      - EPIC_FHIR_CLIENT_ID=${EPIC_FHIR_CLIENT_ID:-}
+      - EPIC_FHIR_CLIENT_SECRET=***REMOVED***
+      - EPIC_FHIR_ENVIRONMENT=SANDBOX
+      - EPIC_FHIR_REDIRECT_URI=http://localhost:8005/api/v1/medical-records/epic-fhir/callback
+    volumes:
+      - ./logs:/app/logs
+      - ./certs:/certs:ro
+    depends_on:
+      - postgres-health-assistant
+      - redis
       - kafka
+      - auth-service
+      - user-profile-service
+      - health-tracking-service
+    networks:
+      - default
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.medical-records.rule=Host(`medical-records.localhost`)"
+      - "traefik.http.routers.medical-records.entrypoints=web"
+      - "traefik.http.services.medical-records.loadbalancer.server.port=8005"
+      - "traefik.http.routers.medical-records.middlewares=medical-records-stripprefix"
+      - "traefik.http.middlewares.medical-records-stripprefix.stripprefix.prefixes=/medical-records"
+    restart: unless-stopped
+
+  # Device Data Service
+  device-data-service:
+    build:
+      context: .
+      dockerfile: apps/device_data/Dockerfile
+    container_name: personalhealthassistant-device-data-service
+    environment:
+      - ENVIRONMENT=development
+      - LOG_LEVEL=INFO
+      - DATABASE_URL=postgresql://postgres:your-super-secret-and-long-postgres-password@postgres-health-assistant:5432/health_assistant
+      - REDIS_URL=redis://redis:6379/0
+      - JWT_SECRET_KEY=your-super-secret-jwt-key-for-development-only
+      - ALLOWED_HOSTS=["localhost", "127.0.0.1", "device-data-service", "device-data.localhost"]
+      - CORS_ORIGINS=["http://localhost:3000", "http://localhost:3003", "http://localhost:8080", "http://localhost:5173", "http://127.0.0.1:5173"]
+      - PROMETHEUS_ENABLED=true
+      - GRAFANA_ENABLED=true
+      - OURA_USE_SANDBOX=true
+      - DEXCOM_USE_SANDBOX=true
+    ports:
+      - "8004:8004"
+    depends_on:
+      - postgres-health-assistant
+      - redis
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8004/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - default
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.device-data.rule=Host(`device-data.localhost`)"
+      - "traefik.http.routers.device-data.entrypoints=web"
+      - "traefik.http.services.device-data.loadbalancer.server.port=8004"
+      - "traefik.http.middlewares.device-data-cors.headers.accesscontrolallowmethods=GET,POST,PUT,DELETE,OPTIONS"
+      - "traefik.http.middlewares.device-data-cors.headers.accesscontrolalloworiginlist=*"
+      - "traefik.http.middlewares.device-data-cors.headers.accesscontrolallowheaders=*"
+      - "traefik.http.middlewares.device-data-cors.headers.accesscontrolallowcredentials=true"
+      - "traefik.http.routers.device-data.middlewares=device-data-cors"
+    restart: unless-stopped
+
+  # AI Insights Service
+  ai-insights-service:
+    build:
+      context: .
+      dockerfile: apps/ai_insights/Dockerfile
+    container_name: personalhealthassistant-ai-insights-service
+    environment:
+      - ENVIRONMENT=development
+      - LOG_LEVEL=INFO
+      - DATABASE_URL=postgresql://postgres:your-super-secret-and-long-postgres-password@postgres-health-assistant:5432/health_assistant
+      - REDIS_URL=redis://redis:6379/0
+      - JWT_SECRET_KEY=your-super-secret-jwt-key-for-development-only
+      - ALLOWED_HOSTS=["localhost", "127.0.0.1", "ai-insights-service", "ai-insights.localhost"]
+      - CORS_ORIGINS=["http://localhost:3000", "http://localhost:8080"]
+      - PROMETHEUS_ENABLED=true
+      - GRAFANA_ENABLED=true
+      - AUTH_SERVICE_URL=http://auth-service:8000
+      - USER_PROFILE_SERVICE_URL=http://user-profile-service:8001
+      - HEALTH_TRACKING_SERVICE_URL=http://health-tracking-service:8002
+      - MEDICAL_RECORDS_SERVICE_URL=http://medical-records-service:8005
+    ports:
+      - "8200:8200"
+    depends_on:
+      - postgres-health-assistant
+      - redis
+      - auth-service
+      - user-profile-service
+      - health-tracking-service
+      - medical-records-service
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8200/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - default
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.ai-insights.rule=Host(`ai-insights.localhost`)"
+      - "traefik.http.routers.ai-insights.entrypoints=web"
+      - "traefik.http.services.ai-insights.loadbalancer.server.port=8200"
+      - "traefik.http.middlewares.ai-insights-cors.headers.accesscontrolallowmethods=GET,POST,PUT,DELETE,OPTIONS"
+      - "traefik.http.middlewares.ai-insights-cors.headers.accesscontrolalloworiginlist=http://localhost:3000,http://localhost:8080"
+      - "traefik.http.middlewares.ai-insights-cors.headers.accesscontrolallowheaders=*"
+      - "traefik.http.middlewares.ai-insights-cors.headers.accesscontrolallowcredentials=true"
+      - "traefik.http.routers.ai-insights.middlewares=ai-insights-cors"
+    restart: unless-stopped
+
+  # Voice Input Service
+  voice-input-service:
+    build:
+      context: .
+      dockerfile: apps/voice_input/Dockerfile
+    container_name: personalhealthassistant-voice-input-service
+    environment:
+      - ENVIRONMENT=development
+      - LOG_LEVEL=INFO
+      - DATABASE_URL=postgresql://postgres:your-super-secret-and-long-postgres-password@postgres-health-assistant:5432/health_assistant
+      - REDIS_URL=redis://redis:6379/0
+      - JWT_SECRET_KEY=your-super-secret-jwt-key-for-development-only
+      - ALLOWED_HOSTS=["localhost", "127.0.0.1", "voice-input-service", "voice-input.localhost"]
+      - CORS_ORIGINS=["http://localhost:3000", "http://localhost:8080"]
+      - PROMETHEUS_ENABLED=true
+      - GRAFANA_ENABLED=true
+      - AUTH_SERVICE_URL=http://auth-service:8000
+      - USER_PROFILE_SERVICE_URL=http://user-profile-service:8001
+      - HEALTH_TRACKING_SERVICE_URL=http://health-tracking-service:8002
+      - MEDICAL_RECORDS_SERVICE_URL=http://medical-records-service:8005
+      - AI_INSIGHTS_SERVICE_URL=http://ai-insights-service:8200
+      - MEDICAL_ANALYSIS_SERVICE_URL=http://medical-analysis-service:8006
+      - MAX_AUDIO_DURATION=300
+      - SUPPORTED_AUDIO_FORMATS=["wav", "mp3", "m4a", "flac", "ogg"]
+      - GROQ_API_KEY=${GROQ_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - VISION_MODEL_DEFAULT=meta-llama/llama-4-scout-17b-16e-instruct
+      - TTS_PROVIDER_DEFAULT=edge_tts
+      - TTS_VOICE_DEFAULT=en-US-JennyNeural
+      - MAX_IMAGE_SIZE=10485760
+      - SUPPORTED_IMAGE_FORMATS=["jpeg", "jpg", "png", "webp", "tiff", "bmp"]
+      - IMAGE_UPLOAD_DIR=/app/uploads/images
+      - AUDIO_OUTPUT_DIR=/app/outputs/vision_analysis
+    ports:
+      - "8003:8003"
+    volumes:
+      - ./logs:/app/logs
+      - ./uploads:/app/uploads
+      - ./outputs:/app/outputs
+    depends_on:
+      - postgres-health-assistant
+      - redis
+      - auth-service
+      - user-profile-service
+      - health-tracking-service
+      - medical-records-service
+      - ai-insights-service
+      - medical-analysis-service
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8003/health"]
+      interval: 60s
+      timeout: 30s
+      retries: 5
+    networks:
+      - default
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.voice-input.rule=Host(`voice-input.localhost`)"
+      - "traefik.http.routers.voice-input.entrypoints=web"
+      - "traefik.http.services.voice-input.loadbalancer.server.port=8003"
+      - "traefik.http.middlewares.voice-input-cors.headers.accesscontrolallowmethods=GET,POST,PUT,DELETE,OPTIONS"
+      - "traefik.http.middlewares.voice-input-cors.headers.accesscontrolalloworiginlist=http://localhost:3000,http://localhost:8080"
+      - "traefik.http.middlewares.voice-input-cors.headers.accesscontrolallowheaders=*"
+      - "traefik.http.middlewares.voice-input-cors.headers.accesscontrolallowcredentials=true"
+      - "traefik.http.routers.voice-input.middlewares=voice-input-cors"
+    restart: unless-stopped
+
+  # Medical Analysis Service
+  medical-analysis-service:
+    build:
+      context: .
+      dockerfile: apps/medical_analysis/Dockerfile
+    container_name: personalhealthassistant-medical-analysis-service
+    environment:
+      - ENVIRONMENT=development
+      - LOG_LEVEL=INFO
+      - DATABASE_URL=postgresql://postgres:your-super-secret-and-long-postgres-password@postgres-health-assistant:5432/health_assistant
+      - REDIS_URL=redis://redis:6379/0
+      - JWT_SECRET_KEY=your-super-secret-jwt-key-for-development-only
+      - ALLOWED_HOSTS=["localhost", "127.0.0.1", "medical-analysis-service", "medical-analysis.localhost"]
+      - CORS_ORIGINS=["http://localhost:3000", "http://localhost:8080"]
+      - PROMETHEUS_ENABLED=true
+      - GRAFANA_ENABLED=true
+      - AUTH_SERVICE_URL=http://auth-service:8000
+      - USER_PROFILE_SERVICE_URL=http://user-profile-service:8001
+      - HEALTH_TRACKING_SERVICE_URL=http://health-tracking-service:8002
+      - MEDICAL_RECORDS_SERVICE_URL=http://medical-records-service:8005
+      - GROQ_API_KEY=${GROQ_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+    ports:
+      - "8006:8006"
+    volumes:
+      - ./logs:/app/logs
+    depends_on:
+      - postgres-health-assistant
+      - redis
+      - auth-service
+      - user-profile-service
+      - health-tracking-service
+      - medical-records-service
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8006/ready"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - default
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.medical-analysis.rule=Host(`medical-analysis.localhost`)"
+      - "traefik.http.routers.medical-analysis.entrypoints=web"
+      - "traefik.http.services.medical-analysis-service.loadbalancer.server.port=8006"
+      - "traefik.http.services.medical-analysis-service.loadbalancer.healthcheck.path=/ready"
+      - "traefik.http.services.medical-analysis-service.loadbalancer.healthcheck.interval=30s"
+      - "traefik.http.services.medical-analysis-service.loadbalancer.healthcheck.timeout=10s"
+      - "traefik.http.middlewares.medical-analysis-cors.headers.accessControlAllowOriginList=http://localhost:3000,http://localhost:8080,http://medical-analysis.localhost"
+      - "traefik.http.routers.medical-analysis.middlewares=medical-analysis-cors@docker"
+    restart: unless-stopped
+
+  # Nutrition Service
+  nutrition-service:
+    build:
+      context: .
+      dockerfile: apps/nutrition/Dockerfile
+    container_name: personalhealthassistant-nutrition-service
+    environment:
+      - ENVIRONMENT=development
+      - LOG_LEVEL=INFO
+      - DATABASE_URL=postgresql://postgres:your-super-secret-and-long-postgres-password@postgres-health-assistant:5432/health_assistant
+      - REDIS_URL=redis://redis:6379/0
+      - JWT_SECRET_KEY=your-super-secret-jwt-key-for-development-only
+      - ALLOWED_HOSTS=["localhost", "127.0.0.1", "nutrition-service", "nutrition.localhost"]
+      - CORS_ORIGINS=["http://localhost:3000", "http://localhost:8080", "http://localhost:5173"]
+      - PROMETHEUS_ENABLED=true
+      - GRAFANA_ENABLED=true
+      - AUTH_SERVICE_URL=http://auth-service:8000
+      - USER_PROFILE_SERVICE_URL=http://user-profile-service:8001
+      - HEALTH_TRACKING_SERVICE_URL=http://health-tracking-service:8002
+      - MEDICAL_ANALYSIS_SERVICE_URL=http://medical-analysis-service:8006
+      - GOOGLE_VISION_API_KEY=${GOOGLE_VISION_API_KEY:-your_google_vision_api_key_here}
+      - AZURE_VISION_API_KEY=${AZURE_VISION_API_KEY:-your_azure_vision_api_key_here}
+      - NUTRITIONIX_API_KEY=${NUTRITIONIX_API_KEY:-}
+      - NUTRITIONIX_APP_ID=${NUTRITIONIX_APP_ID:-}
+      - USDA_API_KEY=${USDA_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - GROQ_API_KEY=${GROQ_API_KEY:-}
+      - MAX_IMAGE_SIZE=10485760
+      - SUPPORTED_IMAGE_FORMATS=["jpeg", "jpg", "png", "webp", "heic"]
+      - IMAGE_UPLOAD_DIR=/app/uploads/nutrition
+      - CACHE_ENABLED=true
+      - CACHE_TTL=3600
+    ports:
+      - "8007:8007"
+    volumes:
+      - ./logs:/app/logs
+      - ./uploads:/app/uploads
+      - ./cache:/app/cache
+    depends_on:
+      - postgres-health-assistant
+      - redis
+      - auth-service
+      - user-profile-service
+      - health-tracking-service
+      - medical-analysis-service
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8007/ready"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - default
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.nutrition.rule=Host(`nutrition.localhost`)"
+      - "traefik.http.routers.nutrition.entrypoints=web"
+      - "traefik.http.services.nutrition.loadbalancer.server.port=8007"
+      - "traefik.http.middlewares.nutrition-cors.headers.accesscontrolallowmethods=GET,POST,PUT,DELETE,OPTIONS"
+      - "traefik.http.middlewares.nutrition-cors.headers.accesscontrolalloworiginlist=http://localhost:3000,http://localhost:8080,http://localhost:5173"
+      - "traefik.http.middlewares.nutrition-cors.headers.accesscontrolallowheaders=*"
+      - "traefik.http.middlewares.nutrition-cors.headers.accesscontrolallowcredentials=true"
+      - "traefik.http.routers.nutrition.middlewares=nutrition-cors"
+    restart: unless-stopped
+
+  # Health Analysis Service
+  health-analysis-service:
+    build:
+      context: .
+      dockerfile: apps/health_analysis/Dockerfile
+    container_name: personalhealthassistant-health-analysis-service
+    environment:
+      - ENVIRONMENT=development
+      - LOG_LEVEL=INFO
+      - DATABASE_URL=postgresql://postgres:your-super-secret-and-long-postgres-password@postgres-health-assistant:5432/health_assistant
+      - REDIS_URL=redis://redis:6379/0
+      - JWT_SECRET_KEY=your-super-secret-jwt-key-for-development-only
+      - ALLOWED_HOSTS=["localhost", "127.0.0.1", "health-analysis-service", "health-analysis.localhost"]
+      - CORS_ORIGINS=["http://localhost:3000", "http://localhost:8080", "http://localhost:5173"]
+      - PROMETHEUS_ENABLED=true
+      - GRAFANA_ENABLED=true
+      - AUTH_SERVICE_URL=http://auth-service:8000
+      - USER_PROFILE_SERVICE_URL=http://user-profile-service:8001
+      - HEALTH_TRACKING_SERVICE_URL=http://health-tracking-service:8002
+      - MEDICAL_ANALYSIS_SERVICE_URL=http://medical-analysis-service:8006
+      - MEDICAL_RECORDS_SERVICE_URL=http://medical-records-service:8005
+      - GOOGLE_VISION_API_KEY=${GOOGLE_VISION_API_KEY:-your_google_vision_api_key_here}
+      - AZURE_VISION_API_KEY=${AZURE_VISION_API_KEY:-your_azure_vision_api_key_here}
+      - AZURE_VISION_ENDPOINT=${AZURE_VISION_ENDPOINT:-your_azure_vision_endpoint_here}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - PUBMED_API_KEY=${PUBMED_API_KEY:-}
+      - MAX_IMAGE_SIZE=10485760
+      - SUPPORTED_IMAGE_FORMATS=["jpeg", "jpg", "png", "webp", "heic"]
+      - IMAGE_UPLOAD_DIR=/app/uploads/health_analysis
+      - CACHE_ENABLED=true
+      - CACHE_TTL=3600
+    ports:
+      - "8008:8008"
+    volumes:
+      - ./logs:/app/logs
+      - ./uploads:/app/uploads
+      - ./cache:/app/cache
+    depends_on:
+      - postgres-health-assistant
+      - redis
+      - auth-service
+      - user-profile-service
+      - health-tracking-service
+      - medical-analysis-service
+      - medical-records-service
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8008/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - default
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.health-analysis.rule=Host(`health-analysis.localhost`)"
+      - "traefik.http.routers.health-analysis.entrypoints=web"
+      - "traefik.http.services.health-analysis.loadbalancer.server.port=8008"
+      - "traefik.http.middlewares.health-analysis-cors.headers.accesscontrolallowmethods=GET,POST,PUT,DELETE,OPTIONS"
+      - "traefik.http.middlewares.health-analysis-cors.headers.accesscontrolalloworiginlist=http://localhost:3000,http://localhost:8080,http://localhost:5173"
+      - "traefik.http.middlewares.health-analysis-cors.headers.accesscontrolallowheaders=*"
+      - "traefik.http.middlewares.health-analysis-cors.headers.accesscontrolallowcredentials=true"
+      - "traefik.http.routers.health-analysis.middlewares=health-analysis-cors"
+    restart: unless-stopped
+
+  # Consent Audit Service
+  consent-audit-service:
+    build:
+      context: .
+      dockerfile: apps/consent_audit/Dockerfile
+    container_name: personalhealthassistant-consent-audit-service
+    environment:
+      - ENVIRONMENT=development
+      - LOG_LEVEL=INFO
+      - DATABASE_URL=postgresql://postgres:your-super-secret-and-long-postgres-password@postgres-health-assistant:5432/health_assistant
+      - REDIS_URL=redis://redis:6379/0
+      - JWT_SECRET_KEY=your-super-secret-jwt-key-for-development-only
+      - ALLOWED_HOSTS=["localhost", "127.0.0.1", "consent-audit-service", "consent-audit.localhost"]
+      - CORS_ORIGINS=["http://localhost:3000", "http://localhost:8080", "http://localhost:5173"]
+      - PROMETHEUS_ENABLED=true
+      - GRAFANA_ENABLED=true
+      - AUTH_SERVICE_URL=http://auth-service:8000
+      - USER_PROFILE_SERVICE_URL=http://user-profile-service:8001
+      - HEALTH_TRACKING_SERVICE_URL=http://health-tracking-service:8002
+      - MEDICAL_RECORDS_SERVICE_URL=http://medical-records-service:8005
+      - AI_INSIGHTS_SERVICE_URL=http://ai-insights-service:8200
+      - VOICE_INPUT_SERVICE_URL=http://voice-input-service:8003
+      - MEDICAL_ANALYSIS_SERVICE_URL=http://medical-analysis-service:8006
+      - NUTRITION_SERVICE_URL=http://nutrition-service:8007
+      - HEALTH_ANALYSIS_SERVICE_URL=http://health-analysis-service:8008
+    ports:
+      - "8009:8009"
+    volumes:
+      - ./logs:/app/logs
+    depends_on:
+      - postgres-health-assistant
+      - redis
+      - auth-service
+      - user-profile-service
+      - health-tracking-service
+      - medical-records-service
+      - ai-insights-service
+      - voice-input-service
+      - medical-analysis-service
+      - nutrition-service
+      - health-analysis-service
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8009/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - default
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.consent-audit.rule=Host(`consent-audit.localhost`)"
+      - "traefik.http.routers.consent-audit.entrypoints=web"
+      - "traefik.http.services.consent-audit.loadbalancer.server.port=8009"
+      - "traefik.http.middlewares.consent-audit-cors.headers.accesscontrolallowmethods=GET,POST,PUT,DELETE,OPTIONS"
+      - "traefik.http.middlewares.consent-audit-cors.headers.accesscontrolalloworiginlist=http://localhost:3000,http://localhost:8080,http://localhost:5173"
+      - "traefik.http.middlewares.consent-audit-cors.headers.accesscontrolallowheaders=*"
+      - "traefik.http.middlewares.consent-audit-cors.headers.accesscontrolallowcredentials=true"
+      - "traefik.http.routers.consent-audit.middlewares=consent-audit-cors"
+    restart: unless-stopped
+
+  # Analytics Service
+  analytics-service:
+    build:
+      context: .
+      dockerfile: apps/analytics/Dockerfile
+    container_name: personalhealthassistant-analytics-service
+    environment:
+      - ENVIRONMENT=development
+      - LOG_LEVEL=INFO
+      - DATABASE_URL=postgresql://postgres:your-super-secret-and-long-postgres-password@postgres-health-assistant:5432/health_assistant
+      - REDIS_URL=redis://redis:6379/0
+      - JWT_SECRET_KEY=your-super-secret-jwt-key-for-development-only
+      - ALLOWED_HOSTS=["localhost", "127.0.0.1", "analytics-service", "analytics.localhost"]
+      - CORS_ORIGINS=["http://localhost:3000", "http://localhost:8080", "http://localhost:5173"]
+      - PROMETHEUS_ENABLED=true
+      - GRAFANA_ENABLED=true
+      - AUTH_SERVICE_URL=http://auth-service:8000
+      - USER_PROFILE_SERVICE_URL=http://user-profile-service:8001
+      - HEALTH_TRACKING_SERVICE_URL=http://health-tracking-service:8002
+      - MEDICAL_RECORDS_SERVICE_URL=http://medical-records-service:8005
+      - DEVICE_DATA_SERVICE_URL=http://device-data-service:8004
+      - AI_INSIGHTS_SERVICE_URL=http://ai-insights-service:8200
+      - VOICE_INPUT_SERVICE_URL=http://voice-input-service:8003
+      - MEDICAL_ANALYSIS_SERVICE_URL=http://medical-analysis-service:8006
+      - NUTRITION_SERVICE_URL=http://nutrition-service:8007
+      - HEALTH_ANALYSIS_SERVICE_URL=http://health-analysis-service:8008
+      - CONSENT_AUDIT_SERVICE_URL=http://consent-audit-service:8009
+    ports:
+      - "8210:8210"
+    volumes:
+      - ./logs:/app/logs
+    depends_on:
+      - postgres-health-assistant
+      - redis
+      - auth-service
+      - user-profile-service
+      - health-tracking-service
+      - medical-records-service
+      - device-data-service
+      - ai-insights-service
+      - voice-input-service
+      - medical-analysis-service
+      - nutrition-service
+      - health-analysis-service
+      - consent-audit-service
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8210/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - default
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.analytics.rule=Host(`analytics.localhost`)"
+      - "traefik.http.routers.analytics.entrypoints=web"
+      - "traefik.http.services.analytics.loadbalancer.server.port=8210"
+      - "traefik.http.middlewares.analytics-cors.headers.accesscontrolallowmethods=GET,POST,PUT,DELETE,OPTIONS"
+      - "traefik.http.middlewares.analytics-cors.headers.accesscontrolalloworiginlist=http://localhost:3000,http://localhost:8080,http://localhost:5173"
+      - "traefik.http.middlewares.analytics-cors.headers.accesscontrolallowheaders=*"
+      - "traefik.http.middlewares.analytics-cors.headers.accesscontrolallowcredentials=true"
+      - "traefik.http.routers.analytics.middlewares=analytics-cors"
+    restart: unless-stopped
+
+  # Neo4j Graph Database
+  neo4j:
+    image: neo4j:5.15.0
+    container_name: neo4j-graph-db
+    environment:
+      - NEO4J_AUTH=neo4j/your-super-secret-neo4j-password
+      - NEO4J_PLUGINS=["apoc"]
+      - NEO4J_dbms_security_procedures_unrestricted=apoc.*
+      - NEO4J_dbms_memory_heap_initial__size=512m
+      - NEO4J_dbms_memory_heap_max__size=2G
+      - NEO4J_dbms_memory_pagecache_size=512m
+    ports:
+      - "7474:7474"  # HTTP
+      - "7687:7687"  # Bolt
+    volumes:
+      - neo4j_data:/data
+      - neo4j_logs:/logs
+      - neo4j_import:/var/lib/neo4j/import
+      - neo4j_plugins:/plugins
+    healthcheck:
+      test: ["CMD", "cypher-shell", "-u", "neo4j", "-p", "your-super-secret-neo4j-password", "RETURN 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - default
+    restart: unless-stopped
+
+  # Knowledge Graph Service
+  knowledge-graph-service:
+    build:
+      context: .
+      dockerfile: apps/knowledge_graph/Dockerfile
+    container_name: personalhealthassistant-knowledge-graph-service
+    environment:
+      - NEO4J_URI=bolt://neo4j:7687
+      - NEO4J_USER=neo4j
+      - NEO4J_PASSWORD=your-super-secret-neo4j-password
+      - QDRANT_URL=http://qdrant:6333
+      - DATABASE_URL=postgresql://postgres:your-super-secret-and-long-postgres-password@postgres-health-assistant:5432/health_assistant
+      - REDIS_URL=redis://redis:6379
+      - AUTH_SERVICE_URL=http://auth-service:8000
+      - USER_PROFILE_SERVICE_URL=http://user-profile-service:8001
+      - HEALTH_TRACKING_SERVICE_URL=http://health-tracking-service:8002
+      - MEDICAL_RECORDS_SERVICE_URL=http://medical-records-service:8005
+      - DEVICE_DATA_SERVICE_URL=http://device-data-service:8004
+      - AI_INSIGHTS_SERVICE_URL=http://ai-insights-service:8200
+      - VOICE_INPUT_SERVICE_URL=http://voice-input-service:8003
+      - MEDICAL_ANALYSIS_SERVICE_URL=http://medical-analysis-service:8006
+      - NUTRITION_SERVICE_URL=http://nutrition-service:8007
+      - HEALTH_ANALYSIS_SERVICE_URL=http://health-analysis-service:8008
+      - CONSENT_AUDIT_SERVICE_URL=http://consent-audit-service:8009
+      - ANALYTICS_SERVICE_URL=http://analytics-service:8210
+    ports:
+      - "8010:8010"
+    volumes:
+      - ./logs:/app/logs
+    depends_on:
+      - postgres-health-assistant
+      - redis
+      - qdrant
+      - neo4j
+      - auth-service
+      - user-profile-service
+      - health-tracking-service
+      - medical-records-service
+      - device-data-service
+      - ai-insights-service
+      - voice-input-service
+      - medical-analysis-service
+      - nutrition-service
+      - health-analysis-service
+      - consent-audit-service
+      - analytics-service
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8010/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - default
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.knowledge-graph.rule=Host(`knowledge-graph.localhost`)"
+      - "traefik.http.routers.knowledge-graph.entrypoints=web"
+      - "traefik.http.services.knowledge-graph.loadbalancer.server.port=8010"
+      - "traefik.http.middlewares.knowledge-graph-cors.headers.accesscontrolallowmethods=GET,POST,PUT,DELETE,OPTIONS"
+      - "traefik.http.middlewares.knowledge-graph-cors.headers.accesscontrolalloworiginlist=http://localhost:3000,http://localhost:8080,http://localhost:5173"
+      - "traefik.http.middlewares.knowledge-graph-cors.headers.accesscontrolallowheaders=*"
+      - "traefik.http.middlewares.knowledge-graph-cors.headers.accesscontrolallowcredentials=true"
+      - "traefik.http.routers.knowledge-graph.middlewares=knowledge-graph-cors"
+    restart: unless-stopped
+
+  # Doctor Collaboration Service
+  doctor-collaboration-service:
+    build:
+      context: .
+      dockerfile: apps/doctor_collaboration/Dockerfile
+    container_name: personalhealthassistant-doctor-collaboration-service
+    environment:
+      - ENVIRONMENT=development
+      - LOG_LEVEL=INFO
+      - DATABASE_URL=postgresql://postgres:your-super-secret-and-long-postgres-password@postgres-health-assistant:5432/health_assistant
+      - REDIS_URL=redis://redis:6379/0
+      - JWT_SECRET_KEY=your-super-secret-jwt-key-for-development-only
+      - ALLOWED_HOSTS=["localhost", "127.0.0.1", "doctor-collaboration-service", "doctor-collaboration.localhost"]
+      - CORS_ORIGINS=["http://localhost:3000", "http://localhost:8080", "http://localhost:5173"]
+      - PROMETHEUS_ENABLED=true
+      - GRAFANA_ENABLED=true
+      - AUTH_SERVICE_URL=http://auth-service:8000
+      - USER_PROFILE_SERVICE_URL=http://user-profile-service:8001
+      - HEALTH_TRACKING_SERVICE_URL=http://health-tracking-service:8002
+      - MEDICAL_RECORDS_SERVICE_URL=http://medical-records-service:8005
+      - AI_INSIGHTS_SERVICE_URL=http://ai-insights-service:8200
+      - KNOWLEDGE_GRAPH_SERVICE_URL=http://knowledge-graph-service:8010
+      - VOICE_INPUT_SERVICE_URL=http://voice-input-service:8003
+      - MEDICAL_ANALYSIS_SERVICE_URL=http://medical-analysis-service:8006
+      - NUTRITION_SERVICE_URL=http://nutrition-service:8007
+      - HEALTH_ANALYSIS_SERVICE_URL=http://health-analysis-service:8008
+      - CONSENT_AUDIT_SERVICE_URL=http://consent-audit-service:8009
+      - ANALYTICS_SERVICE_URL=http://analytics-service:8210
+    ports:
+      - "8011:8011"
+    volumes:
+      - ./logs:/app/logs
+    depends_on:
+      - postgres-health-assistant
+      - redis
+      - auth-service
+      - user-profile-service
+      - health-tracking-service
+      - medical-records-service
+      - ai-insights-service
+      - knowledge-graph-service
+      - voice-input-service
+      - medical-analysis-service
+      - nutrition-service
+      - health-analysis-service
+      - consent-audit-service
+      - analytics-service
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8011/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - default
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.doctor-collaboration.rule=Host(`doctor-collaboration.localhost`)"
+      - "traefik.http.routers.doctor-collaboration.entrypoints=web"
+      - "traefik.http.services.doctor-collaboration.loadbalancer.server.port=8011"
+      - "traefik.http.middlewares.doctor-collaboration-cors.headers.accesscontrolallowmethods=GET,POST,PUT,DELETE,OPTIONS"
+      - "traefik.http.middlewares.doctor-collaboration-cors.headers.accesscontrolalloworiginlist=http://localhost:3000,http://localhost:8080,http://localhost:5173"
+      - "traefik.http.middlewares.doctor-collaboration-cors.headers.accesscontrolallowheaders=*"
+      - "traefik.http.middlewares.doctor-collaboration-cors.headers.accesscontrolallowcredentials=true"
+      - "traefik.http.routers.doctor-collaboration.middlewares=doctor-collaboration-cors"
+    restart: unless-stopped
+
+  # Genomics Service
+  genomics-service:
+    build:
+      context: .
+      dockerfile: apps/genomics/Dockerfile
+    container_name: personalhealthassistant-genomics-service
+    environment:
+      - ENVIRONMENT=development
+      - LOG_LEVEL=INFO
+      - DATABASE_URL=postgresql://postgres:your-super-secret-and-long-postgres-password@postgres-health-assistant:5432/health_assistant
+      - REDIS_URL=redis://redis:6379/0
+      - JWT_SECRET_KEY=your-super-secret-jwt-key-for-development-only
+      - ALLOWED_HOSTS=["localhost", "127.0.0.1", "genomics-service", "genomics.localhost"]
+      - CORS_ORIGINS=["http://localhost:3000", "http://localhost:8080", "http://localhost:5173"]
+      - PROMETHEUS_ENABLED=true
+      - GRAFANA_ENABLED=true
+      - AUTH_SERVICE_URL=http://auth-service:8000
+      - USER_PROFILE_SERVICE_URL=http://user-profile-service:8001
+      - HEALTH_TRACKING_SERVICE_URL=http://health-tracking-service:8002
+      - MEDICAL_RECORDS_SERVICE_URL=http://medical-records-service:8005
+      - AI_INSIGHTS_SERVICE_URL=http://ai-insights-service:8200
+      - KNOWLEDGE_GRAPH_SERVICE_URL=http://knowledge-graph-service:8010
+      - VOICE_INPUT_SERVICE_URL=http://voice-input-service:8003
+      - MEDICAL_ANALYSIS_SERVICE_URL=http://medical-analysis-service:8006
+      - NUTRITION_SERVICE_URL=http://nutrition-service:8007
+      - HEALTH_ANALYSIS_SERVICE_URL=http://health-analysis-service:8008
+      - CONSENT_AUDIT_SERVICE_URL=http://consent-audit-service:8009
+      - ANALYTICS_SERVICE_URL=http://analytics-service:8210
+      - DOCTOR_COLLABORATION_SERVICE_URL=http://doctor-collaboration-service:8011
+      - GENOMIC_DATA_PATH=/app/genomic_data
+      - MAX_FILE_SIZE=1073741824
+      - ALLOWED_FILE_TYPES=fastq,bam,vcf,gff,bed,json,csv,txt
+    ports:
+      - "8012:8012"
+    volumes:
+      - ./logs:/app/logs
+      - ./genomic_data:/app/genomic_data
+    depends_on:
+      - postgres-health-assistant
+      - redis
+      - auth-service
+      - user-profile-service
+      - health-tracking-service
+      - medical-records-service
+      - ai-insights-service
+      - knowledge-graph-service
+      - voice-input-service
+      - medical-analysis-service
+      - nutrition-service
+      - health-analysis-service
+      - consent-audit-service
+      - analytics-service
+      - doctor-collaboration-service
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8012/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - default
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.genomics.rule=Host(`genomics.localhost`)"
+      - "traefik.http.routers.genomics.entrypoints=web"
+      - "traefik.http.services.genomics.loadbalancer.server.port=8012"
+      - "traefik.http.middlewares.genomics-cors.headers.accesscontrolallowmethods=GET,POST,PUT,DELETE,OPTIONS"
+      - "traefik.http.middlewares.genomics-cors.headers.accesscontrolalloworiginlist=http://localhost:3000,http://localhost:8080,http://localhost:5173"
+      - "traefik.http.middlewares.genomics-cors.headers.accesscontrolallowheaders=*"
+      - "traefik.http.middlewares.genomics-cors.headers.accesscontrolallowcredentials=true"
+      - "traefik.http.routers.genomics.middlewares=genomics-cors"
+    restart: unless-stopped
+
+  # AI Reasoning Orchestrator Service
+  ai-reasoning-orchestrator:
+    build:
+      context: .
+      dockerfile: apps/ai_reasoning_orchestrator/Dockerfile
+    container_name: personalhealthassistant-ai-reasoning-orchestrator
+    environment:
+      - ENVIRONMENT=development
+      - LOG_LEVEL=INFO
+      - DATABASE_URL=postgresql://postgres:your-super-secret-and-long-postgres-password@postgres-health-assistant:5432/health_assistant
+      - REDIS_URL=redis://redis:6379/0
+      - JWT_SECRET_KEY=your-super-secret-jwt-key-for-development-only
+      - ALLOWED_HOSTS=["localhost", "127.0.0.1", "ai-reasoning-orchestrator", "ai-reasoning.localhost"]
+      - CORS_ORIGINS=["http://localhost:3000", "http://localhost:8080", "http://localhost:5173"]
+      - PROMETHEUS_ENABLED=true
+      - GRAFANA_ENABLED=true
+      - AUTH_SERVICE_URL=http://auth-service:8000
+      - USER_PROFILE_SERVICE_URL=http://user-profile-service:8001
+      - HEALTH_TRACKING_SERVICE_URL=http://health-tracking-service:8002
+      - MEDICAL_RECORDS_SERVICE_URL=http://medical-records-service:8005
+      - DEVICE_DATA_SERVICE_URL=http://device-data-service:8004
+      - AI_INSIGHTS_SERVICE_URL=http://ai-insights-service:8200
+      - KNOWLEDGE_GRAPH_SERVICE_URL=http://knowledge-graph-service:8010
+      - VOICE_INPUT_SERVICE_URL=http://voice-input-service:8003
+      - MEDICAL_ANALYSIS_SERVICE_URL=http://medical-analysis-service:8006
+      - NUTRITION_SERVICE_URL=http://nutrition-service:8007
+      - HEALTH_ANALYSIS_SERVICE_URL=http://health-analysis-service:8008
+      - CONSENT_AUDIT_SERVICE_URL=http://consent-audit-service:8009
+      - ANALYTICS_SERVICE_URL=http://analytics-service:8210
+      - DOCTOR_COLLABORATION_SERVICE_URL=http://doctor-collaboration-service:8011
+      - GENOMICS_SERVICE_URL=http://genomics-service:8012
+      - GROQ_API_KEY=${GROQ_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+    ports:
+      - "8300:8300"
+    volumes:
+      - ./logs:/app/logs
+    depends_on:
+      - postgres-health-assistant
+      - redis
+      - auth-service
+      - user-profile-service
+      - health-tracking-service
+      - medical-records-service
+      - device-data-service
+      - ai-insights-service
+      - knowledge-graph-service
+      - voice-input-service
+      - medical-analysis-service
+      - nutrition-service
+      - health-analysis-service
+      - consent-audit-service
+      - analytics-service
+      - doctor-collaboration-service
+      - genomics-service
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8300/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - default
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.ai-reasoning.rule=Host(`ai-reasoning.localhost`)"
+      - "traefik.http.routers.ai-reasoning.entrypoints=web"
+      - "traefik.http.services.ai-reasoning.loadbalancer.server.port=8300"
+      - "traefik.http.middlewares.ai-reasoning-cors.headers.accesscontrolallowmethods=GET,POST,PUT,DELETE,OPTIONS"
+      - "traefik.http.middlewares.ai-reasoning-cors.headers.accesscontrolalloworiginlist=http://localhost:3000,http://localhost:8080,http://localhost:5173"
+      - "traefik.http.middlewares.ai-reasoning-cors.headers.accesscontrolallowheaders=*"
+      - "traefik.http.middlewares.ai-reasoning-cors.headers.accesscontrolallowcredentials=true"
+      - "traefik.http.routers.ai-reasoning.middlewares=ai-reasoning-cors"
+    restart: unless-stopped
+
+  # GraphQL BFF Service
+  graphql-bff:
+    build:
+      context: .
+      dockerfile: apps/graphql_bff/Dockerfile
+    container_name: personalhealthassistant-graphql-bff
+    environment:
+      - ENVIRONMENT=development
+      - LOG_LEVEL=INFO
+      - DATABASE_URL=postgresql://postgres:your-super-secret-and-long-postgres-password@postgres-health-assistant:5432/health_assistant
+      - REDIS_URL=redis://redis:6379/0
+      - JWT_SECRET_KEY=your-super-secret-jwt-key-for-development-only
+      - ALLOWED_HOSTS=["localhost", "127.0.0.1", "graphql-bff", "graphql-bff.localhost"]
+      - CORS_ORIGINS=["http://localhost:3000", "http://localhost:8080", "http://localhost:5173"]
+      - PROMETHEUS_ENABLED=true
+      - GRAFANA_ENABLED=true
+      - AUTH_SERVICE_URL=http://auth-service:8000
+      - USER_PROFILE_SERVICE_URL=http://user-profile-service:8001
+      - HEALTH_TRACKING_SERVICE_URL=http://health-tracking-service:8002
+      - MEDICAL_RECORDS_SERVICE_URL=http://medical-records-service:8005
+      - DEVICE_DATA_SERVICE_URL=http://device-data-service:8004
+      - AI_INSIGHTS_SERVICE_URL=http://ai-insights-service:8200
+      - AI_REASONING_ORCHESTRATOR_URL=http://ai-reasoning-orchestrator:8300
+      - KNOWLEDGE_GRAPH_SERVICE_URL=http://knowledge-graph-service:8010
+      - VOICE_INPUT_SERVICE_URL=http://voice-input-service:8003
+      - MEDICAL_ANALYSIS_SERVICE_URL=http://medical-analysis-service:8006
+      - NUTRITION_SERVICE_URL=http://nutrition-service:8007
+      - HEALTH_ANALYSIS_SERVICE_URL=http://health-analysis-service:8008
+      - CONSENT_AUDIT_SERVICE_URL=http://consent-audit-service:8009
+      - ANALYTICS_SERVICE_URL=http://analytics-service:8210
+      - DOCTOR_COLLABORATION_SERVICE_URL=http://doctor-collaboration-service:8011
+      - GENOMICS_SERVICE_URL=http://genomics-service:8012
+    ports:
+      - "8400:8400"
+    volumes:
+      - ./logs:/app/logs
+    depends_on:
+      - postgres-health-assistant
+      - redis
+      - auth-service
+      - user-profile-service
+      - health-tracking-service
+      - medical-records-service
+      - device-data-service
+      - ai-insights-service
+      - ai-reasoning-orchestrator
+      - knowledge-graph-service
+      - voice-input-service
+      - medical-analysis-service
+      - nutrition-service
+      - health-analysis-service
+      - consent-audit-service
+      - analytics-service
+      - doctor-collaboration-service
+      - genomics-service
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8400/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - default
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.graphql-bff.rule=Host(`graphql-bff.localhost`)"
+      - "traefik.http.routers.graphql-bff.entrypoints=web"
+      - "traefik.http.services.graphql-bff.loadbalancer.server.port=8400"
+      - "traefik.http.middlewares.graphql-bff-cors.headers.accesscontrolallowmethods=GET,POST,PUT,DELETE,OPTIONS"
+      - "traefik.http.middlewares.graphql-bff-cors.headers.accesscontrolalloworiginlist=http://localhost:3000,http://localhost:8080,http://localhost:5173"
+      - "traefik.http.middlewares.graphql-bff-cors.headers.accesscontrolallowheaders=*"
+      - "traefik.http.middlewares.graphql-bff-cors.headers.accesscontrolallowcredentials=true"
+      - "traefik.http.routers.graphql-bff.middlewares=graphql-bff-cors"
+    restart: unless-stopped
+
+  # Enhanced Traefik Gateway
+  traefik:
+    image: traefik:v2.10
+    container_name: traefik-gateway
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./traefik/logs:/var/log/traefik
+      - ./traefik:/etc/traefik/config
+      - ./traefik/acme.json:/etc/traefik/acme.json
+    command:
+      - "--configfile=/etc/traefik/config/traefik.yml"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--providers.docker.network=personalhealthassistant_default"
+      - "--providers.file.directory=/etc/traefik/config"
+      - "--providers.file.watch=true"
+      - "--api.dashboard=true"
+      - "--api.insecure=true"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--log.level=INFO"
+      - "--log.format=json"
+      - "--accesslog=true"
+      - "--accesslog.filepath=/var/log/traefik/access.log"
+      - "--accesslog.format=json"
+      - "--metrics.prometheus=true"
+      - "--metrics.prometheus.buckets=0.1,0.3,1.2,5.0"
+      - "--ping.entrypoint=web"
+      - "--healthcheck.interval=30s"
+      - "--healthcheck.timeout=5s"
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8081:8080"
+    networks:
+      - default
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.traefik-dashboard.rule=Host(`traefik.localhost`)"
+      - "traefik.http.routers.traefik-dashboard.entrypoints=websecure"
+      - "traefik.http.routers.traefik-dashboard.service=api@internal"
+      - "traefik.http.routers.traefik-dashboard.middlewares=traefik-auth"
+      - "traefik.http.middlewares.traefik-auth.basicauth.users=admin:$$2y$$10$$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi"
+    depends_on:
+      - auth-service
+    restart: unless-stopped
 
 volumes:
-  pgdata:
+  supabase_db_data:
+  supabase_storage_data:
+  qdrant_data:
+  grafana-data:
+  redis-data:
+  prometheus-data:
+    driver: local
+  postgres_health_data:
+  neo4j_data:
+  neo4j_logs:
+  neo4j_import:
+  neo4j_plugins:

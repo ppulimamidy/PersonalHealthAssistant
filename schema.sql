@@ -1,2103 +1,1513 @@
--- Enable necessary extensions
+-- Personal Health Assistant Database Schema
+-- Schema separation for microservices architecture
+
+-- Enable required extensions
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
-CREATE EXTENSION IF NOT EXISTS "vector"; -- For embedding storage
-CREATE EXTENSION IF NOT EXISTS "timescaledb"; -- For time-series optimization
-CREATE EXTENSION IF NOT EXISTS "duckdb_fdw"; -- For DuckDB integration
-CREATE EXTENSION IF NOT EXISTS "http"; -- For Qdrant API calls
-CREATE EXTENSION IF NOT EXISTS "pg_kafka"; -- For Kafka integration
-CREATE EXTENSION IF NOT EXISTS "pg_stat_statements"; -- For query monitoring
-CREATE EXTENSION IF NOT EXISTS "postgis"; -- For spatial data
+CREATE EXTENSION IF NOT EXISTS "pg_stat_statements";
 
--- Authentication Tables
+-- Create schemas for each service
+CREATE SCHEMA IF NOT EXISTS auth;
+CREATE SCHEMA IF NOT EXISTS user_profile;
+CREATE SCHEMA IF NOT EXISTS health_tracking;
+CREATE SCHEMA IF NOT EXISTS device_data;
+CREATE SCHEMA IF NOT EXISTS medical_records;
+CREATE SCHEMA IF NOT EXISTS nutrition;
+
+-- Set search path
+SET search_path TO auth, user_profile, health_tracking, device_data, medical_records, nutrition, public;
+
+-- ============================================================================
+-- AUTH SCHEMA
+-- ============================================================================
+
+-- Users table (auth service)
 CREATE TABLE auth.users (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    email TEXT UNIQUE NOT NULL,
-    encrypted_password TEXT NOT NULL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    last_sign_in_at TIMESTAMP WITH TIME ZONE,
-    is_active BOOLEAN DEFAULT true
+    supabase_user_id VARCHAR UNIQUE NOT NULL,
+    email VARCHAR(255) UNIQUE NOT NULL,
+    phone VARCHAR UNIQUE,
+    password_hash VARCHAR(255),
+    auth0_user_id VARCHAR,
+    mfa_status VARCHAR DEFAULT 'disabled' NOT NULL,
+    mfa_secret VARCHAR,
+    first_name VARCHAR(100) NOT NULL,
+    last_name VARCHAR(100) NOT NULL,
+    date_of_birth TIMESTAMP,
+    gender VARCHAR(20),
+    user_type VARCHAR NOT NULL,
+    status VARCHAR DEFAULT 'pending_verification' NOT NULL,
+    email_verified BOOLEAN DEFAULT false,
+    phone_verified BOOLEAN DEFAULT false,
+    hipaa_consent_given BOOLEAN DEFAULT false,
+    hipaa_consent_date TIMESTAMP,
+    data_processing_consent BOOLEAN DEFAULT false,
+    marketing_consent BOOLEAN DEFAULT false,
+    failed_login_attempts INTEGER DEFAULT 0,
+    last_failed_login TIMESTAMP,
+    account_locked_until TIMESTAMP,
+    password_changed_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_login_at TIMESTAMP,
+    user_metadata JSON DEFAULT '{}'
 );
 
--- User Profiles
-CREATE TABLE public.user_profiles (
+-- User roles
+CREATE TABLE auth.roles (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
-    first_name TEXT,
-    last_name TEXT,
-    date_of_birth DATE,
-    gender TEXT,
-    height DECIMAL,
-    weight DECIMAL,
-    blood_type TEXT,
-    emergency_contact TEXT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    name VARCHAR(50) UNIQUE NOT NULL,
+    description TEXT,
+    permissions JSONB,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Medical Conditions
-CREATE TABLE public.medical_conditions (
+-- User role assignments
+CREATE TABLE auth.user_roles (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
-    condition_name TEXT NOT NULL,
-    diagnosis_date DATE,
-    severity TEXT,
-    status TEXT,
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    role_id UUID NOT NULL REFERENCES auth.roles(id) ON DELETE CASCADE,
+    assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    assigned_by UUID REFERENCES auth.users(id),
+    UNIQUE(user_id, role_id)
+);
+
+-- User sessions
+CREATE TABLE auth.sessions (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    token_hash VARCHAR(255) NOT NULL,
+    refresh_token_hash VARCHAR(255),
+    device_info JSONB,
+    ip_address INET,
+    user_agent TEXT,
+    expires_at TIMESTAMP NOT NULL,
+    is_active BOOLEAN DEFAULT true,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- MFA settings
+CREATE TABLE auth.mfa_settings (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    mfa_type VARCHAR(20) NOT NULL, -- 'totp', 'sms', 'email'
+    secret_key VARCHAR(255),
+    backup_codes JSONB,
+    is_enabled BOOLEAN DEFAULT false,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Password reset tokens
+CREATE TABLE auth.password_reset_tokens (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    token_hash VARCHAR(255) NOT NULL,
+    expires_at TIMESTAMP NOT NULL,
+    used_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Email verification tokens
+CREATE TABLE auth.email_verification_tokens (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    token_hash VARCHAR(255) NOT NULL,
+    expires_at TIMESTAMP NOT NULL,
+    used_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Audit log
+CREATE TABLE auth.audit_log (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID REFERENCES auth.users(id),
+    action VARCHAR(100) NOT NULL,
+    resource_type VARCHAR(50),
+    resource_id UUID,
+    details JSONB,
+    ip_address INET,
+    user_agent TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Consent records
+CREATE TABLE auth.consent_records (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    consent_type VARCHAR(100) NOT NULL,
+    version VARCHAR(20) NOT NULL,
+    granted BOOLEAN NOT NULL,
+    granted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    revoked_at TIMESTAMP,
+    ip_address INET,
+    user_agent TEXT
+);
+
+-- ============================================================================
+-- USER PROFILE SCHEMA
+-- ============================================================================
+
+-- User profiles
+CREATE TABLE user_profile.profiles (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    avatar_url VARCHAR(500),
+    bio TEXT,
+    location VARCHAR(200),
+    timezone VARCHAR(50),
+    language VARCHAR(10) DEFAULT 'en',
+    date_format VARCHAR(20) DEFAULT 'YYYY-MM-DD',
+    time_format VARCHAR(10) DEFAULT '24h',
+    weight_unit VARCHAR(10) DEFAULT 'kg',
+    height_unit VARCHAR(10) DEFAULT 'cm',
+    temperature_unit VARCHAR(10) DEFAULT 'celsius',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(user_id)
+);
+
+-- Health attributes
+CREATE TABLE user_profile.health_attributes (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    height_cm DECIMAL(5,2),
+    weight_kg DECIMAL(5,2),
+    bmi DECIMAL(4,2),
+    blood_type VARCHAR(5),
+    allergies JSONB,
+    medications JSONB,
+    medical_conditions JSONB,
+    emergency_contacts JSONB,
+    insurance_info JSONB,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(user_id)
+);
+
+-- User preferences
+CREATE TABLE user_profile.preferences (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    notification_settings JSONB,
+    privacy_settings JSONB,
+    health_goals JSONB,
+    dietary_preferences JSONB,
+    activity_preferences JSONB,
+    sleep_preferences JSONB,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(user_id)
+);
+
+-- Privacy settings
+CREATE TABLE user_profile.privacy_settings (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    profile_visibility VARCHAR(20) DEFAULT 'private',
+    health_data_sharing JSONB,
+    data_retention_policy JSONB,
+    third_party_sharing BOOLEAN DEFAULT false,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(user_id)
+);
+
+-- ============================================================================
+-- HEALTH TRACKING SCHEMA
+-- ============================================================================
+
+-- Health metrics
+CREATE TABLE health_tracking.health_metrics (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    metric_type VARCHAR(50) NOT NULL,
+    value DECIMAL(10,4) NOT NULL,
+    unit VARCHAR(20) NOT NULL,
+    timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    source VARCHAR(100),
     notes TEXT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    metadata JSONB,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Medications
-CREATE TABLE public.medications (
+-- Health goals
+CREATE TABLE health_tracking.health_goals (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
-    medication_name TEXT NOT NULL,
-    dosage TEXT,
-    frequency TEXT,
-    start_date DATE,
-    end_date DATE,
-    prescribed_by TEXT,
-    notes TEXT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    title VARCHAR(200) NOT NULL,
+    description TEXT,
+    metric_type VARCHAR(50) NOT NULL,
+    goal_type VARCHAR(20) NOT NULL DEFAULT 'target',
+    target_value DECIMAL(10,4),
+    current_value DECIMAL(10,4),
+    unit VARCHAR(20) NOT NULL,
+    frequency VARCHAR(20) NOT NULL DEFAULT 'once',
+    start_date DATE NOT NULL DEFAULT CURRENT_DATE,
+    target_date DATE,
+    status VARCHAR(20) NOT NULL DEFAULT 'active',
+    progress DECIMAL(5,2),
+    goal_metadata JSONB,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Health Metrics
-CREATE TABLE public.health_metrics (
+-- Health insights
+CREATE TABLE health_tracking.health_insights (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
-    metric_type TEXT NOT NULL,
-    value DECIMAL,
-    unit TEXT,
-    recorded_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    source TEXT,
-    notes TEXT
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    insight_type VARCHAR(50) NOT NULL,
+    title VARCHAR(200) NOT NULL,
+    description TEXT NOT NULL,
+    summary TEXT,
+    severity VARCHAR(20) NOT NULL DEFAULT 'medium',
+    status VARCHAR(20) NOT NULL DEFAULT 'new',
+    confidence DECIMAL(3,2),
+    actionable BOOLEAN DEFAULT true,
+    action_taken BOOLEAN DEFAULT false,
+    related_metrics JSONB,
+    related_goals JSONB,
+    metadata JSONB,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    read_at TIMESTAMP,
+    acted_upon_at TIMESTAMP
+);
+
+-- Vital signs
+CREATE TABLE health_tracking.vital_signs (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    vital_sign_type VARCHAR(50) NOT NULL,
+    measurement_method VARCHAR(50) NOT NULL,
+    measurement_location VARCHAR(100),
+    systolic DECIMAL CHECK (systolic >= 0),
+    diastolic DECIMAL CHECK (diastolic >= 0),
+    mean_arterial_pressure DECIMAL,
+    heart_rate DECIMAL CHECK (heart_rate >= 0),
+    heart_rate_variability DECIMAL,
+    irregular_heartbeat_detected VARCHAR(10),
+    temperature DECIMAL CHECK (temperature >= 0),
+    temperature_method VARCHAR(50),
+    oxygen_saturation DECIMAL CHECK (oxygen_saturation >= 0 AND oxygen_saturation <= 100),
+    perfusion_index DECIMAL,
+    respiratory_rate DECIMAL CHECK (respiratory_rate >= 0),
+    respiratory_pattern VARCHAR(50),
+    blood_glucose DECIMAL CHECK (blood_glucose >= 0),
+    glucose_unit VARCHAR(10),
+    glucose_context VARCHAR(50),
+    weight DECIMAL CHECK (weight >= 0),
+    height DECIMAL CHECK (height >= 0),
+    bmi DECIMAL CHECK (bmi >= 0),
+    waist_circumference DECIMAL CHECK (waist_circumference >= 0),
+    body_fat_percentage DECIMAL CHECK (body_fat_percentage >= 0 AND body_fat_percentage <= 100),
+    muscle_mass DECIMAL CHECK (muscle_mass >= 0),
+    bone_density DECIMAL CHECK (bone_density >= 0),
+    skin_temperature DECIMAL CHECK (skin_temperature >= 0),
+    blood_alcohol_content DECIMAL CHECK (blood_alcohol_content >= 0 AND blood_alcohol_content <= 1),
+    carbon_monoxide DECIMAL CHECK (carbon_monoxide >= 0),
+    lung_capacity DECIMAL CHECK (lung_capacity >= 0),
+    eye_pressure DECIMAL CHECK (eye_pressure >= 0),
+    hearing_level DECIMAL CHECK (hearing_level >= 0),
+    device_id VARCHAR(100),
+    device_model VARCHAR(100),
+    measurement_notes TEXT,
+    measurement_quality VARCHAR(20),
+    measurement_duration DECIMAL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    vital_sign_metadata JSONB DEFAULT '{}'
 );
 
 -- Symptoms
-CREATE TABLE public.symptoms (
+CREATE TABLE health_tracking.symptoms (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
-    symptom_name TEXT NOT NULL,
-    severity INTEGER,
-    duration TEXT,
-    notes TEXT,
-    recorded_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
--- Device Integration
-CREATE TABLE public.devices (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
-    device_type TEXT NOT NULL,
-    device_id TEXT NOT NULL,
-    device_name TEXT,
-    last_sync_at TIMESTAMP WITH TIME ZONE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    status TEXT DEFAULT 'active'
-);
-
--- Healthcare Providers
-CREATE TABLE public.healthcare_providers (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    provider_type TEXT NOT NULL,
-    name TEXT NOT NULL,
-    specialization TEXT,
-    contact_info TEXT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    status TEXT DEFAULT 'active'
-);
-
--- User-Provider Relationships
-CREATE TABLE public.user_provider_relationships (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
-    provider_id UUID REFERENCES public.healthcare_providers(id) ON DELETE CASCADE,
-    relationship_type TEXT NOT NULL,
-    start_date DATE,
-    end_date DATE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
--- Hospitals/Clinics
-CREATE TABLE public.healthcare_facilities (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    name TEXT NOT NULL,
-    type TEXT NOT NULL,
-    address TEXT,
-    contact_info TEXT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    status TEXT DEFAULT 'active'
-);
-
--- Insurance Companies
-CREATE TABLE public.insurance_companies (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    name TEXT NOT NULL,
-    contact_info TEXT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
--- User Insurance
-CREATE TABLE public.user_insurance (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
-    insurance_company_id UUID REFERENCES public.insurance_companies(id) ON DELETE CASCADE,
-    policy_number TEXT,
-    coverage_start_date DATE,
-    coverage_end_date DATE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
--- Products (Store)
-CREATE TABLE public.products (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    name TEXT NOT NULL,
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    symptom_name VARCHAR(200) NOT NULL,
+    symptom_category VARCHAR(50) NOT NULL,
     description TEXT,
-    category TEXT,
-    price DECIMAL,
-    stock_quantity INTEGER,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    severity VARCHAR(20) NOT NULL,
+    severity_level DECIMAL(3,1) NOT NULL CHECK (severity_level >= 1 AND severity_level <= 10),
+    impact_on_daily_activities VARCHAR(20),
+    frequency VARCHAR(20),
+    frequency_count DECIMAL,
+    frequency_period VARCHAR(20),
+    duration VARCHAR(20),
+    duration_hours DECIMAL CHECK (duration_hours >= 0),
+    start_time TIMESTAMP,
+    end_time TIMESTAMP,
+    body_location VARCHAR(200),
+    body_side VARCHAR(20),
+    radiation VARCHAR(200),
+    quality VARCHAR(100),
+    triggers VARCHAR[],
+    context TEXT,
+    associated_symptoms VARCHAR[],
+    relief_factors VARCHAR[],
+    aggravating_factors VARCHAR[],
+    related_conditions VARCHAR[],
+    medications_taken VARCHAR[],
+    treatments_tried VARCHAR[],
+    sleep_impact VARCHAR(20),
+    work_impact VARCHAR(20),
+    social_impact VARCHAR(20),
+    emotional_impact VARCHAR(20),
+    is_recurring BOOLEAN DEFAULT false,
+    recurrence_pattern VARCHAR(100),
+    last_occurrence TIMESTAMP,
+    next_expected TIMESTAMP,
+    requires_medical_attention BOOLEAN DEFAULT false,
+    medical_attention_urgency VARCHAR(20),
+    medical_attention_received BOOLEAN DEFAULT false,
+    medical_attention_date TIMESTAMP,
+    medical_attention_notes TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    symptom_metadata JSONB DEFAULT '{}'
 );
 
--- Orders
-CREATE TABLE public.orders (
+-- Devices
+CREATE TABLE health_tracking.devices (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
-    order_date TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    status TEXT,
-    total_amount DECIMAL,
-    shipping_address TEXT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    device_name VARCHAR(255) NOT NULL,
+    device_type VARCHAR(50) NOT NULL,
+    manufacturer VARCHAR(255),
+    model VARCHAR(255),
+    serial_number VARCHAR(255) UNIQUE,
+    firmware_version VARCHAR(100),
+    device_status VARCHAR(20),
+    last_sync TIMESTAMP,
+    battery_level INTEGER,
+    is_connected BOOLEAN,
+    connection_method VARCHAR(50),
+    metadata JSON,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Order Items
-CREATE TABLE public.order_items (
+-- Alerts
+CREATE TABLE health_tracking.alerts (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    order_id UUID REFERENCES public.orders(id) ON DELETE CASCADE,
-    product_id UUID REFERENCES public.products(id) ON DELETE CASCADE,
-    quantity INTEGER,
-    price_at_time DECIMAL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    alert_type VARCHAR(50) NOT NULL,
+    title VARCHAR(255) NOT NULL,
+    message TEXT NOT NULL,
+    severity VARCHAR(20),
+    status VARCHAR(20),
+    is_read BOOLEAN DEFAULT false,
+    is_actionable BOOLEAN DEFAULT true,
+    action_taken TEXT,
+    action_taken_at TIMESTAMP,
+    scheduled_for TIMESTAMP,
+    expires_at TIMESTAMP,
+    metadata JSON,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Health Reports
-CREATE TABLE public.health_reports (
+-- ============================================================================
+-- DEVICE DATA SCHEMA
+-- ============================================================================
+
+-- Devices table (device data service)
+CREATE TABLE device_data.devices (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
-    report_type TEXT NOT NULL,
-    report_date TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    report_data JSONB,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    name VARCHAR(255) NOT NULL,
+    device_type VARCHAR(50) NOT NULL,
+    manufacturer VARCHAR(255) NOT NULL,
+    model VARCHAR(255) NOT NULL,
+    serial_number VARCHAR(255) UNIQUE,
+    mac_address VARCHAR(17) UNIQUE,
+    connection_type VARCHAR(50) NOT NULL,
+    connection_id VARCHAR(255),
+    api_key VARCHAR(500),
+    api_secret VARCHAR(500),
+    status VARCHAR(50) DEFAULT 'inactive',
+    is_active BOOLEAN DEFAULT TRUE,
+    is_primary BOOLEAN DEFAULT FALSE,
+    supported_metrics JSONB DEFAULT '[]',
+    firmware_version VARCHAR(100),
+    battery_level INTEGER,
+    metadata JSONB DEFAULT '{}',
+    settings JSONB DEFAULT '{}',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_sync_at TIMESTAMP,
+    last_used_at TIMESTAMP
 );
 
--- Medical Imaging
-CREATE TABLE public.medical_images (
+-- Device data points table
+CREATE TABLE device_data.device_data_points (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
-    image_type TEXT NOT NULL, -- e.g., 'X-RAY', 'MRI', 'CT-SCAN', 'ULTRASOUND'
-    image_url TEXT NOT NULL,
-    file_name TEXT NOT NULL,
-    file_size BIGINT,
-    mime_type TEXT,
-    upload_date TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    taken_date TIMESTAMP WITH TIME ZONE,
-    facility_id UUID REFERENCES public.healthcare_facilities(id),
-    provider_id UUID REFERENCES public.healthcare_providers(id),
-    notes TEXT,
-    metadata JSONB, -- Store additional image metadata like dimensions, resolution, etc.
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    device_id UUID NOT NULL REFERENCES device_data.devices(id) ON DELETE CASCADE,
+    data_type VARCHAR(50) NOT NULL,
+    source VARCHAR(50) DEFAULT 'device_sync',
+    value NUMERIC(10, 4) NOT NULL,
+    unit VARCHAR(50) NOT NULL,
+    raw_value TEXT,
+    quality VARCHAR(20) DEFAULT 'unknown',
+    is_validated BOOLEAN DEFAULT FALSE,
+    validation_score NUMERIC(3, 2),
+    timestamp TIMESTAMP NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    metadata JSONB DEFAULT '{}',
+    tags JSONB DEFAULT '[]',
+    is_processed BOOLEAN DEFAULT FALSE,
+    is_anomaly BOOLEAN,
+    anomaly_score NUMERIC(3, 2)
 );
 
--- Medical Reports
-CREATE TABLE public.medical_reports (
+-- Device sync logs table
+CREATE TABLE device_data.device_sync_logs (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
-    report_type TEXT NOT NULL, -- e.g., 'LAB_RESULT', 'IMAGING_REPORT', 'CONSULTATION'
-    report_date TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    provider_id UUID REFERENCES public.healthcare_providers(id),
-    facility_id UUID REFERENCES public.healthcare_facilities(id),
-    report_content TEXT,
-    report_file_url TEXT, -- URL to the PDF or document file
-    status TEXT, -- e.g., 'PENDING', 'COMPLETED', 'REVIEWED'
-    metadata JSONB, -- Store additional report metadata
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    device_id UUID NOT NULL REFERENCES device_data.devices(id) ON DELETE CASCADE,
+    sync_id VARCHAR(255) NOT NULL,
+    status VARCHAR(50) NOT NULL,
+    data_points_synced INTEGER DEFAULT 0,
+    sync_duration NUMERIC(5, 2),
+    errors JSONB DEFAULT '[]',
+    warnings JSONB DEFAULT '[]',
+    metadata JSONB DEFAULT '{}',
+    started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    completed_at TIMESTAMP
 );
 
--- Image-Report Relationships
-CREATE TABLE public.image_report_relationships (
+-- Device health checks table
+CREATE TABLE device_data.device_health_checks (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    image_id UUID REFERENCES public.medical_images(id) ON DELETE CASCADE,
-    report_id UUID REFERENCES public.medical_reports(id) ON DELETE CASCADE,
-    relationship_type TEXT, -- e.g., 'PRIMARY', 'SUPPORTING', 'REFERENCE'
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    device_id UUID NOT NULL REFERENCES device_data.devices(id) ON DELETE CASCADE,
+    status VARCHAR(50) NOT NULL,
+    battery_level INTEGER,
+    connection_quality VARCHAR(20),
+    last_sync_status VARCHAR(50),
+    error_message TEXT,
+    firmware_version VARCHAR(100),
+    sync_latency NUMERIC(5, 2),
+    checked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Device Data Types
-CREATE TABLE public.device_data_types (
+-- Device data types table (reference table for supported data types)
+CREATE TABLE device_data.device_data_types (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    name TEXT NOT NULL UNIQUE,
-    category TEXT NOT NULL, -- e.g., 'ACTIVITY', 'SLEEP', 'NUTRITION', 'VITALS'
-    unit TEXT,
+    name VARCHAR(100) NOT NULL UNIQUE,
+    category VARCHAR(50) NOT NULL,
+    unit VARCHAR(50) NOT NULL,
     description TEXT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    data_type VARCHAR(50) NOT NULL, -- numeric, text, boolean, etc.
+    min_value NUMERIC(10, 4),
+    max_value NUMERIC(10, 4),
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Device Data Points
-CREATE TABLE public.device_data_points (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
-    device_id UUID REFERENCES public.devices(id) ON DELETE CASCADE,
-    data_type_id UUID REFERENCES public.device_data_types(id),
-    value DECIMAL,
-    unit TEXT,
-    timestamp TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    metadata JSONB, -- Store additional data like confidence, quality, etc.
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-) PARTITION BY RANGE (timestamp);
+-- ============================================================================
+-- INDEXES
+-- ============================================================================
 
--- Create partitions for device_data_points
-CREATE TABLE device_data_points_y2023m01 PARTITION OF device_data_points
-    FOR VALUES FROM ('2023-01-01') TO ('2023-02-01');
-CREATE TABLE device_data_points_y2023m02 PARTITION OF device_data_points
-    FOR VALUES FROM ('2023-02-01') TO ('2023-03-01');
--- Add more partitions as needed
+-- Auth indexes
+CREATE INDEX idx_auth_users_email ON auth.users(email);
+CREATE INDEX idx_auth_users_username ON auth.users(supabase_user_id);
+CREATE INDEX idx_auth_users_created_at ON auth.users(created_at);
+CREATE INDEX idx_auth_sessions_user_id ON auth.sessions(user_id);
+CREATE INDEX idx_auth_sessions_token_hash ON auth.sessions(token_hash);
+CREATE INDEX idx_auth_sessions_expires_at ON auth.sessions(expires_at);
+CREATE INDEX idx_auth_user_roles_user_id ON auth.user_roles(user_id);
+CREATE INDEX idx_auth_audit_log_user_id ON auth.audit_log(user_id);
+CREATE INDEX idx_auth_audit_log_created_at ON auth.audit_log(created_at);
+CREATE INDEX idx_auth_consent_records_user_id ON auth.consent_records(user_id);
 
--- Activity Tracking
-CREATE TABLE public.activity_sessions (
+-- User profile indexes
+CREATE INDEX idx_user_profile_profiles_user_id ON user_profile.profiles(user_id);
+CREATE INDEX idx_user_profile_health_attributes_user_id ON user_profile.health_attributes(user_id);
+CREATE INDEX idx_user_profile_preferences_user_id ON user_profile.preferences(user_id);
+CREATE INDEX idx_user_profile_privacy_settings_user_id ON user_profile.privacy_settings(user_id);
+
+-- Health tracking indexes
+CREATE INDEX idx_health_tracking_metrics_user_id ON health_tracking.health_metrics(user_id);
+CREATE INDEX idx_health_tracking_metrics_type ON health_tracking.health_metrics(metric_type);
+CREATE INDEX idx_health_tracking_metrics_timestamp ON health_tracking.health_metrics(timestamp);
+CREATE INDEX idx_health_tracking_metrics_user_timestamp ON health_tracking.health_metrics(user_id, timestamp);
+CREATE INDEX idx_health_tracking_metrics_type_timestamp ON health_tracking.health_metrics(metric_type, timestamp);
+CREATE INDEX idx_health_tracking_goals_user_id ON health_tracking.health_goals(user_id);
+CREATE INDEX idx_health_tracking_goals_status ON health_tracking.health_goals(status);
+CREATE INDEX idx_health_tracking_goals_user_status ON health_tracking.health_goals(user_id, status);
+CREATE INDEX idx_health_tracking_insights_user_id ON health_tracking.health_insights(user_id);
+CREATE INDEX idx_health_tracking_insights_type ON health_tracking.health_insights(insight_type);
+CREATE INDEX idx_health_tracking_insights_status ON health_tracking.health_insights(status);
+CREATE INDEX idx_health_tracking_insights_user_status ON health_tracking.health_insights(user_id, status);
+CREATE INDEX idx_health_tracking_insights_type_created ON health_tracking.health_insights(insight_type, created_at);
+
+-- Indexes for new health_tracking tables
+CREATE INDEX idx_health_tracking_vital_signs_user_created ON health_tracking.vital_signs(user_id, created_at);
+CREATE INDEX idx_health_tracking_vital_signs_type_created ON health_tracking.vital_signs(vital_sign_type, created_at);
+CREATE INDEX idx_health_tracking_symptoms_user_created ON health_tracking.symptoms(user_id, created_at);
+CREATE INDEX idx_health_tracking_symptoms_category_created ON health_tracking.symptoms(symptom_category, created_at);
+CREATE INDEX idx_health_tracking_symptoms_severity_created ON health_tracking.symptoms(severity, created_at);
+CREATE INDEX idx_health_tracking_devices_user_id ON health_tracking.devices(user_id);
+CREATE INDEX idx_health_tracking_devices_serial_number ON health_tracking.devices(serial_number);
+CREATE INDEX idx_health_tracking_devices_type ON health_tracking.devices(device_type);
+CREATE INDEX idx_health_tracking_alerts_user_id ON health_tracking.alerts(user_id);
+CREATE INDEX idx_health_tracking_alerts_status ON health_tracking.alerts(status);
+CREATE INDEX idx_health_tracking_alerts_severity ON health_tracking.alerts(severity);
+CREATE INDEX idx_health_tracking_alerts_created_at ON health_tracking.alerts(created_at);
+
+-- Device data indexes
+CREATE INDEX idx_device_data_devices_user_id ON device_data.devices(user_id);
+CREATE INDEX idx_device_data_devices_status ON device_data.devices(status);
+CREATE INDEX idx_device_data_devices_type ON device_data.devices(device_type);
+CREATE INDEX idx_device_data_devices_serial ON device_data.devices(serial_number);
+CREATE INDEX idx_device_data_devices_mac ON device_data.devices(mac_address);
+
+CREATE INDEX idx_device_data_points_user_id ON device_data.device_data_points(user_id);
+CREATE INDEX idx_device_data_points_device_id ON device_data.device_data_points(device_id);
+CREATE INDEX idx_device_data_points_timestamp ON device_data.device_data_points(timestamp);
+CREATE INDEX idx_device_data_points_data_type ON device_data.device_data_points(data_type);
+CREATE INDEX idx_device_data_points_quality ON device_data.device_data_points(quality);
+CREATE INDEX idx_device_data_points_anomaly ON device_data.device_data_points(is_anomaly);
+CREATE INDEX idx_device_data_points_user_timestamp ON device_data.device_data_points(user_id, timestamp);
+CREATE INDEX idx_device_data_points_device_timestamp ON device_data.device_data_points(device_id, timestamp);
+CREATE INDEX idx_device_data_points_type_timestamp ON device_data.device_data_points(data_type, timestamp);
+
+CREATE INDEX idx_device_sync_logs_device_id ON device_data.device_sync_logs(device_id);
+CREATE INDEX idx_device_sync_logs_status ON device_data.device_sync_logs(status);
+CREATE INDEX idx_device_sync_logs_started_at ON device_data.device_sync_logs(started_at);
+
+CREATE INDEX idx_device_health_checks_device_id ON device_data.device_health_checks(device_id);
+CREATE INDEX idx_device_health_checks_status ON device_data.device_health_checks(status);
+CREATE INDEX idx_device_health_checks_checked_at ON device_data.device_health_checks(checked_at);
+
+CREATE INDEX idx_device_data_types_name ON device_data.device_data_types(name);
+CREATE INDEX idx_device_data_types_category ON device_data.device_data_types(category);
+CREATE INDEX idx_device_data_types_active ON device_data.device_data_types(is_active);
+
+-- ============================================================================
+-- TRIGGERS
+-- ============================================================================
+
+-- Function to update updated_at timestamp
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = CURRENT_TIMESTAMP;
+    RETURN NEW;
+END;
+$$ language 'plpgsql';
+
+-- Apply updated_at triggers to all tables
+CREATE TRIGGER update_auth_users_updated_at BEFORE UPDATE ON auth.users FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER update_auth_roles_updated_at BEFORE UPDATE ON auth.roles FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER update_auth_sessions_updated_at BEFORE UPDATE ON auth.sessions FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER update_auth_mfa_settings_updated_at BEFORE UPDATE ON auth.mfa_settings FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_user_profile_profiles_updated_at BEFORE UPDATE ON user_profile.profiles FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER update_user_profile_health_attributes_updated_at BEFORE UPDATE ON user_profile.health_attributes FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER update_user_profile_preferences_updated_at BEFORE UPDATE ON user_profile.preferences FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER update_user_profile_privacy_settings_updated_at BEFORE UPDATE ON user_profile.privacy_settings FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_health_tracking_health_metrics_updated_at BEFORE UPDATE ON health_tracking.health_metrics FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER update_health_tracking_health_goals_updated_at BEFORE UPDATE ON health_tracking.health_goals FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER update_health_tracking_health_insights_updated_at BEFORE UPDATE ON health_tracking.health_insights FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER update_health_tracking_vital_signs_updated_at BEFORE UPDATE ON health_tracking.vital_signs FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER update_health_tracking_symptoms_updated_at BEFORE UPDATE ON health_tracking.symptoms FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER update_health_tracking_devices_updated_at BEFORE UPDATE ON health_tracking.devices FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER update_health_tracking_alerts_updated_at BEFORE UPDATE ON health_tracking.alerts FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- Device data triggers
+CREATE TRIGGER update_device_data_devices_updated_at BEFORE UPDATE ON device_data.devices FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER update_device_data_points_updated_at BEFORE UPDATE ON device_data.device_data_points FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER update_device_data_types_updated_at BEFORE UPDATE ON device_data.device_data_types FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- ============================================================================
+-- INITIAL DATA
+-- ============================================================================
+
+-- Insert default roles
+INSERT INTO auth.roles (name, description, permissions) VALUES
+('admin', 'Administrator with full access', '{"all": true}'),
+('user', 'Standard user', '{"read_own": true, "write_own": true}'),
+('healthcare_provider', 'Healthcare provider with patient access', '{"read_patients": true, "write_patients": true}'),
+('researcher', 'Researcher with anonymized data access', '{"read_anonymized": true}');
+
+-- Insert default user (for testing)
+INSERT INTO auth.users (supabase_user_id, email, first_name, last_name, user_type, status, email_verified) VALUES
+('admin-uuid-123', 'admin@healthassistant.com', 'Admin', 'User', 'admin', 'active', true);
+
+-- Assign admin role to default user
+INSERT INTO auth.user_roles (user_id, role_id, assigned_by) 
+SELECT u.id, r.id, u.id 
+FROM auth.users u, auth.roles r 
+WHERE u.email = 'admin@healthassistant.com' AND r.name = 'admin';
+
+-- Insert default device data types
+INSERT INTO device_data.device_data_types (name, category, unit, description, data_type, min_value, max_value) VALUES
+('heart_rate', 'cardiovascular', 'bpm', 'Heart rate in beats per minute', 'numeric', 40, 200),
+('blood_pressure_systolic', 'cardiovascular', 'mmHg', 'Systolic blood pressure', 'numeric', 70, 200),
+('blood_pressure_diastolic', 'cardiovascular', 'mmHg', 'Diastolic blood pressure', 'numeric', 40, 130),
+('blood_oxygen', 'respiratory', '%', 'Blood oxygen saturation', 'numeric', 70, 100),
+('respiratory_rate', 'respiratory', 'breaths/min', 'Breathing rate per minute', 'numeric', 8, 40),
+('temperature', 'vital_signs', '°C', 'Body temperature', 'numeric', 35, 42),
+('weight', 'body_composition', 'kg', 'Body weight', 'numeric', 20, 300),
+('body_fat_percentage', 'body_composition', '%', 'Body fat percentage', 'numeric', 5, 50),
+('muscle_mass', 'body_composition', 'kg', 'Muscle mass', 'numeric', 10, 100),
+('steps', 'activity', 'count', 'Daily step count', 'numeric', 0, 50000),
+('calories_burned', 'activity', 'kcal', 'Calories burned', 'numeric', 0, 5000),
+('distance', 'activity', 'km', 'Distance traveled', 'numeric', 0, 100),
+('sleep_duration', 'sleep', 'hours', 'Sleep duration', 'numeric', 0, 24),
+('sleep_quality', 'sleep', 'score', 'Sleep quality score', 'numeric', 0, 100),
+('glucose', 'metabolic', 'mg/dL', 'Blood glucose level', 'numeric', 40, 400),
+('hydration', 'hydration', 'ml', 'Water intake', 'numeric', 0, 5000),
+('stress_level', 'wellness', 'score', 'Stress level score', 'numeric', 0, 100),
+('mood', 'wellness', 'score', 'Mood score', 'numeric', 0, 100);
+
+-- ============================================================================
+-- ROW LEVEL SECURITY (RLS)
+-- ============================================================================
+
+-- Enable RLS on all tables
+ALTER TABLE auth.users ENABLE ROW LEVEL SECURITY;
+ALTER TABLE auth.sessions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE auth.mfa_settings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE auth.audit_log ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE user_profile.profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE user_profile.health_attributes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE user_profile.preferences ENABLE ROW LEVEL SECURITY;
+ALTER TABLE user_profile.privacy_settings ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE health_tracking.health_metrics ENABLE ROW LEVEL SECURITY;
+ALTER TABLE health_tracking.health_goals ENABLE ROW LEVEL SECURITY;
+ALTER TABLE health_tracking.health_insights ENABLE ROW LEVEL SECURITY;
+ALTER TABLE health_tracking.vital_signs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE health_tracking.symptoms ENABLE ROW LEVEL SECURITY;
+ALTER TABLE health_tracking.devices ENABLE ROW LEVEL SECURITY;
+ALTER TABLE health_tracking.alerts ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE device_data.devices ENABLE ROW LEVEL SECURITY;
+ALTER TABLE device_data.device_data_points ENABLE ROW LEVEL SECURITY;
+ALTER TABLE device_data.device_sync_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE device_data.device_health_checks ENABLE ROW LEVEL SECURITY;
+ALTER TABLE device_data.device_data_types ENABLE ROW LEVEL SECURITY;
+
+-- Medical Records RLS
+ALTER TABLE medical_records.lab_results ENABLE ROW LEVEL SECURITY;
+ALTER TABLE medical_records.imaging_studies ENABLE ROW LEVEL SECURITY;
+ALTER TABLE medical_records.medical_reports ENABLE ROW LEVEL SECURITY;
+ALTER TABLE medical_records.biomarkers ENABLE ROW LEVEL SECURITY;
+ALTER TABLE medical_records.document_processing ENABLE ROW LEVEL SECURITY;
+ALTER TABLE medical_records.ehr_integration_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE medical_records.clinical_nlp_results ENABLE ROW LEVEL SECURITY;
+ALTER TABLE medical_records.document_agent_processing ENABLE ROW LEVEL SECURITY;
+ALTER TABLE medical_records.access_audit ENABLE ROW LEVEL SECURITY;
+ALTER TABLE medical_records.record_consents ENABLE ROW LEVEL SECURITY;
+
+-- RLS Policies will be created by each service based on their specific requirements
+-- This provides a foundation for secure multi-tenant data access
+
+-- ============================================================================
+-- VIEWS
+-- ============================================================================
+
+-- User summary view
+CREATE VIEW user_profile.user_summary AS
+SELECT 
+    u.id,
+    u.email,
+    u.supabase_user_id,
+    u.first_name,
+    u.last_name,
+    u.status,
+    u.created_at,
+    p.avatar_url,
+    p.location,
+    ha.height_cm,
+    ha.weight_kg,
+    ha.bmi,
+    ha.blood_type
+FROM auth.users u
+LEFT JOIN user_profile.profiles p ON u.id = p.user_id
+LEFT JOIN user_profile.health_attributes ha ON u.id = ha.user_id;
+
+-- Health metrics summary view
+CREATE VIEW health_tracking.metrics_summary AS
+SELECT 
+    user_id,
+    metric_type,
+    COUNT(*) as total_measurements,
+    AVG(value) as average_value,
+    MIN(value) as min_value,
+    MAX(value) as max_value,
+    MIN(timestamp) as first_measurement,
+    MAX(timestamp) as last_measurement
+FROM health_tracking.health_metrics
+GROUP BY user_id, metric_type;
+
+-- ============================================================================
+-- FUNCTIONS
+-- ============================================================================
+
+-- Function to calculate BMI
+CREATE OR REPLACE FUNCTION health_tracking.calculate_bmi(height_cm DECIMAL, weight_kg DECIMAL)
+RETURNS DECIMAL AS $$
+BEGIN
+    IF height_cm IS NULL OR weight_kg IS NULL OR height_cm <= 0 THEN
+        RETURN NULL;
+    END IF;
+    
+    RETURN ROUND((weight_kg / POWER(height_cm / 100, 2))::DECIMAL, 2);
+END;
+$$ LANGUAGE plpgsql;
+
+-- Function to get user health score
+CREATE OR REPLACE FUNCTION health_tracking.get_health_score(user_uuid UUID)
+RETURNS DECIMAL AS $$
+DECLARE
+    score DECIMAL := 0;
+    weight_score DECIMAL := 0;
+    activity_score DECIMAL := 0;
+    sleep_score DECIMAL := 0;
+    latest_weight DECIMAL;
+    latest_steps DECIMAL;
+    latest_sleep DECIMAL;
+BEGIN
+    -- Get latest weight
+    SELECT value INTO latest_weight
+    FROM health_tracking.health_metrics
+    WHERE user_id = user_uuid AND metric_type = 'weight'
+    ORDER BY timestamp DESC LIMIT 1;
+    
+    -- Get latest steps (last 7 days average)
+    SELECT AVG(value) INTO latest_steps
+    FROM health_tracking.health_metrics
+    WHERE user_id = user_uuid 
+    AND metric_type = 'steps'
+    AND timestamp >= CURRENT_DATE - INTERVAL '7 days';
+    
+    -- Get latest sleep duration (last 7 days average)
+    SELECT AVG(value) INTO latest_sleep
+    FROM health_tracking.health_metrics
+    WHERE user_id = user_uuid 
+    AND metric_type = 'sleep_duration'
+    AND timestamp >= CURRENT_DATE - INTERVAL '7 days';
+    
+    -- Calculate weight score (assuming ideal BMI range 18.5-25)
+    IF latest_weight IS NOT NULL THEN
+        -- This is a simplified calculation - in practice you'd use height to calculate BMI
+        weight_score := CASE 
+            WHEN latest_weight BETWEEN 50 AND 100 THEN 25
+            ELSE 10
+        END;
+    END IF;
+    
+    -- Calculate activity score
+    IF latest_steps IS NOT NULL THEN
+        activity_score := CASE 
+            WHEN latest_steps >= 10000 THEN 25
+            WHEN latest_steps >= 8000 THEN 20
+            WHEN latest_steps >= 6000 THEN 15
+            WHEN latest_steps >= 4000 THEN 10
+            ELSE 5
+        END;
+    END IF;
+    
+    -- Calculate sleep score
+    IF latest_sleep IS NOT NULL THEN
+        sleep_score := CASE 
+            WHEN latest_sleep BETWEEN 7 AND 9 THEN 25
+            WHEN latest_sleep BETWEEN 6 AND 10 THEN 20
+            WHEN latest_sleep BETWEEN 5 AND 11 THEN 15
+            ELSE 10
+        END;
+    END IF;
+    
+    score := weight_score + activity_score + sleep_score;
+    
+    RETURN score;
+END;
+$$ LANGUAGE plpgsql;
+
+-- ============================================================================
+-- COMMENTS
+-- ============================================================================
+
+COMMENT ON SCHEMA auth IS 'Authentication and authorization service schema';
+COMMENT ON SCHEMA user_profile IS 'User profile and preferences service schema';
+COMMENT ON SCHEMA health_tracking IS 'Health metrics and insights service schema';
+
+COMMENT ON TABLE auth.users IS 'Core user accounts for the health assistant platform';
+COMMENT ON TABLE auth.roles IS 'User roles and permissions';
+COMMENT ON TABLE auth.sessions IS 'User session management';
+COMMENT ON TABLE auth.audit_log IS 'Audit trail for security and compliance';
+
+COMMENT ON TABLE user_profile.profiles IS 'User profile information';
+COMMENT ON TABLE user_profile.health_attributes IS 'Core health attributes and medical information';
+COMMENT ON TABLE user_profile.preferences IS 'User preferences and settings';
+COMMENT ON TABLE user_profile.privacy_settings IS 'Privacy and data sharing preferences';
+
+COMMENT ON TABLE health_tracking.health_metrics IS 'Health measurements and data points';
+COMMENT ON TABLE health_tracking.health_goals IS 'User health goals and targets';
+COMMENT ON TABLE health_tracking.health_insights IS 'AI-generated health insights and recommendations';
+
+COMMENT ON SCHEMA medical_records IS 'Medical records and clinical data service schema';
+
+COMMENT ON TABLE medical_records.lab_results IS 'Laboratory test results and clinical chemistry data';
+COMMENT ON TABLE medical_records.imaging_studies IS 'Medical imaging studies and radiology reports';
+COMMENT ON TABLE medical_records.medical_reports IS 'Clinical notes, discharge summaries, and medical reports';
+COMMENT ON TABLE medical_records.biomarkers IS 'Specialized biomarkers and advanced laboratory tests';
+COMMENT ON TABLE medical_records.document_processing IS 'OCR and document processing results';
+COMMENT ON TABLE medical_records.ehr_integration_logs IS 'EHR integration and FHIR synchronization logs';
+COMMENT ON TABLE medical_records.clinical_nlp_results IS 'Clinical NLP processing and AI analysis results';
+COMMENT ON TABLE medical_records.document_agent_processing IS 'Document triage and agent processing results';
+COMMENT ON TABLE medical_records.access_audit IS 'Medical records access audit trail for compliance';
+COMMENT ON TABLE medical_records.record_consents IS 'Patient consent management for medical records';
+
+-- ============================================================================
+-- MEDICAL RECORDS INDEXES
+-- ============================================================================
+
+-- Lab Results Indexes
+CREATE INDEX idx_medical_records_lab_results_patient_id ON medical_records.lab_results(patient_id);
+CREATE INDEX idx_medical_records_lab_results_test_name ON medical_records.lab_results(test_name);
+CREATE INDEX idx_medical_records_lab_results_test_date ON medical_records.lab_results(test_date);
+CREATE INDEX idx_medical_records_lab_results_abnormal ON medical_records.lab_results(abnormal);
+CREATE INDEX idx_medical_records_lab_results_critical ON medical_records.lab_results(critical);
+CREATE INDEX idx_medical_records_lab_results_source ON medical_records.lab_results(source);
+CREATE INDEX idx_medical_records_lab_results_external_id ON medical_records.lab_results(external_id);
+CREATE INDEX idx_medical_records_lab_results_patient_date ON medical_records.lab_results(patient_id, test_date);
+
+-- Imaging Studies Indexes
+CREATE INDEX idx_medical_records_imaging_studies_patient_id ON medical_records.imaging_studies(patient_id);
+CREATE INDEX idx_medical_records_imaging_studies_modality ON medical_records.imaging_studies(modality);
+CREATE INDEX idx_medical_records_imaging_studies_study_date ON medical_records.imaging_studies(study_date);
+CREATE INDEX idx_medical_records_imaging_studies_body_part ON medical_records.imaging_studies(body_part);
+CREATE INDEX idx_medical_records_imaging_studies_status ON medical_records.imaging_studies(status);
+CREATE INDEX idx_medical_records_imaging_studies_source ON medical_records.imaging_studies(source);
+CREATE INDEX idx_medical_records_imaging_studies_external_id ON medical_records.imaging_studies(external_id);
+CREATE INDEX idx_medical_records_imaging_studies_patient_date ON medical_records.imaging_studies(patient_id, study_date);
+
+-- Medical Reports Indexes
+CREATE INDEX idx_medical_records_medical_reports_patient_id ON medical_records.medical_reports(patient_id);
+CREATE INDEX idx_medical_records_medical_reports_report_type ON medical_records.medical_reports(report_type);
+CREATE INDEX idx_medical_records_medical_reports_report_date ON medical_records.medical_reports(report_date);
+CREATE INDEX idx_medical_records_medical_reports_author ON medical_records.medical_reports(author);
+CREATE INDEX idx_medical_records_medical_reports_status ON medical_records.medical_reports(status);
+CREATE INDEX idx_medical_records_medical_reports_source ON medical_records.medical_reports(source);
+CREATE INDEX idx_medical_records_medical_reports_external_id ON medical_records.medical_reports(external_id);
+CREATE INDEX idx_medical_records_medical_reports_ocr_processed ON medical_records.medical_reports(ocr_processed);
+CREATE INDEX idx_medical_records_medical_reports_patient_date ON medical_records.medical_reports(patient_id, report_date);
+CREATE INDEX idx_medical_records_medical_reports_tags ON medical_records.medical_reports USING GIN(tags);
+
+-- Biomarkers Indexes
+CREATE INDEX idx_medical_records_biomarkers_patient_id ON medical_records.biomarkers(patient_id);
+CREATE INDEX idx_medical_records_biomarkers_name ON medical_records.biomarkers(biomarker_name);
+CREATE INDEX idx_medical_records_biomarkers_test_date ON medical_records.biomarkers(test_date);
+CREATE INDEX idx_medical_records_biomarkers_abnormal ON medical_records.biomarkers(abnormal);
+CREATE INDEX idx_medical_records_biomarkers_critical ON medical_records.biomarkers(critical);
+CREATE INDEX idx_medical_records_biomarkers_source ON medical_records.biomarkers(source);
+CREATE INDEX idx_medical_records_biomarkers_patient_date ON medical_records.biomarkers(patient_id, test_date);
+
+-- Document Processing Indexes
+CREATE INDEX idx_medical_records_document_processing_document_id ON medical_records.document_processing(document_id);
+CREATE INDEX idx_medical_records_document_processing_type ON medical_records.document_processing(processing_type);
+CREATE INDEX idx_medical_records_document_processing_status ON medical_records.document_processing(status);
+CREATE INDEX idx_medical_records_document_processing_created_at ON medical_records.document_processing(created_at);
+
+-- EHR Integration Logs Indexes
+CREATE INDEX idx_medical_records_ehr_integration_logs_patient_id ON medical_records.ehr_integration_logs(patient_id);
+CREATE INDEX idx_medical_records_ehr_integration_logs_type ON medical_records.ehr_integration_logs(integration_type);
+CREATE INDEX idx_medical_records_ehr_integration_logs_operation ON medical_records.ehr_integration_logs(operation_type);
+CREATE INDEX idx_medical_records_ehr_integration_logs_status ON medical_records.ehr_integration_logs(status);
+CREATE INDEX idx_medical_records_ehr_integration_logs_created_at ON medical_records.ehr_integration_logs(created_at);
+
+-- Clinical NLP Results Indexes
+CREATE INDEX idx_medical_records_clinical_nlp_results_document_id ON medical_records.clinical_nlp_results(document_id);
+CREATE INDEX idx_medical_records_clinical_nlp_results_model ON medical_records.clinical_nlp_results(nlp_model);
+CREATE INDEX idx_medical_records_clinical_nlp_results_type ON medical_records.clinical_nlp_results(processing_type);
+CREATE INDEX idx_medical_records_clinical_nlp_results_status ON medical_records.clinical_nlp_results(status);
+CREATE INDEX idx_medical_records_clinical_nlp_results_created_at ON medical_records.clinical_nlp_results(created_at);
+
+-- Document Agent Processing Indexes
+CREATE INDEX idx_medical_records_document_agent_processing_document_id ON medical_records.document_agent_processing(document_id);
+CREATE INDEX idx_medical_records_document_agent_processing_type ON medical_records.document_agent_processing(document_type);
+CREATE INDEX idx_medical_records_document_agent_processing_status ON medical_records.document_agent_processing(processing_status);
+CREATE INDEX idx_medical_records_document_agent_processing_priority ON medical_records.document_agent_processing(priority_score);
+CREATE INDEX idx_medical_records_document_agent_processing_urgency ON medical_records.document_agent_processing(urgency_level);
+CREATE INDEX idx_medical_records_document_agent_processing_category ON medical_records.document_agent_processing(document_category);
+CREATE INDEX idx_medical_records_document_agent_processing_tags ON medical_records.document_agent_processing USING GIN(tags);
+CREATE INDEX idx_medical_records_document_agent_processing_assigned_to ON medical_records.document_agent_processing(assigned_to);
+
+-- Access Audit Indexes
+CREATE INDEX idx_medical_records_access_audit_user_id ON medical_records.access_audit(user_id);
+CREATE INDEX idx_medical_records_access_audit_record_id ON medical_records.access_audit(record_id);
+CREATE INDEX idx_medical_records_access_audit_action ON medical_records.access_audit(action);
+CREATE INDEX idx_medical_records_access_audit_created_at ON medical_records.access_audit(created_at);
+
+-- Record Consents Indexes
+CREATE INDEX idx_medical_records_record_consents_patient_id ON medical_records.record_consents(patient_id);
+CREATE INDEX idx_medical_records_record_consents_record_id ON medical_records.record_consents(record_id);
+CREATE INDEX idx_medical_records_record_consents_type ON medical_records.record_consents(consent_type);
+CREATE INDEX idx_medical_records_record_consents_status ON medical_records.record_consents(consent_status);
+CREATE INDEX idx_medical_records_record_consents_granted_at ON medical_records.record_consents(granted_at);
+
+-- ============================================================================
+-- MEDICAL RECORDS TRIGGERS
+-- ============================================================================
+
+CREATE TRIGGER update_medical_records_lab_results_updated_at BEFORE UPDATE ON medical_records.lab_results FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER update_medical_records_imaging_studies_updated_at BEFORE UPDATE ON medical_records.imaging_studies FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER update_medical_records_medical_reports_updated_at BEFORE UPDATE ON medical_records.medical_reports FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER update_medical_records_biomarkers_updated_at BEFORE UPDATE ON medical_records.biomarkers FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER update_medical_records_document_processing_updated_at BEFORE UPDATE ON medical_records.document_processing FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER update_medical_records_ehr_integration_logs_updated_at BEFORE UPDATE ON medical_records.ehr_integration_logs FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER update_medical_records_clinical_nlp_results_updated_at BEFORE UPDATE ON medical_records.clinical_nlp_results FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER update_medical_records_document_agent_processing_updated_at BEFORE UPDATE ON medical_records.document_agent_processing FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER update_medical_records_record_consents_updated_at BEFORE UPDATE ON medical_records.record_consents FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- ============================================================================
+-- MEDICAL RECORDS VIEWS
+-- ============================================================================
+
+-- Medical Records Summary View
+CREATE VIEW medical_records.patient_records_summary AS
+SELECT 
+    patient_id,
+    COUNT(DISTINCT lr.id) as lab_results_count,
+    COUNT(DISTINCT im.id) as imaging_studies_count,
+    COUNT(DISTINCT mr.id) as medical_reports_count,
+    COUNT(DISTINCT bm.id) as biomarkers_count,
+    MAX(lr.test_date) as latest_lab_date,
+    MAX(im.study_date) as latest_imaging_date,
+    MAX(mr.report_date) as latest_report_date,
+    MAX(bm.test_date) as latest_biomarker_date,
+    COUNT(CASE WHEN lr.abnormal = true THEN 1 END) as abnormal_labs_count,
+    COUNT(CASE WHEN lr.critical = true THEN 1 END) as critical_labs_count,
+    COUNT(CASE WHEN bm.abnormal = true THEN 1 END) as abnormal_biomarkers_count
+FROM auth.users u
+LEFT JOIN medical_records.lab_results lr ON u.id = lr.patient_id
+LEFT JOIN medical_records.imaging_studies im ON u.id = im.patient_id
+LEFT JOIN medical_records.medical_reports mr ON u.id = mr.patient_id
+LEFT JOIN medical_records.biomarkers bm ON u.id = bm.patient_id
+GROUP BY patient_id;
+
+-- Abnormal Results Alert View
+CREATE VIEW medical_records.abnormal_results_alert AS
+SELECT 
+    'lab_result' as record_type,
+    id,
+    patient_id,
+    test_name as record_name,
+    test_date as record_date,
+    abnormal,
+    critical,
+    'Lab result outside normal range' as alert_message
+FROM medical_records.lab_results
+WHERE abnormal = true OR critical = true
+
+UNION ALL
+
+SELECT 
+    'biomarker' as record_type,
+    id,
+    patient_id,
+    biomarker_name as record_name,
+    test_date as record_date,
+    abnormal,
+    critical,
+    'Biomarker outside normal range' as alert_message
+FROM medical_records.biomarkers
+WHERE abnormal = true OR critical = true;
+
+-- ============================================================================
+-- MEDICAL RECORDS FUNCTIONS
+-- ============================================================================
+
+-- Function to calculate age-adjusted reference ranges
+CREATE OR REPLACE FUNCTION medical_records.calculate_age_adjusted_reference_range(
+    test_code VARCHAR,
+    patient_age_years INTEGER,
+    patient_gender VARCHAR DEFAULT NULL
+)
+RETURNS TABLE(low_value DECIMAL, high_value DECIMAL, unit VARCHAR) AS $$
+BEGIN
+    -- This is a simplified implementation
+    -- In practice, you would have a comprehensive reference range database
+    RETURN QUERY
+    SELECT 
+        CASE 
+            WHEN test_code = 'GLU' AND patient_age_years >= 18 THEN 70.0
+            WHEN test_code = 'GLU' AND patient_age_years < 18 THEN 60.0
+            WHEN test_code = 'CRE' AND patient_gender = 'male' THEN 0.7
+            WHEN test_code = 'CRE' AND patient_gender = 'female' THEN 0.5
+            ELSE 0.0
+        END as low_value,
+        CASE 
+            WHEN test_code = 'GLU' AND patient_age_years >= 18 THEN 100.0
+            WHEN test_code = 'GLU' AND patient_age_years < 18 THEN 90.0
+            WHEN test_code = 'CRE' AND patient_gender = 'male' THEN 1.3
+            WHEN test_code = 'CRE' AND patient_gender = 'female' THEN 1.1
+            ELSE 999.0
+        END as high_value,
+        CASE 
+            WHEN test_code = 'GLU' THEN 'mg/dL'
+            WHEN test_code = 'CRE' THEN 'mg/dL'
+            ELSE 'units'
+        END as unit;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Function to get patient's medical history summary
+CREATE OR REPLACE FUNCTION medical_records.get_patient_medical_summary(patient_uuid UUID)
+RETURNS JSONB AS $$
+DECLARE
+    summary JSONB;
+BEGIN
+    SELECT jsonb_build_object(
+        'patient_id', patient_uuid,
+        'lab_results_count', (SELECT COUNT(*) FROM medical_records.lab_results WHERE patient_id = patient_uuid),
+        'imaging_studies_count', (SELECT COUNT(*) FROM medical_records.imaging_studies WHERE patient_id = patient_uuid),
+        'medical_reports_count', (SELECT COUNT(*) FROM medical_records.medical_reports WHERE patient_id = patient_uuid),
+        'abnormal_results_count', (
+            SELECT COUNT(*) FROM medical_records.lab_results 
+            WHERE patient_id = patient_uuid AND (abnormal = true OR critical = true)
+        ),
+        'latest_lab_date', (SELECT MAX(test_date) FROM medical_records.lab_results WHERE patient_id = patient_uuid),
+        'latest_imaging_date', (SELECT MAX(study_date) FROM medical_records.imaging_studies WHERE patient_id = patient_uuid),
+        'latest_report_date', (SELECT MAX(report_date) FROM medical_records.medical_reports WHERE patient_id = patient_uuid)
+    ) INTO summary;
+    
+    RETURN summary;
+END;
+$$ LANGUAGE plpgsql; 
+
+-- ============================================================================
+-- NUTRITION SCHEMA
+-- ============================================================================
+
+-- Food Recognition Results Table
+CREATE TABLE nutrition.food_recognition_results (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
-    activity_type TEXT NOT NULL, -- e.g., 'WALKING', 'RUNNING', 'CYCLING'
-    start_time TIMESTAMP WITH TIME ZONE NOT NULL,
-    end_time TIMESTAMP WITH TIME ZONE,
-    duration INTEGER, -- in seconds
-    calories_burned DECIMAL,
-    distance DECIMAL,
-    steps INTEGER,
-    heart_rate_avg DECIMAL,
-    heart_rate_max DECIMAL,
-    heart_rate_min DECIMAL,
-    metadata JSONB, -- Store additional activity data
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    user_id VARCHAR(50) NOT NULL,
+    recognition_id VARCHAR(100) UNIQUE NOT NULL,
+    timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    
+    -- Image metadata
+    image_format VARCHAR(10),
+    image_size_bytes INTEGER,
+    image_hash VARCHAR(64),
+    
+    -- Recognition metadata
+    models_used JSONB,
+    processing_time_ms INTEGER,
+    confidence_threshold FLOAT DEFAULT 0.5,
+    
+    -- Recognition results
+    recognized_foods JSONB NOT NULL,
+    total_foods_detected INTEGER DEFAULT 0,
+    average_confidence FLOAT,
+    
+    -- User metadata
+    meal_type VARCHAR(20),
+    cuisine_hint VARCHAR(50),
+    region_hint VARCHAR(50),
+    dietary_restrictions JSONB,
+    preferred_units VARCHAR(10) DEFAULT 'metric',
+    
+    -- Status and feedback
+    is_corrected BOOLEAN DEFAULT FALSE,
+    user_rating INTEGER CHECK (user_rating >= 1 AND user_rating <= 5),
+    user_feedback TEXT
 );
 
--- Sleep Tracking
-CREATE TABLE public.sleep_sessions (
+-- User Corrections Table
+CREATE TABLE nutrition.user_corrections (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
-    start_time TIMESTAMP WITH TIME ZONE NOT NULL,
-    end_time TIMESTAMP WITH TIME ZONE,
-    duration INTEGER, -- in minutes
-    quality_score DECIMAL,
-    deep_sleep_duration INTEGER,
-    light_sleep_duration INTEGER,
-    rem_sleep_duration INTEGER,
-    awake_duration INTEGER,
-    heart_rate_avg DECIMAL,
-    metadata JSONB, -- Store additional sleep data
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    recognition_result_id UUID NOT NULL REFERENCES nutrition.food_recognition_results(id) ON DELETE CASCADE,
+    user_id VARCHAR(50) NOT NULL,
+    timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    
+    -- Correction data
+    original_food_name VARCHAR(100) NOT NULL,
+    corrected_food_name VARCHAR(100),
+    original_portion_g FLOAT,
+    corrected_portion_g FLOAT,
+    original_confidence FLOAT,
+    user_confidence FLOAT DEFAULT 1.0,
+    
+    -- Correction metadata
+    correction_type VARCHAR(20) NOT NULL,
+    correction_reason TEXT
 );
 
--- Nutrition Tracking
-CREATE TABLE public.nutrition_logs (
+-- Meal Logs Table
+CREATE TABLE nutrition.meal_logs (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
-    meal_type TEXT, -- e.g., 'BREAKFAST', 'LUNCH', 'DINNER', 'SNACK'
-    timestamp TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    calories DECIMAL,
-    protein DECIMAL,
-    carbs DECIMAL,
-    fat DECIMAL,
-    fiber DECIMAL,
-    sugar DECIMAL,
-    sodium DECIMAL,
-    water_intake DECIMAL,
-    notes TEXT,
-    metadata JSONB, -- Store additional nutrition data
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    user_id VARCHAR(50) NOT NULL,
+    recognition_result_id UUID REFERENCES nutrition.food_recognition_results(id) ON DELETE SET NULL,
+    timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    
+    -- Meal metadata
+    meal_type VARCHAR(20) NOT NULL,
+    meal_name VARCHAR(100),
+    meal_description TEXT,
+    
+    -- Food items
+    food_items JSONB NOT NULL,
+    
+    -- Nutrition totals
+    total_calories FLOAT NOT NULL,
+    total_protein_g FLOAT NOT NULL,
+    total_carbs_g FLOAT NOT NULL,
+    total_fat_g FLOAT NOT NULL,
+    total_fiber_g FLOAT NOT NULL,
+    total_sodium_mg FLOAT NOT NULL,
+    total_sugar_g FLOAT NOT NULL,
+    micronutrients JSONB,
+    
+    -- User input
+    user_notes TEXT,
+    mood_before VARCHAR(20),
+    mood_after VARCHAR(20),
+    
+    -- Integration flags
+    synced_to_health_tracking BOOLEAN DEFAULT FALSE,
+    synced_to_medical_analysis BOOLEAN DEFAULT FALSE
 );
 
--- Vital Signs
-CREATE TABLE public.vital_signs (
+-- Nutrition Goals Table
+CREATE TABLE nutrition.nutrition_goals (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
-    timestamp TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    blood_pressure_systolic INTEGER,
-    blood_pressure_diastolic INTEGER,
-    heart_rate INTEGER,
-    temperature DECIMAL,
-    blood_oxygen DECIMAL,
-    respiratory_rate INTEGER,
-    metadata JSONB, -- Store additional vital signs data
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    user_id VARCHAR(50) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    
+    -- Goal metadata
+    goal_name VARCHAR(100) NOT NULL,
+    goal_type VARCHAR(30) NOT NULL,
+    goal_description TEXT,
+    is_active BOOLEAN DEFAULT TRUE,
+    
+    -- Target values
+    target_calories FLOAT,
+    target_protein_g FLOAT,
+    target_carbs_g FLOAT,
+    target_fat_g FLOAT,
+    target_fiber_g FLOAT,
+    target_sodium_mg FLOAT,
+    
+    -- Goal settings
+    start_date TIMESTAMP WITH TIME ZONE,
+    target_date TIMESTAMP WITH TIME ZONE,
+    progress_percentage FLOAT DEFAULT 0.0
 );
 
--- Health Goals
-CREATE TABLE public.health_goals (
+-- Food Database Table (for caching)
+CREATE TABLE nutrition.food_database (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
-    goal_type TEXT NOT NULL, -- e.g., 'WEIGHT', 'ACTIVITY', 'SLEEP', 'NUTRITION'
-    target_value DECIMAL,
-    start_date DATE NOT NULL,
-    end_date DATE,
-    status TEXT, -- e.g., 'ACTIVE', 'COMPLETED', 'ABANDONED'
-    progress DECIMAL,
-    notes TEXT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    food_name VARCHAR(200) NOT NULL,
+    food_category VARCHAR(50),
+    source VARCHAR(20) NOT NULL,
+    
+    -- Nutrition data (per 100g)
+    calories_per_100g FLOAT NOT NULL,
+    protein_g_per_100g FLOAT NOT NULL,
+    carbs_g_per_100g FLOAT NOT NULL,
+    fat_g_per_100g FLOAT NOT NULL,
+    fiber_g_per_100g FLOAT NOT NULL,
+    sodium_mg_per_100g FLOAT NOT NULL,
+    sugar_g_per_100g FLOAT NOT NULL,
+    micronutrients JSONB,
+    
+    -- Metadata
+    brand_name VARCHAR(100),
+    barcode VARCHAR(50),
+    serving_size_g FLOAT,
+    serving_description VARCHAR(100),
+    
+    -- Caching
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    last_accessed TIMESTAMP WITH TIME ZONE,
+    access_count INTEGER DEFAULT 0
 );
 
--- Health Insights
-CREATE TABLE public.health_insights (
+-- Model Performance Table
+CREATE TABLE nutrition.model_performance (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
-    insight_type TEXT NOT NULL, -- e.g., 'ACTIVITY', 'SLEEP', 'NUTRITION', 'VITALS'
-    title TEXT NOT NULL,
-    description TEXT,
-    severity TEXT, -- e.g., 'INFO', 'WARNING', 'ALERT'
-    data_points JSONB, -- Store relevant data points for the insight
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    model_name VARCHAR(50) NOT NULL,
+    timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    
+    -- Performance metrics
+    accuracy FLOAT,
+    processing_time_ms FLOAT,
+    success_rate FLOAT,
+    error_rate FLOAT,
+    
+    -- Usage statistics
+    total_requests INTEGER DEFAULT 0,
+    successful_requests INTEGER DEFAULT 0,
+    failed_requests INTEGER DEFAULT 0,
+    
+    -- User feedback
+    user_satisfaction_score FLOAT,
+    correction_rate FLOAT
 );
 
--- Nutrition Photos
-CREATE TABLE public.nutrition_photos (
+-- User Preferences Table
+CREATE TABLE nutrition.user_preferences (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
-    nutrition_log_id UUID REFERENCES public.nutrition_logs(id) ON DELETE CASCADE,
-    photo_url TEXT NOT NULL,
-    thumbnail_url TEXT,
-    file_name TEXT NOT NULL,
-    file_size BIGINT,
-    mime_type TEXT,
-    taken_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    photo_type TEXT, -- e.g., 'MEAL', 'SUPPLEMENT', 'INGREDIENT'
-    metadata JSONB, -- Store additional photo metadata like dimensions, location, etc.
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    user_id VARCHAR(50) UNIQUE NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    
+    -- Dietary preferences
+    dietary_restrictions JSONB,
+    allergies JSONB,
+    preferred_cuisines JSONB,
+    disliked_foods JSONB,
+    
+    -- Measurement preferences
+    preferred_units VARCHAR(10) DEFAULT 'metric',
+    calorie_goal FLOAT,
+    protein_goal_g FLOAT,
+    carb_goal_g FLOAT,
+    fat_goal_g FLOAT,
+    
+    -- Notification preferences
+    enable_nutrition_alerts BOOLEAN DEFAULT TRUE,
+    enable_meal_reminders BOOLEAN DEFAULT TRUE,
+    alert_thresholds JSONB,
+    
+    -- Recognition preferences
+    preferred_recognition_models JSONB,
+    confidence_threshold FLOAT DEFAULT 0.7,
+    enable_portion_estimation BOOLEAN DEFAULT TRUE
 );
 
--- Supplements
-CREATE TABLE public.supplements (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    name TEXT NOT NULL,
-    brand TEXT,
-    category TEXT, -- e.g., 'VITAMIN', 'MINERAL', 'PROTEIN', 'HERBAL'
-    serving_size TEXT,
-    serving_unit TEXT,
-    description TEXT,
-    ingredients TEXT[],
-    nutritional_info JSONB, -- Store detailed nutritional information
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
+-- ============================================================================
+-- NUTRITION INDEXES
+-- ============================================================================
 
--- User Supplements
-CREATE TABLE public.user_supplements (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
-    supplement_id UUID REFERENCES public.supplements(id) ON DELETE CASCADE,
-    start_date DATE,
-    end_date DATE,
-    dosage TEXT,
-    frequency TEXT,
-    notes TEXT,
-    status TEXT DEFAULT 'active',
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
+-- Food Recognition Results Indexes
+CREATE INDEX idx_nutrition_food_recognition_user_timestamp ON nutrition.food_recognition_results(user_id, timestamp);
+CREATE INDEX idx_nutrition_food_recognition_recognition_id ON nutrition.food_recognition_results(recognition_id);
+CREATE INDEX idx_nutrition_food_recognition_meal_type ON nutrition.food_recognition_results(meal_type);
+CREATE INDEX idx_nutrition_food_recognition_is_corrected ON nutrition.food_recognition_results(is_corrected);
 
--- Supplement Logs
-CREATE TABLE public.supplement_logs (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
-    user_supplement_id UUID REFERENCES public.user_supplements(id) ON DELETE CASCADE,
-    taken_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    dosage TEXT,
-    notes TEXT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
+-- User Corrections Indexes
+CREATE INDEX idx_nutrition_user_corrections_user_timestamp ON nutrition.user_corrections(user_id, timestamp);
+CREATE INDEX idx_nutrition_user_corrections_recognition_result ON nutrition.user_corrections(recognition_result_id);
+CREATE INDEX idx_nutrition_user_corrections_type ON nutrition.user_corrections(correction_type);
 
--- Supplement Photos
-CREATE TABLE public.supplement_photos (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
-    supplement_log_id UUID REFERENCES public.supplement_logs(id) ON DELETE CASCADE,
-    photo_url TEXT NOT NULL,
-    thumbnail_url TEXT,
-    file_name TEXT NOT NULL,
-    file_size BIGINT,
-    mime_type TEXT,
-    taken_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    metadata JSONB,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
+-- Meal Logs Indexes
+CREATE INDEX idx_nutrition_meal_logs_user_meal_date ON nutrition.meal_logs(user_id, timestamp);
+CREATE INDEX idx_nutrition_meal_logs_meal_type ON nutrition.meal_logs(meal_type);
+CREATE INDEX idx_nutrition_meal_logs_recognition_result ON nutrition.meal_logs(recognition_result_id);
+CREATE INDEX idx_nutrition_meal_logs_synced_flags ON nutrition.meal_logs(synced_to_health_tracking, synced_to_medical_analysis);
 
--- AI Analysis Results
-CREATE TABLE public.nutrition_analysis (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
-    nutrition_log_id UUID REFERENCES public.nutrition_logs(id) ON DELETE CASCADE,
-    photo_id UUID REFERENCES public.nutrition_photos(id) ON DELETE CASCADE,
-    analysis_type TEXT NOT NULL, -- e.g., 'FOOD_RECOGNITION', 'PORTION_SIZE', 'NUTRITIONAL_ESTIMATE'
-    detected_items JSONB, -- Store AI-detected food items
-    nutritional_estimate JSONB, -- Store estimated nutritional values
-    confidence_score DECIMAL,
-    analysis_timestamp TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
+-- Nutrition Goals Indexes
+CREATE INDEX idx_nutrition_goals_user_active ON nutrition.nutrition_goals(user_id, is_active);
+CREATE INDEX idx_nutrition_goals_type ON nutrition.nutrition_goals(goal_type);
+CREATE INDEX idx_nutrition_goals_dates ON nutrition.nutrition_goals(start_date, target_date);
 
--- Medical Literature & Knowledge Graph
-CREATE TABLE public.medical_literature (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    source TEXT NOT NULL, -- e.g., 'PUBMED', 'CLINICAL_TRIALS'
-    source_id TEXT NOT NULL,
-    title TEXT NOT NULL,
-    authors TEXT[],
-    publication_date DATE,
-    abstract TEXT,
-    full_text TEXT,
-    keywords TEXT[],
-    embedding vector(1536), -- For semantic search
-    metadata JSONB,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
+-- Food Database Indexes
+CREATE INDEX idx_nutrition_food_database_name_category ON nutrition.food_database(food_name, food_category);
+CREATE INDEX idx_nutrition_food_database_source ON nutrition.food_database(source);
+CREATE INDEX idx_nutrition_food_database_barcode ON nutrition.food_database(barcode);
+CREATE INDEX idx_nutrition_food_database_access_count ON nutrition.food_database(access_count DESC);
+CREATE INDEX idx_nutrition_food_database_last_accessed ON nutrition.food_database(last_accessed DESC);
 
-CREATE TABLE public.medical_terms (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    term_type TEXT NOT NULL, -- e.g., 'DRUG', 'CONDITION', 'GENE', 'BIOMARKER'
-    name TEXT NOT NULL,
-    code TEXT, -- e.g., RxNorm code
-    description TEXT,
-    synonyms TEXT[],
-    embedding vector(1536),
-    metadata JSONB,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
+-- Model Performance Indexes
+CREATE INDEX idx_nutrition_model_performance_model_timestamp ON nutrition.model_performance(model_name, timestamp);
+CREATE INDEX idx_nutrition_model_performance_accuracy ON nutrition.model_performance(model_name, accuracy);
+CREATE INDEX idx_nutrition_model_performance_processing_time ON nutrition.model_performance(model_name, processing_time_ms);
 
-CREATE TABLE public.interaction_graph (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    source_term_id UUID REFERENCES public.medical_terms(id),
-    target_term_id UUID REFERENCES public.medical_terms(id),
-    interaction_type TEXT NOT NULL, -- e.g., 'DRUG_FOOD', 'DRUG_SUPPLEMENT', 'GENE_DRUG'
-    effect_type TEXT, -- e.g., 'INCREASE', 'DECREASE', 'INHIBIT'
-    severity TEXT, -- e.g., 'MILD', 'MODERATE', 'SEVERE'
-    evidence_level TEXT, -- e.g., 'STRONG', 'MODERATE', 'WEAK'
-    description TEXT,
-    literature_references UUID[] REFERENCES public.medical_literature(id),
-    metadata JSONB,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
+-- User Preferences Indexes
+CREATE INDEX idx_nutrition_user_preferences_user_id ON nutrition.user_preferences(user_id);
 
--- Lab Results & Biomarkers
-CREATE TABLE public.lab_results (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
-    lab_source_id UUID REFERENCES public.healthcare_facilities(id),
-    test_date TIMESTAMP WITH TIME ZONE NOT NULL,
-    report_type TEXT NOT NULL,
-    report_url TEXT,
-    ocr_metadata JSONB,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
+-- ============================================================================
+-- NUTRITION TRIGGERS
+-- ============================================================================
 
-CREATE TABLE public.biomarkers (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    lab_result_id UUID REFERENCES public.lab_results(id) ON DELETE CASCADE,
-    biomarker_name TEXT NOT NULL,
-    value DECIMAL,
-    unit TEXT,
-    reference_range TEXT,
-    interpretation TEXT,
-    status TEXT, -- e.g., 'NORMAL', 'HIGH', 'LOW'
-    metadata JSONB,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
+CREATE TRIGGER update_nutrition_goals_updated_at 
+    BEFORE UPDATE ON nutrition.nutrition_goals 
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
--- Event Logging & AI Explainability
-CREATE TABLE public.event_logs (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
-    event_type TEXT NOT NULL,
-    event_timestamp TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    source TEXT NOT NULL, -- e.g., 'USER_INPUT', 'DEVICE', 'AI_ANALYSIS'
-    data JSONB,
-    metadata JSONB,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-) PARTITION BY RANGE (event_timestamp);
+CREATE TRIGGER update_nutrition_food_database_updated_at 
+    BEFORE UPDATE ON nutrition.food_database 
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
--- Create partitions for event_logs
-CREATE TABLE event_logs_y2023m01 PARTITION OF event_logs
-    FOR VALUES FROM ('2023-01-01') TO ('2023-02-01');
-CREATE TABLE event_logs_y2023m02 PARTITION OF event_logs
-    FOR VALUES FROM ('2023-02-01') TO ('2023-03-01');
--- Add more partitions as needed
+CREATE TRIGGER update_nutrition_user_preferences_updated_at 
+    BEFORE UPDATE ON nutrition.user_preferences 
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
-CREATE TABLE public.causal_inferences (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
-    cause_event_id UUID REFERENCES public.event_logs(id),
-    effect_event_id UUID REFERENCES public.event_logs(id),
-    confidence_score DECIMAL,
-    explanation TEXT,
-    evidence_sources JSONB,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
+-- ============================================================================
+-- NUTRITION VIEWS
+-- ============================================================================
 
--- Voice & Multimodal Inputs
-CREATE TABLE public.voice_logs (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
-    audio_url TEXT NOT NULL,
-    transcription TEXT,
-    duration INTEGER,
-    language TEXT,
-    metadata JSONB,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-) PARTITION BY RANGE (created_at);
-
--- Create partitions for voice_logs
-CREATE TABLE voice_logs_y2023m01 PARTITION OF voice_logs
-    FOR VALUES FROM ('2023-01-01') TO ('2023-02-01');
-CREATE TABLE voice_logs_y2023m02 PARTITION OF voice_logs
-    FOR VALUES FROM ('2023-02-01') TO ('2023-03-01');
--- Add more partitions as needed
-
-CREATE TABLE public.raw_input_data (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
-    input_type TEXT NOT NULL, -- e.g., 'VOICE', 'IMAGE', 'TEXT'
-    source_url TEXT,
-    processed_data JSONB,
-    metadata JSONB,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
--- Doctor Mode & Reports
-CREATE TABLE public.event_timelines (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
-    event_type TEXT NOT NULL,
-    event_timestamp TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    event_data JSONB,
-    source TEXT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
-CREATE TABLE public.report_templates (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    template_name TEXT NOT NULL,
-    template_type TEXT NOT NULL,
-    content JSONB,
-    metadata JSONB,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    version TEXT NOT NULL DEFAULT '1.0',
-    is_latest BOOLEAN DEFAULT true,
-    previous_version_id UUID REFERENCES public.report_templates(id)
-);
-
-CREATE TABLE public.clinician_annotations (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
-    provider_id UUID REFERENCES public.healthcare_providers(id),
-    annotation_type TEXT NOT NULL,
-    content TEXT,
-    reference_data JSONB,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
--- Genomics & Personal Markers
-CREATE TABLE public.genomic_markers (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    marker_name TEXT NOT NULL,
-    marker_type TEXT NOT NULL,
-    description TEXT,
-    reference_data JSONB,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
-CREATE TABLE public.user_genomics (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
-    marker_id UUID REFERENCES public.genomic_markers(id),
-    value TEXT,
-    interpretation TEXT,
-    metadata JSONB,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
--- Analytics & Alerts
-CREATE TABLE public.analytics_snapshots (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
-    snapshot_type TEXT NOT NULL,
-    snapshot_date TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    metrics JSONB,
-    insights JSONB,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
-CREATE TABLE public.anomaly_alerts (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
-    alert_type TEXT NOT NULL,
-    severity TEXT NOT NULL,
-    description TEXT,
-    trigger_data JSONB,
-    status TEXT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    resolved_at TIMESTAMP WITH TIME ZONE
-);
-
--- Audit & Consent
-CREATE TABLE public.audit_logs (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
-    action_type TEXT NOT NULL,
-    resource_type TEXT NOT NULL,
-    resource_id UUID,
-    action_data JSONB,
-    ip_address TEXT,
-    user_agent TEXT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
-CREATE TABLE public.consent_records (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
-    consent_type TEXT NOT NULL,
-    version TEXT NOT NULL,
-    granted_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    expires_at TIMESTAMP WITH TIME ZONE,
-    metadata JSONB,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    is_latest BOOLEAN DEFAULT true,
-    previous_version_id UUID REFERENCES public.consent_records(id)
-);
-
--- Create indexes for better query performance
-CREATE INDEX idx_user_profiles_user_id ON public.user_profiles(user_id);
-CREATE INDEX idx_medical_conditions_user_id ON public.medical_conditions(user_id);
-CREATE INDEX idx_medications_user_id ON public.medications(user_id);
-CREATE INDEX idx_health_metrics_user_id ON public.health_metrics(user_id);
-CREATE INDEX idx_symptoms_user_id ON public.symptoms(user_id);
-CREATE INDEX idx_devices_user_id ON public.devices(user_id);
-CREATE INDEX idx_user_provider_relationships_user_id ON public.user_provider_relationships(user_id);
-CREATE INDEX idx_user_provider_relationships_provider_id ON public.user_provider_relationships(provider_id);
-CREATE INDEX idx_user_insurance_user_id ON public.user_insurance(user_id);
-CREATE INDEX idx_orders_user_id ON public.orders(user_id);
-CREATE INDEX idx_order_items_order_id ON public.order_items(order_id);
-CREATE INDEX idx_health_reports_user_id ON public.health_reports(user_id);
-CREATE INDEX idx_medical_images_user_id ON public.medical_images(user_id);
-CREATE INDEX idx_medical_images_facility_id ON public.medical_images(facility_id);
-CREATE INDEX idx_medical_images_provider_id ON public.medical_images(provider_id);
-CREATE INDEX idx_medical_reports_user_id ON public.medical_reports(user_id);
-CREATE INDEX idx_medical_reports_provider_id ON public.medical_reports(provider_id);
-CREATE INDEX idx_medical_reports_facility_id ON public.medical_reports(facility_id);
-CREATE INDEX idx_image_report_relationships_image_id ON public.image_report_relationships(image_id);
-CREATE INDEX idx_image_report_relationships_report_id ON public.image_report_relationships(report_id);
-CREATE INDEX idx_device_data_points_user_id ON public.device_data_points(user_id);
-CREATE INDEX idx_device_data_points_device_id ON public.device_data_points(device_id);
-CREATE INDEX idx_device_data_points_data_type_id ON public.device_data_points(data_type_id);
-CREATE INDEX idx_device_data_points_timestamp ON public.device_data_points(timestamp);
-CREATE INDEX idx_activity_sessions_user_id ON public.activity_sessions(user_id);
-CREATE INDEX idx_activity_sessions_start_time ON public.activity_sessions(start_time);
-CREATE INDEX idx_sleep_sessions_user_id ON public.sleep_sessions(user_id);
-CREATE INDEX idx_sleep_sessions_start_time ON public.sleep_sessions(start_time);
-CREATE INDEX idx_nutrition_logs_user_id ON public.nutrition_logs(user_id);
-CREATE INDEX idx_nutrition_logs_timestamp ON public.nutrition_logs(timestamp);
-CREATE INDEX idx_vital_signs_user_id ON public.vital_signs(user_id);
-CREATE INDEX idx_vital_signs_timestamp ON public.vital_signs(timestamp);
-CREATE INDEX idx_health_goals_user_id ON public.health_goals(user_id);
-CREATE INDEX idx_health_goals_status ON public.health_goals(status);
-CREATE INDEX idx_health_insights_user_id ON public.health_insights(user_id);
-CREATE INDEX idx_health_insights_insight_type ON public.health_insights(insight_type);
-CREATE INDEX idx_nutrition_photos_user_id ON public.nutrition_photos(user_id);
-CREATE INDEX idx_nutrition_photos_nutrition_log_id ON public.nutrition_photos(nutrition_log_id);
-CREATE INDEX idx_supplements_category ON public.supplements(category);
-CREATE INDEX idx_user_supplements_user_id ON public.user_supplements(user_id);
-CREATE INDEX idx_user_supplements_supplement_id ON public.user_supplements(supplement_id);
-CREATE INDEX idx_supplement_logs_user_id ON public.supplement_logs(user_id);
-CREATE INDEX idx_supplement_logs_user_supplement_id ON public.supplement_logs(user_supplement_id);
-CREATE INDEX idx_supplement_photos_user_id ON public.supplement_photos(user_id);
-CREATE INDEX idx_supplement_photos_supplement_log_id ON public.supplement_photos(supplement_log_id);
-CREATE INDEX idx_nutrition_analysis_user_id ON public.nutrition_analysis(user_id);
-CREATE INDEX idx_nutrition_analysis_nutrition_log_id ON public.nutrition_analysis(nutrition_log_id);
-CREATE INDEX idx_nutrition_analysis_photo_id ON public.nutrition_analysis(photo_id);
-CREATE INDEX idx_medical_literature_source ON public.medical_literature(source);
-CREATE INDEX idx_medical_terms_term_type ON public.medical_terms(term_type);
-CREATE INDEX idx_interaction_graph_source_term ON public.interaction_graph(source_term_id);
-CREATE INDEX idx_interaction_graph_target_term ON public.interaction_graph(target_term_id);
-CREATE INDEX idx_lab_results_user_id ON public.lab_results(user_id);
-CREATE INDEX idx_biomarkers_lab_result_id ON public.biomarkers(lab_result_id);
-CREATE INDEX idx_event_logs_user_id ON public.event_logs(user_id);
-CREATE INDEX idx_voice_logs_user_id ON public.voice_logs(user_id);
-CREATE INDEX idx_event_timelines_user_id ON public.event_timelines(user_id);
-CREATE INDEX idx_clinician_annotations_user_id ON public.clinician_annotations(user_id);
-CREATE INDEX idx_user_genomics_user_id ON public.user_genomics(user_id);
-CREATE INDEX idx_analytics_snapshots_user_id ON public.analytics_snapshots(user_id);
-CREATE INDEX idx_anomaly_alerts_user_id ON public.anomaly_alerts(user_id);
-CREATE INDEX idx_audit_logs_user_id ON public.audit_logs(user_id);
-CREATE INDEX idx_consent_records_user_id ON public.consent_records(user_id);
-
--- Create RLS (Row Level Security) policies
-ALTER TABLE public.user_profiles ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.medical_conditions ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.medications ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.health_metrics ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.symptoms ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.devices ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.user_provider_relationships ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.user_insurance ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.orders ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.order_items ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.health_reports ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.medical_images ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.medical_reports ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.image_report_relationships ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.device_data_types ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.device_data_points ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.activity_sessions ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.sleep_sessions ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.nutrition_logs ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.vital_signs ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.health_goals ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.health_insights ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.nutrition_photos ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.supplements ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.user_supplements ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.supplement_logs ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.supplement_photos ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.nutrition_analysis ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.medical_literature ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.medical_terms ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.interaction_graph ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.lab_results ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.biomarkers ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.event_logs ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.causal_inferences ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.voice_logs ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.raw_input_data ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.event_timelines ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.report_templates ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.clinician_annotations ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.genomic_markers ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.user_genomics ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.analytics_snapshots ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.anomaly_alerts ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.audit_logs ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.consent_records ENABLE ROW LEVEL SECURITY;
-
--- Create policies for user data access
-CREATE POLICY "Users can view their own profile"
-    ON public.user_profiles
-    FOR SELECT
-    USING (auth.uid() = user_id);
-
-CREATE POLICY "Users can update their own profile"
-    ON public.user_profiles
-    FOR UPDATE
-    USING (auth.uid() = user_id);
-
--- Similar policies for other tables...
-
--- Create RLS policies for new tables
-CREATE POLICY "Users can view their own medical images"
-    ON public.medical_images
-    FOR SELECT
-    USING (auth.uid() = user_id);
-
-CREATE POLICY "Users can view their own medical reports"
-    ON public.medical_reports
-    FOR SELECT
-    USING (auth.uid() = user_id);
-
-CREATE POLICY "Healthcare providers can view their patients' medical images"
-    ON public.medical_images
-    FOR SELECT
-    USING (
-        EXISTS (
-            SELECT 1 FROM public.user_provider_relationships
-            WHERE user_id = medical_images.user_id
-            AND provider_id = auth.uid()
-        )
-    );
-
-CREATE POLICY "Healthcare providers can view their patients' medical reports"
-    ON public.medical_reports
-    FOR SELECT
-    USING (
-        EXISTS (
-            SELECT 1 FROM public.user_provider_relationships
-            WHERE user_id = medical_reports.user_id
-            AND provider_id = auth.uid()
-        )
-    );
-
-CREATE POLICY "Users can view their own device data"
-    ON public.device_data_points
-    FOR SELECT
-    USING (auth.uid() = user_id);
-
-CREATE POLICY "Users can view their own activity data"
-    ON public.activity_sessions
-    FOR SELECT
-    USING (auth.uid() = user_id);
-
-CREATE POLICY "Users can view their own sleep data"
-    ON public.sleep_sessions
-    FOR SELECT
-    USING (auth.uid() = user_id);
-
-CREATE POLICY "Users can view their own nutrition data"
-    ON public.nutrition_logs
-    FOR SELECT
-    USING (auth.uid() = user_id);
-
-CREATE POLICY "Users can view their own vital signs"
-    ON public.vital_signs
-    FOR SELECT
-    USING (auth.uid() = user_id);
-
-CREATE POLICY "Users can view their own health goals"
-    ON public.health_goals
-    FOR SELECT
-    USING (auth.uid() = user_id);
-
-CREATE POLICY "Users can view their own health insights"
-    ON public.health_insights
-    FOR SELECT
-    USING (auth.uid() = user_id);
-
-CREATE POLICY "Users can view their own nutrition photos"
-    ON public.nutrition_photos
-    FOR SELECT
-    USING (auth.uid() = user_id);
-
-CREATE POLICY "Users can view their own supplements"
-    ON public.user_supplements
-    FOR SELECT
-    USING (auth.uid() = user_id);
-
-CREATE POLICY "Users can view their own supplement logs"
-    ON public.supplement_logs
-    FOR SELECT
-    USING (auth.uid() = user_id);
-
-CREATE POLICY "Users can view their own supplement photos"
-    ON public.supplement_photos
-    FOR SELECT
-    USING (auth.uid() = user_id);
-
-CREATE POLICY "Users can view their own nutrition analysis"
-    ON public.nutrition_analysis
-    FOR SELECT
-    USING (auth.uid() = user_id);
-
--- Create views for common analytics queries
-CREATE VIEW public.daily_activity_summary AS
+-- Daily Nutrition Summary View
+CREATE VIEW nutrition.daily_nutrition_summary AS
 SELECT 
     user_id,
     DATE(timestamp) as date,
-    COUNT(*) as data_points_count,
-    AVG(value) as average_value,
-    MIN(value) as min_value,
-    MAX(value) as max_value
-FROM public.device_data_points
+    COUNT(*) as meal_count,
+    SUM(total_calories) as total_calories,
+    SUM(total_protein_g) as total_protein_g,
+    SUM(total_carbs_g) as total_carbs_g,
+    SUM(total_fat_g) as total_fat_g,
+    SUM(total_fiber_g) as total_fiber_g,
+    SUM(total_sodium_mg) as total_sodium_mg,
+    SUM(total_sugar_g) as total_sugar_g
+FROM nutrition.meal_logs
 GROUP BY user_id, DATE(timestamp);
 
-CREATE VIEW public.weekly_health_metrics AS
+-- Model Performance Summary View
+CREATE VIEW nutrition.model_performance_summary AS
+SELECT 
+    model_name,
+    DATE(timestamp) as date,
+    COUNT(*) as total_requests,
+    AVG(accuracy) as avg_accuracy,
+    AVG(processing_time_ms) as avg_processing_time_ms,
+    AVG(success_rate) as avg_success_rate,
+    AVG(user_satisfaction_score) as avg_satisfaction
+FROM nutrition.model_performance
+GROUP BY model_name, DATE(timestamp);
+
+-- User Recognition Statistics View
+CREATE VIEW nutrition.user_recognition_stats AS
 SELECT 
     user_id,
-    DATE_TRUNC('week', timestamp) as week_start,
-    AVG(heart_rate) as avg_heart_rate,
-    AVG(blood_pressure_systolic) as avg_systolic,
-    AVG(blood_pressure_diastolic) as avg_diastolic,
-    AVG(blood_oxygen) as avg_blood_oxygen
-FROM public.vital_signs
-GROUP BY user_id, DATE_TRUNC('week', timestamp);
+    COUNT(*) as total_recognitions,
+    AVG(average_confidence) as avg_confidence,
+    COUNT(CASE WHEN is_corrected THEN 1 END) as corrected_count,
+    COUNT(CASE WHEN user_rating IS NOT NULL THEN 1 END) as rated_count,
+    AVG(user_rating) as avg_rating
+FROM nutrition.food_recognition_results
+GROUP BY user_id;
 
-CREATE VIEW public.daily_nutrition_summary AS
-SELECT 
-    nl.user_id,
-    DATE(nl.timestamp) as date,
-    COUNT(DISTINCT nl.id) as meal_count,
-    COUNT(DISTINCT np.id) as photo_count,
-    SUM(nl.calories) as total_calories,
-    SUM(nl.protein) as total_protein,
-    SUM(nl.carbs) as total_carbs,
-    SUM(nl.fat) as total_fat,
-    SUM(nl.water_intake) as total_water
-FROM public.nutrition_logs nl
-LEFT JOIN public.nutrition_photos np ON nl.id = np.nutrition_log_id
-GROUP BY nl.user_id, DATE(nl.timestamp);
+-- ============================================================================
+-- NUTRITION FUNCTIONS
+-- ============================================================================
 
-CREATE VIEW public.supplement_usage_summary AS
-SELECT 
-    us.user_id,
-    s.name as supplement_name,
-    s.category as supplement_category,
-    COUNT(sl.id) as times_taken,
-    MIN(sl.taken_at) as first_taken,
-    MAX(sl.taken_at) as last_taken
-FROM public.user_supplements us
-JOIN public.supplements s ON us.supplement_id = s.id
-LEFT JOIN public.supplement_logs sl ON us.id = sl.user_supplement_id
-GROUP BY us.user_id, s.name, s.category;
-
--- Add AI-specific indexes for semantic search
-CREATE INDEX medical_terms_embedding_idx ON public.medical_terms 
-    USING ivfflat (embedding vector_cosine_ops) 
-    WITH (lists = 100);
-
-CREATE INDEX medical_literature_embedding_idx ON public.medical_literature 
-    USING ivfflat (embedding vector_cosine_ops) 
-    WITH (lists = 100);
-
--- Add AI model-related tables
-CREATE TABLE public.training_datasets (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    dataset_name TEXT NOT NULL,
-    dataset_type TEXT NOT NULL,
-    description TEXT,
-    data_sources JSONB,
-    preprocessing_steps JSONB,
-    metadata JSONB,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
-CREATE TABLE public.model_versions (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    model_name TEXT NOT NULL,
-    version TEXT NOT NULL,
-    architecture TEXT NOT NULL,
-    hyperparameters JSONB,
-    training_dataset_id UUID REFERENCES public.training_datasets(id),
-    performance_metrics JSONB,
-    deployment_status TEXT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
-CREATE TABLE public.model_predictions (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    model_version_id UUID REFERENCES public.model_versions(id),
-    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
-    input_data JSONB,
-    prediction JSONB,
-    confidence_score DECIMAL,
-    prediction_timestamp TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    metadata JSONB,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
--- Create indexes for new tables
-CREATE INDEX idx_training_datasets_dataset_type ON public.training_datasets(dataset_type);
-CREATE INDEX idx_model_versions_model_name ON public.model_versions(model_name);
-CREATE INDEX idx_model_versions_deployment_status ON public.model_versions(deployment_status);
-CREATE INDEX idx_model_predictions_model_version_id ON public.model_predictions(model_version_id);
-CREATE INDEX idx_model_predictions_user_id ON public.model_predictions(user_id);
-CREATE INDEX idx_model_predictions_prediction_timestamp ON public.model_predictions(prediction_timestamp);
-
--- Enable RLS for new tables
-ALTER TABLE public.training_datasets ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.model_versions ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.model_predictions ENABLE ROW LEVEL SECURITY;
-
--- Convert time-series tables to hypertables
-SELECT create_hypertable('device_data_points', 'timestamp',
-    chunk_time_interval => INTERVAL '1 day',
-    if_not_exists => TRUE
-);
-
-SELECT create_hypertable('event_logs', 'event_timestamp',
-    chunk_time_interval => INTERVAL '1 day',
-    if_not_exists => TRUE
-);
-
-SELECT create_hypertable('voice_logs', 'created_at',
-    chunk_time_interval => INTERVAL '1 day',
-    if_not_exists => TRUE
-);
-
-SELECT create_hypertable('vital_signs', 'timestamp',
-    chunk_time_interval => INTERVAL '1 day',
-    if_not_exists => TRUE
-);
-
--- Create data retention policies
-CREATE OR REPLACE FUNCTION public.cleanup_old_time_series_data()
-RETURNS void AS $$
-BEGIN
-    -- Remove chunks older than retention period
-    -- Device data: Keep 1 year of detailed data, 5 years of aggregated data
-    PERFORM drop_chunks('device_data_points', INTERVAL '1 year');
-    
-    -- Event logs: Keep 6 months of detailed data, 2 years of aggregated data
-    PERFORM drop_chunks('event_logs', INTERVAL '6 months');
-    
-    -- Voice logs: Keep 3 months of detailed data, 1 year of aggregated data
-    PERFORM drop_chunks('voice_logs', INTERVAL '3 months');
-    
-    -- Vital signs: Keep 1 year of detailed data, 5 years of aggregated data
-    PERFORM drop_chunks('vital_signs', INTERVAL '1 year');
-END;
-$$ LANGUAGE plpgsql;
-
--- Create aggregated tables for historical data
-CREATE TABLE public.device_data_points_aggregated (
-    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
-    data_type_id UUID REFERENCES public.device_data_types(id),
-    time_bucket TIMESTAMP WITH TIME ZONE,
-    avg_value DECIMAL,
-    min_value DECIMAL,
-    max_value DECIMAL,
-    sample_count INTEGER,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    PRIMARY KEY (user_id, data_type_id, time_bucket)
-);
-
-CREATE TABLE public.event_logs_aggregated (
-    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
-    event_type TEXT NOT NULL,
-    time_bucket TIMESTAMP WITH TIME ZONE,
-    event_count INTEGER,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    PRIMARY KEY (user_id, event_type, time_bucket)
-);
-
-CREATE TABLE public.vital_signs_aggregated (
-    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
-    time_bucket TIMESTAMP WITH TIME ZONE,
-    avg_heart_rate DECIMAL,
-    avg_blood_pressure_systolic DECIMAL,
-    avg_blood_pressure_diastolic DECIMAL,
-    avg_blood_oxygen DECIMAL,
-    sample_count INTEGER,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    PRIMARY KEY (user_id, time_bucket)
-);
-
--- Create continuous aggregates
-CREATE MATERIALIZED VIEW device_data_points_hourly
-WITH (timescaledb.continuous) AS
-SELECT
-    user_id,
-    data_type_id,
-    time_bucket('1 hour', timestamp) AS bucket,
-    AVG(value) as avg_value,
-    MIN(value) as min_value,
-    MAX(value) as max_value,
-    COUNT(*) as sample_count
-FROM device_data_points
-GROUP BY user_id, data_type_id, bucket
-WITH NO DATA;
-
-CREATE MATERIALIZED VIEW vital_signs_hourly
-WITH (timescaledb.continuous) AS
-SELECT
-    user_id,
-    time_bucket('1 hour', timestamp) AS bucket,
-    AVG(heart_rate) as avg_heart_rate,
-    AVG(blood_pressure_systolic) as avg_systolic,
-    AVG(blood_pressure_diastolic) as avg_diastolic,
-    AVG(blood_oxygen) as avg_blood_oxygen,
-    COUNT(*) as sample_count
-FROM vital_signs
-GROUP BY user_id, bucket
-WITH NO DATA;
-
--- Create data migration function
-CREATE OR REPLACE FUNCTION public.migrate_to_aggregated_tables()
-RETURNS void AS $$
-BEGIN
-    -- Migrate device data points to aggregated table
-    INSERT INTO device_data_points_aggregated
-    SELECT
-        user_id,
-        data_type_id,
-        date_trunc('day', timestamp) as time_bucket,
-        AVG(value) as avg_value,
-        MIN(value) as min_value,
-        MAX(value) as max_value,
-        COUNT(*) as sample_count
-    FROM device_data_points
-    WHERE timestamp < NOW() - INTERVAL '1 year'
-    GROUP BY user_id, data_type_id, time_bucket
-    ON CONFLICT (user_id, data_type_id, time_bucket)
-    DO UPDATE SET
-        avg_value = EXCLUDED.avg_value,
-        min_value = EXCLUDED.min_value,
-        max_value = EXCLUDED.max_value,
-        sample_count = EXCLUDED.sample_count;
-
-    -- Migrate vital signs to aggregated table
-    INSERT INTO vital_signs_aggregated
-    SELECT
-        user_id,
-        date_trunc('day', timestamp) as time_bucket,
-        AVG(heart_rate) as avg_heart_rate,
-        AVG(blood_pressure_systolic) as avg_systolic,
-        AVG(blood_pressure_diastolic) as avg_diastolic,
-        AVG(blood_oxygen) as avg_blood_oxygen,
-        COUNT(*) as sample_count
-    FROM vital_signs
-    WHERE timestamp < NOW() - INTERVAL '1 year'
-    GROUP BY user_id, time_bucket
-    ON CONFLICT (user_id, time_bucket)
-    DO UPDATE SET
-        avg_heart_rate = EXCLUDED.avg_heart_rate,
-        avg_systolic = EXCLUDED.avg_systolic,
-        avg_diastolic = EXCLUDED.avg_diastolic,
-        avg_blood_oxygen = EXCLUDED.avg_blood_oxygen,
-        sample_count = EXCLUDED.sample_count;
-END;
-$$ LANGUAGE plpgsql;
-
--- Create scheduled jobs for data management
-SELECT cron.schedule('0 0 * * *', $$SELECT public.cleanup_old_time_series_data()$$);
-SELECT cron.schedule('0 1 * * *', $$SELECT public.migrate_to_aggregated_tables()$$);
-
--- Create indexes for aggregated tables
-CREATE INDEX idx_device_data_points_aggregated_user_id ON public.device_data_points_aggregated(user_id);
-CREATE INDEX idx_device_data_points_aggregated_time_bucket ON public.device_data_points_aggregated(time_bucket);
-CREATE INDEX idx_event_logs_aggregated_user_id ON public.event_logs_aggregated(user_id);
-CREATE INDEX idx_event_logs_aggregated_time_bucket ON public.event_logs_aggregated(time_bucket);
-CREATE INDEX idx_vital_signs_aggregated_user_id ON public.vital_signs_aggregated(user_id);
-CREATE INDEX idx_vital_signs_aggregated_time_bucket ON public.vital_signs_aggregated(time_bucket);
-
--- Enable RLS for aggregated tables
-ALTER TABLE public.device_data_points_aggregated ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.event_logs_aggregated ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.vital_signs_aggregated ENABLE ROW LEVEL SECURITY;
-
--- Create RLS policies for aggregated tables
-CREATE POLICY "Users can view their own aggregated device data"
-    ON public.device_data_points_aggregated
-    FOR SELECT
-    USING (auth.uid() = user_id);
-
-CREATE POLICY "Users can view their own aggregated event logs"
-    ON public.event_logs_aggregated
-    FOR SELECT
-    USING (auth.uid() = user_id);
-
-CREATE POLICY "Users can view their own aggregated vital signs"
-    ON public.vital_signs_aggregated
-    FOR SELECT
-    USING (auth.uid() = user_id);
-
--- Create analytics schema for OLAP queries
-CREATE SCHEMA IF NOT EXISTS analytics;
-
--- Create analytics tables in DuckDB
-CREATE FOREIGN TABLE analytics.daily_health_metrics (
-    user_id UUID,
-    date DATE,
-    avg_heart_rate DECIMAL,
-    avg_blood_pressure_systolic DECIMAL,
-    avg_blood_pressure_diastolic DECIMAL,
-    avg_blood_oxygen DECIMAL,
-    total_steps INTEGER,
-    total_calories_burned DECIMAL,
-    total_sleep_duration INTEGER,
-    total_water_intake DECIMAL,
-    total_calories_consumed DECIMAL,
-    total_protein DECIMAL,
-    total_carbs DECIMAL,
-    total_fat DECIMAL,
-    total_fiber DECIMAL,
-    total_sugar DECIMAL,
-    total_sodium DECIMAL,
-    supplement_count INTEGER,
-    medication_count INTEGER,
-    event_count INTEGER,
-    anomaly_count INTEGER
-) SERVER duckdb_server
-OPTIONS (
-    database '/path/to/analytics.duckdb',
-    table 'daily_health_metrics'
-);
-
-CREATE FOREIGN TABLE analytics.weekly_health_trends (
-    user_id UUID,
-    week_start DATE,
-    avg_heart_rate DECIMAL,
-    avg_blood_pressure_systolic DECIMAL,
-    avg_blood_pressure_diastolic DECIMAL,
-    avg_blood_oxygen DECIMAL,
-    total_steps INTEGER,
-    total_calories_burned DECIMAL,
-    avg_sleep_duration INTEGER,
-    avg_water_intake DECIMAL,
-    avg_calories_consumed DECIMAL,
-    avg_protein DECIMAL,
-    avg_carbs DECIMAL,
-    avg_fat DECIMAL,
-    avg_fiber DECIMAL,
-    avg_sugar DECIMAL,
-    avg_sodium DECIMAL,
-    supplement_frequency DECIMAL,
-    medication_frequency DECIMAL,
-    event_frequency DECIMAL,
-    anomaly_frequency DECIMAL,
-    health_score DECIMAL
-) SERVER duckdb_server
-OPTIONS (
-    database '/path/to/analytics.duckdb',
-    table 'weekly_health_trends'
-);
-
-CREATE FOREIGN TABLE analytics.monthly_health_insights (
-    user_id UUID,
-    month_start DATE,
-    health_trend TEXT,
-    risk_factors JSONB,
-    improvement_areas JSONB,
-    achievement_metrics JSONB,
-    recommendation_metrics JSONB,
-    compliance_score DECIMAL,
-    wellness_score DECIMAL,
-    activity_score DECIMAL,
-    nutrition_score DECIMAL,
-    sleep_score DECIMAL,
-    stress_score DECIMAL
-) SERVER duckdb_server
-OPTIONS (
-    database '/path/to/analytics.duckdb',
-    table 'monthly_health_insights'
-);
-
--- Create materialized views for common analytics queries
-CREATE MATERIALIZED VIEW analytics.user_health_summary AS
-SELECT
-    u.id as user_id,
-    up.first_name,
-    up.last_name,
-    up.date_of_birth,
-    up.gender,
-    COUNT(DISTINCT mc.id) as condition_count,
-    COUNT(DISTINCT m.id) as medication_count,
-    COUNT(DISTINCT us.id) as supplement_count,
-    COUNT(DISTINCT vs.id) as vital_signs_count,
-    COUNT(DISTINCT as2.id) as activity_sessions_count,
-    COUNT(DISTINCT ss.id) as sleep_sessions_count,
-    COUNT(DISTINCT nl.id) as nutrition_logs_count,
-    COUNT(DISTINCT ha.id) as anomaly_count
-FROM auth.users u
-LEFT JOIN public.user_profiles up ON u.id = up.user_id
-LEFT JOIN public.medical_conditions mc ON u.id = mc.user_id
-LEFT JOIN public.medications m ON u.id = m.user_id
-LEFT JOIN public.user_supplements us ON u.id = us.user_id
-LEFT JOIN public.vital_signs vs ON u.id = vs.user_id
-LEFT JOIN public.activity_sessions as2 ON u.id = as2.user_id
-LEFT JOIN public.sleep_sessions ss ON u.id = ss.user_id
-LEFT JOIN public.nutrition_logs nl ON u.id = nl.user_id
-LEFT JOIN public.anomaly_alerts ha ON u.id = ha.user_id
-GROUP BY u.id, up.first_name, up.last_name, up.date_of_birth, up.gender;
-
--- Create function to refresh analytics data
-CREATE OR REPLACE FUNCTION public.refresh_analytics_data()
-RETURNS void AS $$
-BEGIN
-    -- Refresh materialized views
-    REFRESH MATERIALIZED VIEW analytics.user_health_summary;
-    
-    -- Export data to DuckDB
-    -- Note: This would typically be handled by a separate ETL process
-    -- The following is a placeholder for the concept
-    PERFORM duckdb_execute(
-        'COPY (SELECT * FROM analytics.user_health_summary) TO ''/path/to/analytics.duckdb'' (FORMAT PARQUET)'
-    );
-END;
-$$ LANGUAGE plpgsql;
-
--- Create scheduled job for analytics refresh
-SELECT cron.schedule('0 2 * * *', $$SELECT public.refresh_analytics_data()$$);
-
--- Create analytics API views
-CREATE VIEW analytics.dashboard_metrics AS
-SELECT
-    dhm.*,
-    wht.health_score as weekly_health_score,
-    mhi.health_trend,
-    mhi.risk_factors,
-    mhi.improvement_areas,
-    mhi.achievement_metrics,
-    mhi.recommendation_metrics,
-    mhi.compliance_score,
-    mhi.wellness_score,
-    mhi.activity_score,
-    mhi.nutrition_score,
-    mhi.sleep_score,
-    mhi.stress_score
-FROM analytics.daily_health_metrics dhm
-LEFT JOIN analytics.weekly_health_trends wht 
-    ON dhm.user_id = wht.user_id 
-    AND dhm.date >= wht.week_start 
-    AND dhm.date < wht.week_start + INTERVAL '7 days'
-LEFT JOIN analytics.monthly_health_insights mhi 
-    ON dhm.user_id = mhi.user_id 
-    AND dhm.date >= mhi.month_start 
-    AND dhm.date < mhi.month_start + INTERVAL '1 month';
-
--- Create RLS policies for analytics
-ALTER TABLE analytics.daily_health_metrics ENABLE ROW LEVEL SECURITY;
-ALTER TABLE analytics.weekly_health_trends ENABLE ROW LEVEL SECURITY;
-ALTER TABLE analytics.monthly_health_insights ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "Users can view their own analytics data"
-    ON analytics.daily_health_metrics
-    FOR SELECT
-    USING (auth.uid() = user_id);
-
-CREATE POLICY "Users can view their own weekly trends"
-    ON analytics.weekly_health_trends
-    FOR SELECT
-    USING (auth.uid() = user_id);
-
-CREATE POLICY "Users can view their own monthly insights"
-    ON analytics.monthly_health_insights
-    FOR SELECT
-    USING (auth.uid() = user_id);
-
--- Create indexes for analytics tables
-CREATE INDEX idx_daily_health_metrics_user_date ON analytics.daily_health_metrics(user_id, date);
-CREATE INDEX idx_weekly_health_trends_user_week ON analytics.weekly_health_trends(user_id, week_start);
-CREATE INDEX idx_monthly_health_insights_user_month ON analytics.monthly_health_insights(user_id, month_start);
-
--- Create vector search configuration
-CREATE TABLE public.vector_search_config (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    collection_name TEXT NOT NULL,
-    vector_size INTEGER NOT NULL,
-    distance_metric TEXT NOT NULL, -- e.g., 'Cosine', 'Euclidean', 'Dot'
-    qdrant_url TEXT NOT NULL,
-    qdrant_api_key TEXT,
-    metadata JSONB,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
--- Create vector search collections
-CREATE TABLE public.vector_collections (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    name TEXT NOT NULL,
-    description TEXT,
-    vector_size INTEGER NOT NULL,
-    distance_metric TEXT NOT NULL,
-    qdrant_collection_id TEXT,
-    metadata JSONB,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
--- Create vector search points
-CREATE TABLE public.vector_points (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    collection_id UUID REFERENCES public.vector_collections(id),
-    point_id TEXT NOT NULL, -- Qdrant point ID
-    vector vector(1536), -- Local vector for small collections
-    payload JSONB,
-    metadata JSONB,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
--- Create function to sync vectors to Qdrant
-CREATE OR REPLACE FUNCTION public.sync_vectors_to_qdrant()
-RETURNS void AS $$
-DECLARE
-    v_collection RECORD;
-    v_point RECORD;
-    v_payload JSONB;
-BEGIN
-    -- Get collections that need syncing
-    FOR v_collection IN 
-        SELECT * FROM public.vector_collections 
-        WHERE qdrant_collection_id IS NOT NULL
-    LOOP
-        -- Get points that need syncing
-        FOR v_point IN 
-            SELECT * FROM public.vector_points 
-            WHERE collection_id = v_collection.id
-        LOOP
-            -- Prepare payload
-            v_payload := jsonb_build_object(
-                'id', v_point.point_id,
-                'vector', v_point.vector,
-                'payload', v_point.payload
-            );
-            
-            -- Sync to Qdrant
-            PERFORM http_post(
-                v_collection.qdrant_collection_id || '/points',
-                v_payload,
-                'application/json'
-            );
-        END LOOP;
-    END LOOP;
-END;
-$$ LANGUAGE plpgsql;
-
--- Create function for hybrid search
-CREATE OR REPLACE FUNCTION public.hybrid_search(
-    p_collection_id UUID,
-    p_query_vector vector(1536),
-    p_limit INTEGER DEFAULT 10,
-    p_threshold DECIMAL DEFAULT 0.7
+-- Function to calculate nutrition score
+CREATE OR REPLACE FUNCTION nutrition.calculate_nutrition_score(
+    user_uuid VARCHAR,
+    date_from TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_DATE,
+    date_to TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_DATE
 )
-RETURNS TABLE (
-    point_id TEXT,
-    similarity DECIMAL,
-    payload JSONB
-) AS $$
+RETURNS JSONB AS $$
 DECLARE
-    v_collection RECORD;
-    v_result JSONB;
+    score JSONB;
+    daily_avg JSONB;
 BEGIN
-    -- Get collection info
-    SELECT * INTO v_collection 
-    FROM public.vector_collections 
-    WHERE id = p_collection_id;
+    -- Get daily averages for the period
+    SELECT jsonb_build_object(
+        'avg_calories', AVG(total_calories),
+        'avg_protein_g', AVG(total_protein_g),
+        'avg_carbs_g', AVG(total_carbs_g),
+        'avg_fat_g', AVG(total_fat_g),
+        'avg_fiber_g', AVG(total_fiber_g),
+        'avg_sodium_mg', AVG(total_sodium_mg),
+        'avg_sugar_g', AVG(total_sugar_g),
+        'meal_count', COUNT(*)
+    ) INTO daily_avg
+    FROM nutrition.meal_logs
+    WHERE user_id = user_uuid 
+    AND timestamp BETWEEN date_from AND date_to;
     
-    -- If collection is small, use pgvector
-    IF EXISTS (
-        SELECT 1 FROM public.vector_points 
-        WHERE collection_id = p_collection_id 
-        LIMIT 10000
-    ) THEN
-        RETURN QUERY
-        SELECT 
-            vp.point_id,
-            (vp.vector <=> p_query_vector) as similarity,
-            vp.payload
-        FROM public.vector_points vp
-        WHERE vp.collection_id = p_collection_id
-        AND (vp.vector <=> p_query_vector) < p_threshold
-        ORDER BY similarity
-        LIMIT p_limit;
-    ELSE
-        -- Use Qdrant for large collections
-        v_result := http_post(
-            v_collection.qdrant_collection_id || '/search',
-            jsonb_build_object(
-                'vector', p_query_vector,
-                'limit', p_limit,
-                'threshold', p_threshold
-            ),
-            'application/json'
-        );
-        
-        RETURN QUERY
-        SELECT 
-            (v->>'id')::TEXT as point_id,
-            (v->>'score')::DECIMAL as similarity,
-            (v->'payload')::JSONB as payload
-        FROM jsonb_array_elements(v_result->'result') v;
-    END IF;
+    -- Calculate nutrition score (simplified algorithm)
+    SELECT jsonb_build_object(
+        'user_id', user_uuid,
+        'period_start', date_from,
+        'period_end', date_to,
+        'daily_averages', daily_avg,
+        'nutrition_score', CASE 
+            WHEN (daily_avg->>'avg_calories')::FLOAT BETWEEN 1500 AND 2500 THEN 100
+            WHEN (daily_avg->>'avg_calories')::FLOAT BETWEEN 1200 AND 3000 THEN 80
+            WHEN (daily_avg->>'avg_calories')::FLOAT BETWEEN 1000 AND 3500 THEN 60
+            ELSE 40
+        END,
+        'protein_score', CASE 
+            WHEN (daily_avg->>'avg_protein_g')::FLOAT >= 50 THEN 100
+            WHEN (daily_avg->>'avg_protein_g')::FLOAT >= 30 THEN 80
+            WHEN (daily_avg->>'avg_protein_g')::FLOAT >= 20 THEN 60
+            ELSE 40
+        END,
+        'fiber_score', CASE 
+            WHEN (daily_avg->>'avg_fiber_g')::FLOAT >= 25 THEN 100
+            WHEN (daily_avg->>'avg_fiber_g')::FLOAT >= 15 THEN 80
+            WHEN (daily_avg->>'avg_fiber_g')::FLOAT >= 10 THEN 60
+            ELSE 40
+        END
+    ) INTO score;
+    
+    RETURN score;
 END;
 $$ LANGUAGE plpgsql;
 
--- Create indexes for vector search
-CREATE INDEX idx_vector_points_collection_id ON public.vector_points(collection_id);
-CREATE INDEX idx_vector_points_point_id ON public.vector_points(point_id);
-
--- Enable RLS for vector search tables
-ALTER TABLE public.vector_search_config ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.vector_collections ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.vector_points ENABLE ROW LEVEL SECURITY;
-
--- Create RLS policies for vector search
-CREATE POLICY "Users can view vector search config"
-    ON public.vector_search_config
-    FOR SELECT
-    USING (true);
-
-CREATE POLICY "Users can view vector collections"
-    ON public.vector_collections
-    FOR SELECT
-    USING (true);
-
-CREATE POLICY "Users can view vector points"
-    ON public.vector_points
-    FOR SELECT
-    USING (true);
-
--- Create scheduled job for vector sync
-SELECT cron.schedule('*/5 * * * *', $$SELECT public.sync_vectors_to_qdrant()$$);
-
--- Create streaming buffer tables
-CREATE TABLE public.stream_buffer (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    stream_type TEXT NOT NULL,
-    device_id UUID REFERENCES public.devices(id),
-    user_id UUID REFERENCES auth.users(id),
-    raw_data JSONB,
-    processed BOOLEAN DEFAULT false,
-    error_count INTEGER DEFAULT 0,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    processed_at TIMESTAMP WITH TIME ZONE
-) PARTITION BY RANGE (created_at);
-
--- Create partitions for stream buffer
-CREATE TABLE stream_buffer_y2023m01 PARTITION OF stream_buffer
-    FOR VALUES FROM ('2023-01-01') TO ('2023-02-01');
-CREATE TABLE stream_buffer_y2023m02 PARTITION OF stream_buffer
-    FOR VALUES FROM ('2023-02-01') TO ('2023-03-01');
-
--- Create stream processing configuration
-CREATE TABLE public.stream_config (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    stream_type TEXT NOT NULL,
-    buffer_size INTEGER NOT NULL,
-    flush_interval INTEGER NOT NULL, -- in seconds
-    batch_size INTEGER NOT NULL,
-    kafka_topic TEXT,
-    kafka_config JSONB,
-    processing_config JSONB,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
--- Create stream processing status
-CREATE TABLE public.stream_processing_status (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    stream_type TEXT NOT NULL,
-    last_processed_id UUID,
-    last_processed_at TIMESTAMP WITH TIME ZONE,
-    processed_count INTEGER DEFAULT 0,
-    error_count INTEGER DEFAULT 0,
-    status TEXT,
-    metadata JSONB,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
--- Create stream processing errors
-CREATE TABLE public.stream_processing_errors (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    stream_type TEXT NOT NULL,
-    buffer_id UUID REFERENCES public.stream_buffer(id),
-    error_type TEXT NOT NULL,
-    error_message TEXT,
-    error_data JSONB,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
--- Create function to process stream buffer
-CREATE OR REPLACE FUNCTION public.process_stream_buffer()
-RETURNS void AS $$
+-- Function to get user's nutrition insights
+CREATE OR REPLACE FUNCTION nutrition.get_user_nutrition_insights(
+    user_uuid VARCHAR,
+    days_back INTEGER DEFAULT 30
+)
+RETURNS JSONB AS $$
 DECLARE
-    v_config RECORD;
-    v_buffer RECORD;
-    v_batch_size INTEGER;
-    v_processed_count INTEGER := 0;
-    v_error_count INTEGER := 0;
+    insights JSONB;
+    recent_meals JSONB;
+    top_foods JSONB;
 BEGIN
-    -- Get stream configurations
-    FOR v_config IN 
-        SELECT * FROM public.stream_config 
-        WHERE status = 'active'
-    LOOP
-        -- Process buffer in batches
-        FOR v_buffer IN 
-            SELECT * FROM public.stream_buffer 
-            WHERE stream_type = v_config.stream_type 
-            AND processed = false 
-            AND error_count < 3
-            LIMIT v_config.batch_size
-        LOOP
-            BEGIN
-                -- Process based on stream type
-                CASE v_config.stream_type
-                    WHEN 'device_data' THEN
-                        -- Process device data
-                        INSERT INTO public.device_data_points (
-                            user_id,
-                            device_id,
-                            data_type_id,
-                            value,
-                            unit,
-                            timestamp,
-                            metadata
-                        )
-                        SELECT 
-                            v_buffer.user_id,
-                            v_buffer.device_id,
-                            (v_buffer.raw_data->>'data_type_id')::UUID,
-                            (v_buffer.raw_data->>'value')::DECIMAL,
-                            v_buffer.raw_data->>'unit',
-                            (v_buffer.raw_data->>'timestamp')::TIMESTAMP WITH TIME ZONE,
-                            v_buffer.raw_data->'metadata'
-                        FROM public.stream_buffer
-                        WHERE id = v_buffer.id;
-
-                    WHEN 'vital_signs' THEN
-                        -- Process vital signs
-                        INSERT INTO public.vital_signs (
-                            user_id,
-                            timestamp,
-                            blood_pressure_systolic,
-                            blood_pressure_diastolic,
-                            heart_rate,
-                            temperature,
-                            blood_oxygen,
-                            respiratory_rate,
-                            metadata
-                        )
-                        SELECT 
-                            v_buffer.user_id,
-                            (v_buffer.raw_data->>'timestamp')::TIMESTAMP WITH TIME ZONE,
-                            (v_buffer.raw_data->>'blood_pressure_systolic')::INTEGER,
-                            (v_buffer.raw_data->>'blood_pressure_diastolic')::INTEGER,
-                            (v_buffer.raw_data->>'heart_rate')::INTEGER,
-                            (v_buffer.raw_data->>'temperature')::DECIMAL,
-                            (v_buffer.raw_data->>'blood_oxygen')::DECIMAL,
-                            (v_buffer.raw_data->>'respiratory_rate')::INTEGER,
-                            v_buffer.raw_data->'metadata'
-                        FROM public.stream_buffer
-                        WHERE id = v_buffer.id;
-
-                    -- Add more stream types as needed
-                END CASE;
-
-                -- Mark as processed
-                UPDATE public.stream_buffer
-                SET processed = true,
-                    processed_at = NOW()
-                WHERE id = v_buffer.id;
-
-                v_processed_count := v_processed_count + 1;
-
-            EXCEPTION WHEN OTHERS THEN
-                -- Log error
-                INSERT INTO public.stream_processing_errors (
-                    stream_type,
-                    buffer_id,
-                    error_type,
-                    error_message,
-                    error_data
-                ) VALUES (
-                    v_config.stream_type,
-                    v_buffer.id,
-                    'PROCESSING_ERROR',
-                    SQLERRM,
-                    jsonb_build_object(
-                        'raw_data', v_buffer.raw_data,
-                        'error_detail', SQLERRM
-                    )
-                );
-
-                -- Increment error count
-                UPDATE public.stream_buffer
-                SET error_count = error_count + 1
-                WHERE id = v_buffer.id;
-
-                v_error_count := v_error_count + 1;
-            END;
-        END LOOP;
-
-        -- Update processing status
-        UPDATE public.stream_processing_status
-        SET last_processed_at = NOW(),
-            processed_count = processed_count + v_processed_count,
-            error_count = error_count + v_error_count,
-            status = CASE 
-                WHEN v_error_count > 0 THEN 'WARNING'
-                ELSE 'OK'
-            END
-        WHERE stream_type = v_config.stream_type;
-    END LOOP;
+    -- Get recent meal patterns
+    SELECT jsonb_build_object(
+        'total_meals', COUNT(*),
+        'avg_meals_per_day', ROUND(COUNT(*)::FLOAT / days_back, 2),
+        'meal_type_distribution', jsonb_object_agg(meal_type, count)
+    ) INTO recent_meals
+    FROM (
+        SELECT meal_type, COUNT(*) as count
+        FROM nutrition.meal_logs
+        WHERE user_id = user_uuid 
+        AND timestamp >= CURRENT_DATE - INTERVAL '1 day' * days_back
+        GROUP BY meal_type
+    ) meal_stats;
+    
+    -- Get top consumed foods
+    SELECT jsonb_agg(jsonb_build_object(
+        'food_name', food_name,
+        'consumption_count', consumption_count
+    )) INTO top_foods
+    FROM (
+        SELECT 
+            jsonb_array_elements_text(food_items->'foods') as food_name,
+            COUNT(*) as consumption_count
+        FROM nutrition.meal_logs
+        WHERE user_id = user_uuid 
+        AND timestamp >= CURRENT_DATE - INTERVAL '1 day' * days_back
+        GROUP BY food_name
+        ORDER BY consumption_count DESC
+        LIMIT 10
+    ) top_food_stats;
+    
+    -- Build insights
+    SELECT jsonb_build_object(
+        'user_id', user_uuid,
+        'analysis_period_days', days_back,
+        'meal_patterns', recent_meals,
+        'top_consumed_foods', top_foods,
+        'nutrition_score', nutrition.calculate_nutrition_score(user_uuid, CURRENT_DATE - INTERVAL '1 day' * days_back, CURRENT_DATE),
+        'recommendations', jsonb_build_array(
+            'Consider increasing fiber intake if below 25g daily',
+            'Aim for 50g+ of protein daily for muscle health',
+            'Monitor sodium intake to stay under 2300mg daily'
+        )
+    ) INTO insights;
+    
+    RETURN insights;
 END;
-$$ LANGUAGE plpgsql;
-
--- Create function to clean up processed buffer
-CREATE OR REPLACE FUNCTION public.cleanup_stream_buffer()
-RETURNS void AS $$
-BEGIN
-    -- Delete processed records older than 24 hours
-    DELETE FROM public.stream_buffer
-    WHERE processed = true
-    AND created_at < NOW() - INTERVAL '24 hours';
-END;
-$$ LANGUAGE plpgsql;
-
--- Create scheduled jobs for stream processing
-SELECT cron.schedule('*/5 * * * *', $$SELECT public.process_stream_buffer()$$);
-SELECT cron.schedule('0 * * * *', $$SELECT public.cleanup_stream_buffer()$$);
-
--- Create indexes for stream processing
-CREATE INDEX idx_stream_buffer_stream_type ON public.stream_buffer(stream_type);
-CREATE INDEX idx_stream_buffer_processed ON public.stream_buffer(processed);
-CREATE INDEX idx_stream_buffer_created_at ON public.stream_buffer(created_at);
-CREATE INDEX idx_stream_processing_errors_stream_type ON public.stream_processing_errors(stream_type);
-CREATE INDEX idx_stream_processing_errors_created_at ON public.stream_processing_errors(created_at);
-
--- Enable RLS for stream processing tables
-ALTER TABLE public.stream_buffer ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.stream_config ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.stream_processing_status ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.stream_processing_errors ENABLE ROW LEVEL SECURITY;
-
--- Create RLS policies for stream processing
-CREATE POLICY "Users can view their own stream data"
-    ON public.stream_buffer
-    FOR SELECT
-    USING (auth.uid() = user_id);
-
-CREATE POLICY "Users can view their own processing status"
-    ON public.stream_processing_status
-    FOR SELECT
-    USING (true);
-
-CREATE POLICY "Users can view their own processing errors"
-    ON public.stream_processing_errors
-    FOR SELECT
-    USING (auth.uid() = user_id);
-
--- Create Kafka consumer function
-CREATE OR REPLACE FUNCTION public.kafka_consumer()
-RETURNS void AS $$
-DECLARE
-    v_message RECORD;
-BEGIN
-    -- Consume messages from Kafka
-    FOR v_message IN 
-        SELECT * FROM kafka_consume('health_metrics_topic')
-    LOOP
-        -- Insert into stream buffer
-        INSERT INTO public.stream_buffer (
-            stream_type,
-            device_id,
-            user_id,
-            raw_data
-        ) VALUES (
-            v_message.stream_type,
-            v_message.device_id,
-            v_message.user_id,
-            v_message.data
-        );
-    END LOOP;
-END;
-$$ LANGUAGE plpgsql;
-
--- Create scheduled job for Kafka consumer
-SELECT cron.schedule('* * * * *', $$SELECT public.kafka_consumer()$$);
-
--- Food Items and Nutrition
-CREATE TABLE public.food_items (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    name TEXT NOT NULL,
-    brand TEXT,
-    category TEXT,
-    serving_size DECIMAL,
-    serving_unit TEXT,
-    calories DECIMAL,
-    protein DECIMAL,
-    carbs DECIMAL,
-    fat DECIMAL,
-    fiber DECIMAL,
-    sugar DECIMAL,
-    sodium DECIMAL,
-    vitamins JSONB,
-    minerals JSONB,
-    allergens TEXT[],
-    ingredients TEXT[],
-    nutrition_facts JSONB,
-    image_url TEXT,
-    barcode TEXT,
-    embedding vector(1536),
-    metadata JSONB,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
-CREATE TABLE public.nutrition_log_items (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    nutrition_log_id UUID REFERENCES public.nutrition_logs(id) ON DELETE CASCADE,
-    food_item_id UUID REFERENCES public.food_items(id),
-    serving_size DECIMAL,
-    serving_unit TEXT,
-    calories DECIMAL,
-    protein DECIMAL,
-    carbs DECIMAL,
-    fat DECIMAL,
-    fiber DECIMAL,
-    sugar DECIMAL,
-    sodium DECIMAL,
-    notes TEXT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
--- Enhanced Exercise/Activity Details
-CREATE TABLE public.activity_types (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    name TEXT NOT NULL,
-    category TEXT NOT NULL,
-    description TEXT,
-    required_metrics TEXT[],
-    optional_metrics TEXT[],
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
-CREATE TABLE public.activity_routes (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    activity_session_id UUID REFERENCES public.activity_sessions(id) ON DELETE CASCADE,
-    route_data GEOMETRY(LINESTRING, 4326),
-    elevation_data JSONB,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
-CREATE TABLE public.activity_metrics (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    activity_session_id UUID REFERENCES public.activity_sessions(id) ON DELETE CASCADE,
-    metric_name TEXT NOT NULL,
-    metric_value DECIMAL,
-    metric_unit TEXT,
-    timestamp TIMESTAMP WITH TIME ZONE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
--- Enhanced Medication Management
-CREATE TABLE public.prescriptions (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
-    medication_id UUID REFERENCES public.medications(id) ON DELETE CASCADE,
-    provider_id UUID REFERENCES public.healthcare_providers(id),
-    prescription_date DATE NOT NULL,
-    prescription_number TEXT,
-    refills_authorized INTEGER,
-    refills_remaining INTEGER,
-    last_refill_date DATE,
-    next_refill_date DATE,
-    pharmacy_id UUID REFERENCES public.healthcare_facilities(id),
-    status TEXT,
-    notes TEXT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
--- Comprehensive Lab Test Management
-CREATE TABLE public.lab_tests (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    test_name TEXT NOT NULL,
-    description TEXT,
-    loinc_code TEXT,
-    category TEXT,
-    common_units TEXT,
-    normal_range_male JSONB,
-    normal_range_female JSONB,
-    associated_biomarkers TEXT[],
-    preparation_instructions TEXT,
-    turnaround_time TEXT,
-    metadata JSONB,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
-CREATE TABLE public.lab_test_panels (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    panel_name TEXT NOT NULL,
-    description TEXT,
-    tests UUID[] REFERENCES public.lab_tests(id),
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
--- Enhanced Health Reports
-CREATE TABLE public.daily_health_summaries (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
-    date DATE NOT NULL,
-    vital_signs_summary JSONB,
-    activity_summary JSONB,
-    nutrition_summary JSONB,
-    sleep_summary JSONB,
-    medication_summary JSONB,
-    insights JSONB,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
-CREATE TABLE public.monthly_wellness_reports (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
-    month_start DATE NOT NULL,
-    health_trends JSONB,
-    risk_factors JSONB,
-    improvement_areas JSONB,
-    achievement_metrics JSONB,
-    recommendation_metrics JSONB,
-    compliance_score DECIMAL,
-    wellness_score DECIMAL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
--- User Feedback System
-CREATE TABLE public.user_feedback (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
-    feedback_type TEXT NOT NULL,
-    reference_type TEXT NOT NULL, -- e.g., 'recommendation', 'insight', 'report'
-    reference_id UUID,
-    rating INTEGER,
-    feedback_text TEXT,
-    metadata JSONB,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
--- Enhanced Consent Management
-CREATE TABLE public.consent_types (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    name TEXT NOT NULL,
-    description TEXT,
-    data_categories TEXT[],
-    retention_period INTEGER, -- in days
-    required_consents TEXT[],
-    metadata JSONB,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
--- Add status fields to existing tables
-ALTER TABLE public.devices ADD COLUMN status TEXT DEFAULT 'active';
-ALTER TABLE public.user_supplements ADD COLUMN status TEXT DEFAULT 'active';
-ALTER TABLE public.healthcare_providers ADD COLUMN status TEXT DEFAULT 'active';
-ALTER TABLE public.healthcare_facilities ADD COLUMN status TEXT DEFAULT 'active';
-
--- Create indexes for new tables
-CREATE INDEX idx_food_items_name ON public.food_items(name);
-CREATE INDEX idx_food_items_barcode ON public.food_items(barcode);
-CREATE INDEX idx_nutrition_log_items_nutrition_log_id ON public.nutrition_log_items(nutrition_log_id);
-CREATE INDEX idx_activity_types_category ON public.activity_types(category);
-CREATE INDEX idx_activity_routes_activity_session_id ON public.activity_routes(activity_session_id);
-CREATE INDEX idx_activity_metrics_activity_session_id ON public.activity_metrics(activity_session_id);
-CREATE INDEX idx_prescriptions_user_id ON public.prescriptions(user_id);
-CREATE INDEX idx_prescriptions_medication_id ON public.prescriptions(medication_id);
-CREATE INDEX idx_lab_tests_loinc_code ON public.lab_tests(loinc_code);
-CREATE INDEX idx_lab_test_panels_panel_name ON public.lab_test_panels(panel_name);
-CREATE INDEX idx_daily_health_summaries_user_date ON public.daily_health_summaries(user_id, date);
-CREATE INDEX idx_monthly_wellness_reports_user_month ON public.monthly_wellness_reports(user_id, month_start);
-CREATE INDEX idx_user_feedback_user_id ON public.user_feedback(user_id);
-CREATE INDEX idx_user_feedback_reference ON public.user_feedback(reference_type, reference_id);
-CREATE INDEX idx_consent_types_name ON public.consent_types(name);
-
--- Enable RLS for new tables
-ALTER TABLE public.food_items ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.nutrition_log_items ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.activity_types ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.activity_routes ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.activity_metrics ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.prescriptions ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.lab_tests ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.lab_test_panels ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.daily_health_summaries ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.monthly_wellness_reports ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.user_feedback ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.consent_types ENABLE ROW LEVEL SECURITY;
-
--- Create RLS policies for new tables
-CREATE POLICY "Users can view their own nutrition log items"
-    ON public.nutrition_log_items
-    FOR SELECT
-    USING (
-        EXISTS (
-            SELECT 1 FROM public.nutrition_logs
-            WHERE id = nutrition_log_items.nutrition_log_id
-            AND user_id = auth.uid()
-        )
-    );
-
-CREATE POLICY "Users can view their own activity routes"
-    ON public.activity_routes
-    FOR SELECT
-    USING (
-        EXISTS (
-            SELECT 1 FROM public.activity_sessions
-            WHERE id = activity_routes.activity_session_id
-            AND user_id = auth.uid()
-        )
-    );
-
-CREATE POLICY "Users can view their own prescriptions"
-    ON public.prescriptions
-    FOR SELECT
-    USING (auth.uid() = user_id);
-
-CREATE POLICY "Users can view their own health summaries"
-    ON public.daily_health_summaries
-    FOR SELECT
-    USING (auth.uid() = user_id);
-
-CREATE POLICY "Users can view their own wellness reports"
-    ON public.monthly_wellness_reports
-    FOR SELECT
-    USING (auth.uid() = user_id);
-
-CREATE POLICY "Users can view their own feedback"
-    ON public.user_feedback
-    FOR SELECT
-    USING (auth.uid() = user_id);
-
--- Create RLS policies for new tables
-CREATE POLICY "Users can view their own nutrition log items"
-    ON public.nutrition_log_items
-    FOR SELECT
-    USING (
-        EXISTS (
-            SELECT 1 FROM public.nutrition_logs
-            WHERE id = nutrition_log_items.nutrition_log_id
-            AND user_id = auth.uid()
-        )
-    );
-
-CREATE POLICY "Users can view their own activity routes"
-    ON public.activity_routes
-    FOR SELECT
-    USING (
-        EXISTS (
-            SELECT 1 FROM public.activity_sessions
-            WHERE id = activity_routes.activity_session_id
-            AND user_id = auth.uid()
-        )
-    );
-
-CREATE POLICY "Users can view their own prescriptions"
-    ON public.prescriptions
-    FOR SELECT
-    USING (auth.uid() = user_id);
-
-CREATE POLICY "Users can view their own health summaries"
-    ON public.daily_health_summaries
-    FOR SELECT
-    USING (auth.uid() = user_id);
-
-CREATE POLICY "Users can view their own wellness reports"
-    ON public.monthly_wellness_reports
-    FOR SELECT
-    USING (auth.uid() = user_id);
-
-CREATE POLICY "Users can view their own feedback"
-    ON public.user_feedback
-    FOR SELECT
-    USING (auth.uid() = user_id); 
+$$ LANGUAGE plpgsql; 
