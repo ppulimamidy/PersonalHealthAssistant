@@ -1,0 +1,687 @@
+{
+  "summary": {
+    "total_tests": 58,
+    "successful_tests": 12,
+    "failed_tests": 46,
+    "success_rate": 20.689655172413794,
+    "timestamp": "2025-07-08T17:55:17.384879",
+    "base_url": "http://localhost:8002"
+  },
+  "performance": {
+    "average_duration": 0.6521206896551724,
+    "max_duration": 12.059,
+    "min_duration": 0.001
+  },
+  "status_codes": {
+    "200": 12,
+    "400": 3,
+    "404": 14,
+    "500": 21,
+    "422": 6,
+    "405": 2
+  },
+  "detailed_results": [
+    {
+      "method": "GET",
+      "endpoint": "/health",
+      "status_code": 200,
+      "duration": 0.018,
+      "success": true,
+      "response_size": 308,
+      "timestamp": "2025-07-08T17:54:39.581143",
+      "data": {
+        "success": true,
+        "message": "Health Tracking Service is healthy",
+        "timestamp": "2025-07-08T17:54:39.580111",
+        "request_id": null,
+        "data": {
+          "status": "healthy",
+          "service": "health-tracking-service",
+          "version": "2.0.0",
+          "timestamp": 1751997279.580055,
+          "checks": {
+            "database": true,
+            "analytics": true,
+            "insights": true,
+            "agents": true
+          }
+        }
+      }
+    },
+    {
+      "method": "GET",
+      "endpoint": "/ready",
+      "status_code": 200,
+      "duration": 0.001,
+      "success": true,
+      "response_size": 95,
+      "timestamp": "2025-07-08T17:54:39.582353",
+      "data": {
+        "status": "ready",
+        "service": "health-tracking-service",
+        "timestamp": "2025-07-08T17:54:39.581822"
+      }
+    },
+    {
+      "method": "GET",
+      "endpoint": "/metrics",
+      "status_code": 200,
+      "duration": 0.001,
+      "success": true,
+      "response_size": 5783,
+      "timestamp": "2025-07-08T17:54:39.583707",
+      "data": "# HELP python_gc_objects_collected_total Objects collected during gc\n# TYPE python_gc_objects_collected_total counter\npython_gc_objects_collected_total{generation=\"0\"} 29150.0\npython_gc_objects_collec"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/docs",
+      "status_code": 200,
+      "duration": 0.001,
+      "success": true,
+      "response_size": 947,
+      "timestamp": "2025-07-08T17:54:39.584387",
+      "data": "\n    <!DOCTYPE html>\n    <html>\n    <head>\n    <link type=\"text/css\" rel=\"stylesheet\" href=\"https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui.css\">\n    <link rel=\"shortcut icon\" href=\"https://"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/redoc",
+      "status_code": 200,
+      "duration": 0.001,
+      "success": true,
+      "response_size": 907,
+      "timestamp": "2025-07-08T17:54:39.584991",
+      "data": "\n    <!DOCTYPE html>\n    <html>\n    <head>\n    <title>Health Tracking Service - ReDoc</title>\n    <!-- needed for adaptive design -->\n    <meta charset=\"utf-8\"/>\n    <meta name=\"viewport\" content=\"wid"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/api/v1/health-tracking/metrics",
+      "status_code": 200,
+      "duration": 0.343,
+      "success": true,
+      "response_size": 2,
+      "timestamp": "2025-07-08T17:54:39.927589",
+      "data": []
+    },
+    {
+      "method": "POST",
+      "endpoint": "/api/v1/health-tracking/metrics",
+      "status_code": 400,
+      "duration": 0.028,
+      "success": false,
+      "response_size": 336,
+      "timestamp": "2025-07-08T17:54:39.955475",
+      "error": "{\"success\":false,\"error\":\"1 validation error for HealthMetricResponse\\nupdated_at\\n  Field required [type=missing, input_value={'id': 'bca4c7b7-e2fb-462...-07-08T17:54:39.934776'}, input_type=dict]\\n "
+    },
+    {
+      "method": "GET",
+      "endpoint": "/api/v1/health-tracking/metrics/22222222-2222-2222-2222-222222222222",
+      "status_code": 404,
+      "duration": 0.008,
+      "success": false,
+      "response_size": 103,
+      "timestamp": "2025-07-08T17:54:39.963337",
+      "error": "{\"success\":false,\"error\":\"Metric not found\",\"error_code\":\"HTTP_404\",\"details\":{\"request_id\":\"unknown\"}}"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/api/v1/health-tracking/metrics/22222222-2222-2222-2222-222222222222/heart_rate",
+      "status_code": 404,
+      "duration": 0.001,
+      "success": false,
+      "response_size": 22,
+      "timestamp": "2025-07-08T17:54:39.964251",
+      "error": "{\"detail\":\"Not Found\"}"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/api/v1/health-tracking/metrics/22222222-2222-2222-2222-222222222222/summary",
+      "status_code": 404,
+      "duration": 0.001,
+      "success": false,
+      "response_size": 22,
+      "timestamp": "2025-07-08T17:54:39.965078",
+      "error": "{\"detail\":\"Not Found\"}"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/api/v1/health-tracking/metrics/22222222-2222-2222-2222-222222222222/trends",
+      "status_code": 404,
+      "duration": 0.001,
+      "success": false,
+      "response_size": 22,
+      "timestamp": "2025-07-08T17:54:39.965913",
+      "error": "{\"detail\":\"Not Found\"}"
+    },
+    {
+      "method": "DELETE",
+      "endpoint": "/api/v1/health-tracking/metrics/1",
+      "status_code": 500,
+      "duration": 0.03,
+      "success": false,
+      "response_size": 110,
+      "timestamp": "2025-07-08T17:54:39.995848",
+      "error": "{\"success\":false,\"error\":\"Failed to delete metric\",\"error_code\":\"HTTP_500\",\"details\":{\"request_id\":\"unknown\"}}"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/api/v1/health-tracking/goals",
+      "status_code": 200,
+      "duration": 0.009,
+      "success": true,
+      "response_size": 2,
+      "timestamp": "2025-07-08T17:54:40.004823",
+      "data": []
+    },
+    {
+      "method": "POST",
+      "endpoint": "/api/v1/health-tracking/goals",
+      "status_code": 422,
+      "duration": 0.009,
+      "success": false,
+      "response_size": 344,
+      "timestamp": "2025-07-08T17:54:40.013438",
+      "error": "{\"success\":false,\"error\":\"Request validation failed\",\"error_code\":\"VALIDATION_ERROR\",\"details\":{\"request_id\":\"unknown\",\"validation_errors\":[{\"field\":\"body -> metric_type\",\"message\":\"Field required\",\"t"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/api/v1/health-tracking/goals/22222222-2222-2222-2222-222222222222",
+      "status_code": 404,
+      "duration": 0.009,
+      "success": false,
+      "response_size": 101,
+      "timestamp": "2025-07-08T17:54:40.022418",
+      "error": "{\"success\":false,\"error\":\"Goal not found\",\"error_code\":\"HTTP_404\",\"details\":{\"request_id\":\"unknown\"}}"
+    },
+    {
+      "method": "PUT",
+      "endpoint": "/api/v1/health-tracking/goals/1",
+      "status_code": 400,
+      "duration": 0.023,
+      "success": false,
+      "response_size": 1260,
+      "timestamp": "2025-07-08T17:54:40.045592",
+      "error": "{\"success\":false,\"error\":\"Failed to update goal: (sqlalchemy.dialects.postgresql.asyncpg.Error) <class 'asyncpg.exceptions.DataError'>: invalid input for query argument $1: '1' (invalid UUID '1': leng"
+    },
+    {
+      "method": "DELETE",
+      "endpoint": "/api/v1/health-tracking/goals/1",
+      "status_code": 500,
+      "duration": 0.022,
+      "success": false,
+      "response_size": 108,
+      "timestamp": "2025-07-08T17:54:40.067644",
+      "error": "{\"success\":false,\"error\":\"Failed to delete goal\",\"error_code\":\"HTTP_500\",\"details\":{\"request_id\":\"unknown\"}}"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/api/v1/health-tracking/symptoms",
+      "status_code": 200,
+      "duration": 0.031,
+      "success": true,
+      "response_size": 2,
+      "timestamp": "2025-07-08T17:54:40.098332",
+      "data": []
+    },
+    {
+      "method": "POST",
+      "endpoint": "/api/v1/health-tracking/symptoms",
+      "status_code": 422,
+      "duration": 0.014,
+      "success": false,
+      "response_size": 379,
+      "timestamp": "2025-07-08T17:54:40.111921",
+      "error": "{\"success\":false,\"error\":\"Request validation failed\",\"error_code\":\"VALIDATION_ERROR\",\"details\":{\"request_id\":\"unknown\",\"validation_errors\":[{\"field\":\"body -> symptom_name\",\"message\":\"Field required\",\""
+    },
+    {
+      "method": "GET",
+      "endpoint": "/api/v1/health-tracking/symptoms/22222222-2222-2222-2222-222222222222",
+      "status_code": 404,
+      "duration": 0.011,
+      "success": false,
+      "response_size": 104,
+      "timestamp": "2025-07-08T17:54:40.122822",
+      "error": "{\"success\":false,\"error\":\"Symptom not found\",\"error_code\":\"HTTP_404\",\"details\":{\"request_id\":\"unknown\"}}"
+    },
+    {
+      "method": "PUT",
+      "endpoint": "/api/v1/health-tracking/symptoms/1",
+      "status_code": 500,
+      "duration": 0.036,
+      "success": false,
+      "response_size": 2334,
+      "timestamp": "2025-07-08T17:54:40.158649",
+      "error": "{\"success\":false,\"error\":\"Failed to update symptom: (sqlalchemy.dialects.postgresql.asyncpg.Error) <class 'asyncpg.exceptions.DataError'>: invalid input for query argument $1: '1' (invalid UUID '1': l"
+    },
+    {
+      "method": "DELETE",
+      "endpoint": "/api/v1/health-tracking/symptoms/1",
+      "status_code": 500,
+      "duration": 0.023,
+      "success": false,
+      "response_size": 2334,
+      "timestamp": "2025-07-08T17:54:40.181488",
+      "error": "{\"success\":false,\"error\":\"Failed to delete symptom: (sqlalchemy.dialects.postgresql.asyncpg.Error) <class 'asyncpg.exceptions.DataError'>: invalid input for query argument $1: '1' (invalid UUID '1': l"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/api/v1/health-tracking/vitals",
+      "status_code": 500,
+      "duration": 3.045,
+      "success": false,
+      "response_size": 117,
+      "timestamp": "2025-07-08T17:54:43.226370",
+      "error": "{\"success\":false,\"error\":\"Failed to retrieve vital signs\",\"error_code\":\"HTTP_500\",\"details\":{\"request_id\":\"unknown\"}}"
+    },
+    {
+      "method": "POST",
+      "endpoint": "/api/v1/health-tracking/vitals",
+      "status_code": 405,
+      "duration": 0.002,
+      "success": false,
+      "response_size": 31,
+      "timestamp": "2025-07-08T17:54:43.228525",
+      "error": "{\"detail\":\"Method Not Allowed\"}"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/api/v1/health-tracking/vitals/22222222-2222-2222-2222-222222222222",
+      "status_code": 500,
+      "duration": 12.059,
+      "success": false,
+      "response_size": 116,
+      "timestamp": "2025-07-08T17:54:55.287143",
+      "error": "{\"success\":false,\"error\":\"Failed to retrieve vital sign\",\"error_code\":\"HTTP_500\",\"details\":{\"request_id\":\"unknown\"}}"
+    },
+    {
+      "method": "PUT",
+      "endpoint": "/api/v1/health-tracking/vitals/1",
+      "status_code": 422,
+      "duration": 0.008,
+      "success": false,
+      "response_size": 302,
+      "timestamp": "2025-07-08T17:54:55.295215",
+      "error": "{\"success\":false,\"error\":\"Request validation failed\",\"error_code\":\"VALIDATION_ERROR\",\"details\":{\"request_id\":\"unknown\",\"validation_errors\":[{\"field\":\"path -> vital_sign_id\",\"message\":\"Input should be "
+    },
+    {
+      "method": "DELETE",
+      "endpoint": "/api/v1/health-tracking/vitals/1",
+      "status_code": 422,
+      "duration": 0.005,
+      "success": false,
+      "response_size": 302,
+      "timestamp": "2025-07-08T17:54:55.300413",
+      "error": "{\"success\":false,\"error\":\"Request validation failed\",\"error_code\":\"VALIDATION_ERROR\",\"details\":{\"request_id\":\"unknown\",\"validation_errors\":[{\"field\":\"path -> vital_sign_id\",\"message\":\"Input should be "
+    },
+    {
+      "method": "GET",
+      "endpoint": "/api/v1/health-tracking/analytics/22222222-2222-2222-2222-222222222222/summary",
+      "status_code": 404,
+      "duration": 0.001,
+      "success": false,
+      "response_size": 22,
+      "timestamp": "2025-07-08T17:54:55.301425",
+      "error": "{\"detail\":\"Not Found\"}"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/api/v1/health-tracking/analytics/22222222-2222-2222-2222-222222222222/trends",
+      "status_code": 404,
+      "duration": 0.001,
+      "success": false,
+      "response_size": 22,
+      "timestamp": "2025-07-08T17:54:55.302391",
+      "error": "{\"detail\":\"Not Found\"}"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/api/v1/health-tracking/analytics/22222222-2222-2222-2222-222222222222/correlations",
+      "status_code": 404,
+      "duration": 0.001,
+      "success": false,
+      "response_size": 22,
+      "timestamp": "2025-07-08T17:54:55.303365",
+      "error": "{\"detail\":\"Not Found\"}"
+    },
+    {
+      "method": "POST",
+      "endpoint": "/api/v1/health-tracking/analytics/22222222-2222-2222-2222-222222222222/anomaly-detection",
+      "status_code": 404,
+      "duration": 0.001,
+      "success": false,
+      "response_size": 22,
+      "timestamp": "2025-07-08T17:54:55.304314",
+      "error": "{\"detail\":\"Not Found\"}"
+    },
+    {
+      "method": "POST",
+      "endpoint": "/api/v1/health-tracking/analytics/22222222-2222-2222-2222-222222222222/pattern-recognition",
+      "status_code": 404,
+      "duration": 0.001,
+      "success": false,
+      "response_size": 22,
+      "timestamp": "2025-07-08T17:54:55.305156",
+      "error": "{\"detail\":\"Not Found\"}"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/api/v1/health-tracking/insights",
+      "status_code": 200,
+      "duration": 0.016,
+      "success": true,
+      "response_size": 2,
+      "timestamp": "2025-07-08T17:54:55.321119",
+      "data": []
+    },
+    {
+      "method": "GET",
+      "endpoint": "/api/v1/health-tracking/insights/22222222-2222-2222-2222-222222222222",
+      "status_code": 404,
+      "duration": 0.01,
+      "success": false,
+      "response_size": 104,
+      "timestamp": "2025-07-08T17:54:55.331140",
+      "error": "{\"success\":false,\"error\":\"Insight not found\",\"error_code\":\"HTTP_404\",\"details\":{\"request_id\":\"unknown\"}}"
+    },
+    {
+      "method": "POST",
+      "endpoint": "/api/v1/health-tracking/insights/generate",
+      "status_code": 405,
+      "duration": 0.001,
+      "success": false,
+      "response_size": 31,
+      "timestamp": "2025-07-08T17:54:55.332126",
+      "error": "{\"detail\":\"Method Not Allowed\"}"
+    },
+    {
+      "method": "PUT",
+      "endpoint": "/api/v1/health-tracking/insights/1",
+      "status_code": 400,
+      "duration": 0.026,
+      "success": false,
+      "response_size": 1380,
+      "timestamp": "2025-07-08T17:54:55.357822",
+      "error": "{\"success\":false,\"error\":\"Failed to update insight: (sqlalchemy.dialects.postgresql.asyncpg.Error) <class 'asyncpg.exceptions.DataError'>: invalid input for query argument $1: '1' (invalid UUID '1': l"
+    },
+    {
+      "method": "DELETE",
+      "endpoint": "/api/v1/health-tracking/insights/1",
+      "status_code": 500,
+      "duration": 0.123,
+      "success": false,
+      "response_size": 111,
+      "timestamp": "2025-07-08T17:54:55.480600",
+      "error": "{\"success\":false,\"error\":\"Failed to delete insight\",\"error_code\":\"HTTP_500\",\"details\":{\"request_id\":\"unknown\"}}"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/api/v1/health-tracking/devices",
+      "status_code": 200,
+      "duration": 0.039,
+      "success": true,
+      "response_size": 2,
+      "timestamp": "2025-07-08T17:54:55.519534",
+      "data": []
+    },
+    {
+      "method": "GET",
+      "endpoint": "/api/v1/health-tracking/devices/22222222-2222-2222-2222-222222222222",
+      "status_code": 404,
+      "duration": 0.01,
+      "success": false,
+      "response_size": 103,
+      "timestamp": "2025-07-08T17:54:55.529986",
+      "error": "{\"success\":false,\"error\":\"Device not found\",\"error_code\":\"HTTP_404\",\"details\":{\"request_id\":\"unknown\"}}"
+    },
+    {
+      "method": "POST",
+      "endpoint": "/api/v1/health-tracking/devices",
+      "status_code": 422,
+      "duration": 0.013,
+      "success": false,
+      "response_size": 483,
+      "timestamp": "2025-07-08T17:54:55.543136",
+      "error": "{\"success\":false,\"error\":\"Request validation failed\",\"error_code\":\"VALIDATION_ERROR\",\"details\":{\"request_id\":\"unknown\",\"validation_errors\":[{\"field\":\"body -> device_name\",\"message\":\"Field required\",\"t"
+    },
+    {
+      "method": "PUT",
+      "endpoint": "/api/v1/health-tracking/devices/1",
+      "status_code": 500,
+      "duration": 0.032,
+      "success": false,
+      "response_size": 1161,
+      "timestamp": "2025-07-08T17:54:55.575442",
+      "error": "{\"success\":false,\"error\":\"Failed to update device: (sqlalchemy.dialects.postgresql.asyncpg.Error) <class 'asyncpg.exceptions.DataError'>: invalid input for query argument $1: '1' (invalid UUID '1': le"
+    },
+    {
+      "method": "DELETE",
+      "endpoint": "/api/v1/health-tracking/devices/1",
+      "status_code": 500,
+      "duration": 0.023,
+      "success": false,
+      "response_size": 1161,
+      "timestamp": "2025-07-08T17:54:55.598705",
+      "error": "{\"success\":false,\"error\":\"Failed to delete device: (sqlalchemy.dialects.postgresql.asyncpg.Error) <class 'asyncpg.exceptions.DataError'>: invalid input for query argument $1: '1' (invalid UUID '1': le"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/api/v1/health-tracking/alerts",
+      "status_code": 200,
+      "duration": 0.009,
+      "success": true,
+      "response_size": 2,
+      "timestamp": "2025-07-08T17:54:55.608180",
+      "data": []
+    },
+    {
+      "method": "GET",
+      "endpoint": "/api/v1/health-tracking/alerts/22222222-2222-2222-2222-222222222222",
+      "status_code": 404,
+      "duration": 0.011,
+      "success": false,
+      "response_size": 102,
+      "timestamp": "2025-07-08T17:54:55.618775",
+      "error": "{\"success\":false,\"error\":\"Alert not found\",\"error_code\":\"HTTP_404\",\"details\":{\"request_id\":\"unknown\"}}"
+    },
+    {
+      "method": "POST",
+      "endpoint": "/api/v1/health-tracking/alerts",
+      "status_code": 422,
+      "duration": 0.009,
+      "success": false,
+      "response_size": 510,
+      "timestamp": "2025-07-08T17:54:55.628106",
+      "error": "{\"success\":false,\"error\":\"Request validation failed\",\"error_code\":\"VALIDATION_ERROR\",\"details\":{\"request_id\":\"unknown\",\"validation_errors\":[{\"field\":\"body -> alert_type\",\"message\":\"Input should be 'vi"
+    },
+    {
+      "method": "PUT",
+      "endpoint": "/api/v1/health-tracking/alerts/1",
+      "status_code": 500,
+      "duration": 0.025,
+      "success": false,
+      "response_size": 1114,
+      "timestamp": "2025-07-08T17:54:55.653011",
+      "error": "{\"success\":false,\"error\":\"Failed to update alert: (sqlalchemy.dialects.postgresql.asyncpg.Error) <class 'asyncpg.exceptions.DataError'>: invalid input for query argument $1: '1' (invalid UUID '1': len"
+    },
+    {
+      "method": "DELETE",
+      "endpoint": "/api/v1/health-tracking/alerts/1",
+      "status_code": 500,
+      "duration": 0.027,
+      "success": false,
+      "response_size": 1114,
+      "timestamp": "2025-07-08T17:54:55.680155",
+      "error": "{\"success\":false,\"error\":\"Failed to delete alert: (sqlalchemy.dialects.postgresql.asyncpg.Error) <class 'asyncpg.exceptions.DataError'>: invalid input for query argument $1: '1' (invalid UUID '1': len"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/agents/health",
+      "status_code": 200,
+      "duration": 0.008,
+      "success": true,
+      "response_size": 1110,
+      "timestamp": "2025-07-08T17:54:55.688610",
+      "data": {
+        "success": true,
+        "message": "Agent health status retrieved",
+        "timestamp": "2025-07-08T17:54:55.686713",
+        "request_id": null,
+        "data": {
+          "anomaly_detector": {
+            "agent_name": "anomaly_detector",
+            "status": "idle",
+            "last_run": null,
+            "run_count": 0,
+            "error_count": 0,
+            "success_rate": 0.0,
+            "circuit_breaker_state": "closed"
+          },
+          "trend_analyzer": {
+            "agent_name": "trend_analyzer",
+            "status": "idle",
+            "last_run": null,
+            "run_count": 0,
+            "error_count": 0,
+            "success_rate": 0.0,
+            "circuit_breaker_state": "closed"
+          },
+          "goal_suggester": {
+            "agent_name": "goal_suggester",
+            "status": "idle",
+            "last_run": null,
+            "run_count": 0,
+            "error_count": 0,
+            "success_rate": 0.0,
+            "circuit_breaker_state": "closed"
+          },
+          "health_coach": {
+            "agent_name": "health_coach",
+            "status": "idle",
+            "last_run": null,
+            "run_count": 0,
+            "error_count": 0,
+            "success_rate": 0.0,
+            "circuit_breaker_state": "closed"
+          },
+          "risk_assessor": {
+            "agent_name": "risk_assessor",
+            "status": "idle",
+            "last_run": null,
+            "run_count": 0,
+            "error_count": 0,
+            "success_rate": 0.0,
+            "circuit_breaker_state": "closed"
+          },
+          "pattern_recognizer": {
+            "agent_name": "pattern_recognizer",
+            "status": "idle",
+            "last_run": null,
+            "run_count": 0,
+            "error_count": 0,
+            "success_rate": 0.0,
+            "circuit_breaker_state": "closed"
+          }
+        }
+      }
+    },
+    {
+      "method": "POST",
+      "endpoint": "/agents/anomaly-detection",
+      "status_code": 500,
+      "duration": 3.035,
+      "success": false,
+      "response_size": 111,
+      "timestamp": "2025-07-08T17:54:58.723337",
+      "error": "{\"success\":false,\"error\":\"Anomaly detection failed\",\"error_code\":\"HTTP_500\",\"details\":{\"request_id\":\"unknown\"}}"
+    },
+    {
+      "method": "POST",
+      "endpoint": "/agents/trend-analysis",
+      "status_code": 500,
+      "duration": 3.031,
+      "success": false,
+      "response_size": 108,
+      "timestamp": "2025-07-08T17:55:01.754178",
+      "error": "{\"success\":false,\"error\":\"Trend analysis failed\",\"error_code\":\"HTTP_500\",\"details\":{\"request_id\":\"unknown\"}}"
+    },
+    {
+      "method": "POST",
+      "endpoint": "/agents/goal-suggestions",
+      "status_code": 500,
+      "duration": 3.163,
+      "success": false,
+      "response_size": 110,
+      "timestamp": "2025-07-08T17:55:04.916978",
+      "error": "{\"success\":false,\"error\":\"Goal suggestions failed\",\"error_code\":\"HTTP_500\",\"details\":{\"request_id\":\"unknown\"}}"
+    },
+    {
+      "method": "POST",
+      "endpoint": "/agents/health-coaching",
+      "status_code": 500,
+      "duration": 3.024,
+      "success": false,
+      "response_size": 109,
+      "timestamp": "2025-07-08T17:55:07.941333",
+      "error": "{\"success\":false,\"error\":\"Health coaching failed\",\"error_code\":\"HTTP_500\",\"details\":{\"request_id\":\"unknown\"}}"
+    },
+    {
+      "method": "POST",
+      "endpoint": "/agents/risk-assessment",
+      "status_code": 500,
+      "duration": 3.164,
+      "success": false,
+      "response_size": 109,
+      "timestamp": "2025-07-08T17:55:11.105152",
+      "error": "{\"success\":false,\"error\":\"Risk assessment failed\",\"error_code\":\"HTTP_500\",\"details\":{\"request_id\":\"unknown\"}}"
+    },
+    {
+      "method": "POST",
+      "endpoint": "/agents/pattern-recognition",
+      "status_code": 500,
+      "duration": 3.224,
+      "success": false,
+      "response_size": 113,
+      "timestamp": "2025-07-08T17:55:14.329642",
+      "error": "{\"success\":false,\"error\":\"Pattern recognition failed\",\"error_code\":\"HTTP_500\",\"details\":{\"request_id\":\"unknown\"}}"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/dashboard/summary",
+      "status_code": 500,
+      "duration": 3.04,
+      "success": false,
+      "response_size": 123,
+      "timestamp": "2025-07-08T17:55:17.369549",
+      "error": "{\"success\":false,\"error\":\"Failed to retrieve dashboard summary\",\"error_code\":\"HTTP_500\",\"details\":{\"request_id\":\"unknown\"}}"
+    },
+    {
+      "method": "POST",
+      "endpoint": "/test/create-goal",
+      "status_code": 500,
+      "duration": 0.005,
+      "success": false,
+      "response_size": 168,
+      "timestamp": "2025-07-08T17:55:17.374607",
+      "error": "{\"success\":false,\"error\":\"Test goal creation failed: attempted relative import with no known parent package\",\"error_code\":\"HTTP_500\",\"details\":{\"request_id\":\"unknown\"}}"
+    },
+    {
+      "method": "POST",
+      "endpoint": "/test/create-symptom",
+      "status_code": 500,
+      "duration": 0.005,
+      "success": false,
+      "response_size": 171,
+      "timestamp": "2025-07-08T17:55:17.379587",
+      "error": "{\"success\":false,\"error\":\"Test symptom creation failed: attempted relative import with no known parent package\",\"error_code\":\"HTTP_500\",\"details\":{\"request_id\":\"unknown\"}}"
+    },
+    {
+      "method": "POST",
+      "endpoint": "/test/create-vital-sign",
+      "status_code": 500,
+      "duration": 0.005,
+      "success": false,
+      "response_size": 175,
+      "timestamp": "2025-07-08T17:55:17.384388",
+      "error": "{\"success\":false,\"error\":\"Test vital signs creation failed: attempted relative import with no known parent package\",\"error_code\":\"HTTP_500\",\"details\":{\"request_id\":\"unknown\"}}"
+    }
+  ]
+}

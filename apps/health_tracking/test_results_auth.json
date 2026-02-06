@@ -1,0 +1,375 @@
+{
+  "timestamp": "2025-07-08T12:53:43.992911",
+  "test_duration": 0.30469799041748047,
+  "results": [
+    {
+      "method": "GET",
+      "endpoint": "/health",
+      "status_code": 200,
+      "expected_status": 200,
+      "success": true,
+      "description": "Health check",
+      "response_time": 0.022938,
+      "response_size": 308,
+      "response_data": {
+        "success": true,
+        "message": "Health Tracking Service is healthy",
+        "timestamp": "2025-07-08T16:53:43.861471",
+        "request_id": null,
+        "data": {
+          "status": "healthy",
+          "service": "health-tracking-service",
+          "version": "2.0.0",
+          "timestamp": 1751993623.861101,
+          "checks": {
+            "database": true,
+            "analytics": true,
+            "insights": true,
+            "agents": true
+          }
+        }
+      }
+    },
+    {
+      "method": "GET",
+      "endpoint": "/ready",
+      "status_code": 200,
+      "expected_status": 200,
+      "success": true,
+      "description": "Readiness check",
+      "response_time": 0.00599,
+      "response_size": 95,
+      "response_data": {
+        "status": "ready",
+        "service": "health-tracking-service",
+        "timestamp": "2025-07-08T16:53:43.867026"
+      }
+    },
+    {
+      "method": "GET",
+      "endpoint": "/metrics",
+      "status_code": 200,
+      "expected_status": 200,
+      "success": true,
+      "description": "Prometheus metrics",
+      "response_time": 0.006612,
+      "response_size": 60223,
+      "response_text": "# HELP python_gc_objects_collected_total Objects collected during gc\n# TYPE python_gc_objects_collected_total counter\npython_gc_objects_collected_total{generation=\"0\"} 47958.0\npython_gc_objects_collected_total{generation=\"1\"} 18665.0\npython_gc_objects_collected_total{generation=\"2\"} 1851.0\n# HELP python_gc_objects_uncollectable_total Uncollectable objects found during GC\n# TYPE python_gc_objects_uncollectable_total counter\npython_gc_objects_uncollectable_total{generation=\"0\"} 0.0\npython_gc_objec"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/docs",
+      "status_code": 200,
+      "expected_status": 200,
+      "success": true,
+      "description": "API documentation",
+      "response_time": 0.001596,
+      "response_size": 955,
+      "response_text": "\n    <!DOCTYPE html>\n    <html>\n    <head>\n    <link type=\"text/css\" rel=\"stylesheet\" href=\"https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.9.0/swagger-ui.css\">\n    <link rel=\"shortcut icon\" href=\"https://fastapi.tiangolo.com/img/favicon.png\">\n    <title>Health Tracking Service - Swagger UI</title>\n    </head>\n    <body>\n    <div id=\"swagger-ui\">\n    </div>\n    <script src=\"https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.9.0/swagger-ui-bundle.js\"></script>\n    <!-- `SwaggerUIBundle` is now availab"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/api/v1/health-tracking/metrics",
+      "status_code": 500,
+      "expected_status": 200,
+      "success": false,
+      "description": "Get metrics",
+      "response_time": 0.007369,
+      "response_size": 113,
+      "response_data": {
+        "success": false,
+        "error": "Failed to retrieve metrics",
+        "error_code": "HTTP_500",
+        "details": {
+          "request_id": "unknown"
+        }
+      },
+      "error": "Expected 200, got 500",
+      "error_details": "{\"success\":false,\"error\":\"Failed to retrieve metrics\",\"error_code\":\"HTTP_500\",\"details\":{\"request_id\":\"unknown\"}}"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/api/v1/health-tracking/goals",
+      "status_code": 307,
+      "expected_status": 200,
+      "success": false,
+      "description": "Get goals",
+      "response_time": 0.001974,
+      "response_size": 0,
+      "response_data": null,
+      "error": "Expected 200, got 307"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/api/v1/health-tracking/symptoms",
+      "status_code": 307,
+      "expected_status": 200,
+      "success": false,
+      "description": "Get symptoms",
+      "response_time": 0.001226,
+      "response_size": 0,
+      "response_data": null,
+      "error": "Expected 200, got 307"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/api/v1/health-tracking/vital-signs",
+      "status_code": 404,
+      "expected_status": 200,
+      "success": false,
+      "description": "Get vital signs",
+      "response_time": 0.001326,
+      "response_size": 22,
+      "response_data": {
+        "detail": "Not Found"
+      },
+      "error": "Expected 200, got 404",
+      "error_details": "{\"detail\":\"Not Found\"}"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/api/v1/health-tracking/insights",
+      "status_code": 307,
+      "expected_status": 200,
+      "success": false,
+      "description": "Get insights",
+      "response_time": 0.001173,
+      "response_size": 0,
+      "response_data": null,
+      "error": "Expected 200, got 307"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/api/v1/health-tracking/analytics",
+      "status_code": 404,
+      "expected_status": 200,
+      "success": false,
+      "description": "Get analytics",
+      "response_time": 0.00105,
+      "response_size": 22,
+      "response_data": {
+        "detail": "Not Found"
+      },
+      "error": "Expected 200, got 404",
+      "error_details": "{\"detail\":\"Not Found\"}"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/api/v1/health-tracking/devices",
+      "status_code": 307,
+      "expected_status": 200,
+      "success": false,
+      "description": "Get devices",
+      "response_time": 0.001103,
+      "response_size": 0,
+      "response_data": null,
+      "error": "Expected 200, got 307"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/api/v1/health-tracking/alerts",
+      "status_code": 307,
+      "expected_status": 200,
+      "success": false,
+      "description": "Get alerts",
+      "response_time": 0.00105,
+      "response_size": 0,
+      "response_data": null,
+      "error": "Expected 200, got 307"
+    },
+    {
+      "method": "POST",
+      "endpoint": "/api/v1/health-tracking/metrics",
+      "status_code": 405,
+      "expected_status": 201,
+      "success": false,
+      "description": "Create metric",
+      "response_time": 0.001459,
+      "response_size": 31,
+      "response_data": {
+        "detail": "Method Not Allowed"
+      },
+      "error": "Expected 201, got 405",
+      "error_details": "{\"detail\":\"Method Not Allowed\"}"
+    },
+    {
+      "method": "POST",
+      "endpoint": "/api/v1/health-tracking/goals",
+      "status_code": 307,
+      "expected_status": 201,
+      "success": false,
+      "description": "Create goal",
+      "response_time": 0.001003,
+      "response_size": 0,
+      "response_data": null,
+      "error": "Expected 201, got 307"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/agents/health",
+      "status_code": 401,
+      "expected_status": 200,
+      "success": false,
+      "description": "Agent health check",
+      "response_time": 0.033439,
+      "response_size": 132,
+      "response_data": {
+        "success": false,
+        "error": "Invalid token: Signature verification failed.",
+        "error_code": "HTTP_401",
+        "details": {
+          "request_id": "unknown"
+        }
+      },
+      "error": "Expected 200, got 401",
+      "error_details": "{\"success\":false,\"error\":\"Invalid token: Signature verification failed.\",\"error_code\":\"HTTP_401\",\"details\":{\"request_id\":\"unknown\"}}"
+    },
+    {
+      "method": "POST",
+      "endpoint": "/agents/anomaly-detection",
+      "status_code": 500,
+      "expected_status": 200,
+      "success": false,
+      "description": "Anomaly detection",
+      "response_time": 0.007762,
+      "response_size": 146,
+      "response_data": {
+        "success": false,
+        "error": "An unexpected error occurred",
+        "error_code": "INTERNAL_ERROR",
+        "details": {
+          "request_id": "unknown",
+          "error_type": "Exception"
+        }
+      },
+      "error": "Expected 200, got 500",
+      "error_details": "{\"success\":false,\"error\":\"An unexpected error occurred\",\"error_code\":\"INTERNAL_ERROR\",\"details\":{\"request_id\":\"unknown\",\"error_type\":\"Exception\"}}"
+    },
+    {
+      "method": "POST",
+      "endpoint": "/agents/trend-analysis",
+      "status_code": 500,
+      "expected_status": 200,
+      "success": false,
+      "description": "Trend analysis",
+      "response_time": 0.006365,
+      "response_size": 146,
+      "response_data": {
+        "success": false,
+        "error": "An unexpected error occurred",
+        "error_code": "INTERNAL_ERROR",
+        "details": {
+          "request_id": "unknown",
+          "error_type": "Exception"
+        }
+      },
+      "error": "Expected 200, got 500",
+      "error_details": "{\"success\":false,\"error\":\"An unexpected error occurred\",\"error_code\":\"INTERNAL_ERROR\",\"details\":{\"request_id\":\"unknown\",\"error_type\":\"Exception\"}}"
+    },
+    {
+      "method": "POST",
+      "endpoint": "/agents/goal-suggestions",
+      "status_code": 500,
+      "expected_status": 200,
+      "success": false,
+      "description": "Goal suggestions",
+      "response_time": 0.006584,
+      "response_size": 146,
+      "response_data": {
+        "success": false,
+        "error": "An unexpected error occurred",
+        "error_code": "INTERNAL_ERROR",
+        "details": {
+          "request_id": "unknown",
+          "error_type": "Exception"
+        }
+      },
+      "error": "Expected 200, got 500",
+      "error_details": "{\"success\":false,\"error\":\"An unexpected error occurred\",\"error_code\":\"INTERNAL_ERROR\",\"details\":{\"request_id\":\"unknown\",\"error_type\":\"Exception\"}}"
+    },
+    {
+      "method": "POST",
+      "endpoint": "/agents/health-coaching",
+      "status_code": 500,
+      "expected_status": 200,
+      "success": false,
+      "description": "Health coaching",
+      "response_time": 0.009481,
+      "response_size": 146,
+      "response_data": {
+        "success": false,
+        "error": "An unexpected error occurred",
+        "error_code": "INTERNAL_ERROR",
+        "details": {
+          "request_id": "unknown",
+          "error_type": "Exception"
+        }
+      },
+      "error": "Expected 200, got 500",
+      "error_details": "{\"success\":false,\"error\":\"An unexpected error occurred\",\"error_code\":\"INTERNAL_ERROR\",\"details\":{\"request_id\":\"unknown\",\"error_type\":\"Exception\"}}"
+    },
+    {
+      "method": "POST",
+      "endpoint": "/agents/risk-assessment",
+      "status_code": 500,
+      "expected_status": 200,
+      "success": false,
+      "description": "Risk assessment",
+      "response_time": 0.007405,
+      "response_size": 146,
+      "response_data": {
+        "success": false,
+        "error": "An unexpected error occurred",
+        "error_code": "INTERNAL_ERROR",
+        "details": {
+          "request_id": "unknown",
+          "error_type": "Exception"
+        }
+      },
+      "error": "Expected 200, got 500",
+      "error_details": "{\"success\":false,\"error\":\"An unexpected error occurred\",\"error_code\":\"INTERNAL_ERROR\",\"details\":{\"request_id\":\"unknown\",\"error_type\":\"Exception\"}}"
+    },
+    {
+      "method": "POST",
+      "endpoint": "/agents/pattern-recognition",
+      "status_code": 500,
+      "expected_status": 200,
+      "success": false,
+      "description": "Pattern recognition",
+      "response_time": 0.006791,
+      "response_size": 146,
+      "response_data": {
+        "success": false,
+        "error": "An unexpected error occurred",
+        "error_code": "INTERNAL_ERROR",
+        "details": {
+          "request_id": "unknown",
+          "error_type": "Exception"
+        }
+      },
+      "error": "Expected 200, got 500",
+      "error_details": "{\"success\":false,\"error\":\"An unexpected error occurred\",\"error_code\":\"INTERNAL_ERROR\",\"details\":{\"request_id\":\"unknown\",\"error_type\":\"Exception\"}}"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/dashboard/summary",
+      "status_code": 500,
+      "expected_status": 200,
+      "success": false,
+      "description": "Dashboard summary",
+      "response_time": 0.008508,
+      "response_size": 146,
+      "response_data": {
+        "success": false,
+        "error": "An unexpected error occurred",
+        "error_code": "INTERNAL_ERROR",
+        "details": {
+          "request_id": "unknown",
+          "error_type": "Exception"
+        }
+      },
+      "error": "Expected 200, got 500",
+      "error_details": "{\"success\":false,\"error\":\"An unexpected error occurred\",\"error_code\":\"INTERNAL_ERROR\",\"details\":{\"request_id\":\"unknown\",\"error_type\":\"Exception\"}}"
+    }
+  ]
+}
