@@ -1,0 +1,177 @@
+# Core Dependencies
+fastapi>=0.104.1
+uvicorn[standard]>=0.24.0
+sqlalchemy>=2.0.23
+psycopg2-binary>=2.9.9
+python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.4
+python-multipart>=0.0.6
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+python-dotenv>=1.0.0
+httpx>=0.25.2
+redis>=5.0.1
+kafka-python>=2.0.2
+duckdb>=0.9.2
+qdrant-client>=1.7.0
+langchain>=0.0.350
+confluent-kafka>=2.3.0
+requests>=2.31.0
+supabase>=2.0.0
+
+# AI/ML Dependencies
+openai>=1.3.7
+anthropic>=0.7.0
+transformers>=4.36.0
+torch>=2.1.1
+numpy>=1.24.0
+pandas>=2.0.0
+scikit-learn>=1.3.0
+
+# Advanced Analytics Dependencies
+joblib>=1.3.0
+matplotlib>=3.7.0
+seaborn>=0.12.0
+plotly>=5.15.0
+scipy>=1.11.0
+statsmodels>=0.14.0
+
+# Database & Storage
+alembic>=1.13.1
+asyncpg>=0.29.0
+motor>=3.3.0
+
+# Monitoring & Logging
+structlog>=23.2.0
+prometheus-client>=0.19.0
+sentry-sdk[fastapi]>=1.38.0
+
+# Security
+cryptography>=41.0.8
+bcrypt>=4.0.0
+
+# Development Dependencies
+pytest>=7.4.3
+pytest-asyncio>=0.21.1
+pytest-cov>=4.1.0
+pytest-mock>=3.12.0
+black>=23.11.0
+flake8>=6.1.0
+mypy>=1.7.1
+isort>=5.12.0
+pre-commit>=3.6.0
+bandit>=1.7.5
+safety>=2.3.0
+
+# Testing & Quality
+coverage>=7.3.0
+pytest-xdist>=3.5.0
+pytest-benchmark>=4.0.0
+
+# Environment & Configuration
+python-decouple>=3.8
+
+# Logging & Monitoring
+python-json-logger>=2.0.7
+
+# Non-Functional Requirements Dependencies
+# OpenTelemetry for distributed tracing and metrics
+opentelemetry-api>=1.21.0
+opentelemetry-sdk>=1.21.0
+opentelemetry-instrumentation-fastapi>=0.42b0
+opentelemetry-instrumentation-sqlalchemy>=0.42b0
+opentelemetry-instrumentation-httpx>=0.42b0
+opentelemetry-instrumentation-redis>=0.42b0
+opentelemetry-exporter-jaeger>=1.21.0
+opentelemetry-exporter-prometheus==0.55b1
+deprecated>=1.2.14
+
+# Resilience patterns
+tenacity>=8.2.3
+pybreaker>=1.0.1
+
+# Rate limiting
+aioredis>=2.0.1
+
+# Metrics and monitoring
+prometheus-client>=0.19.0
+
+# Feature flags
+# (Using Redis for feature flag storage)
+
+# Health checks
+healthcheck>=1.3.3
+
+# Time series and analytics
+
+# Vector search
+qdrant-client>=1.7.0
+
+# Message queue
+aiokafka>=0.8.11
+
+# Image processing
+Pillow>=10.1.0
+opencv-python>=4.8.1.78
+
+# Voice processing - Moved to voice_input service requirements
+# speechrecognition>=3.10.0
+# openai-whisper>=20231117
+# pyaudio>=0.2.11
+# librosa>=0.10.1
+# soundfile>=0.12.1
+# edge-tts>=6.1.9
+# pydub>=0.25.1
+
+# Genomics
+biopython>=1.81
+
+# Medical/Health
+fhirclient>=3.2.0
+hl7>=0.4.4
+
+# E-commerce
+stripe>=7.8.0
+
+# Documentation
+mkdocs>=1.5.3
+mkdocs-material>=9.4.8
+
+# Deployment
+docker>=6.1.3
+kubernetes>=28.1.0
+
+# Testing
+pytest-asyncio>=0.21.1
+pytest-cov>=4.1.0
+
+# Utilities
+python-dateutil>=2.8.2
+pytz>=2023.3
+uuid>=1.30
+
+# Development
+pre-commit>=3.6.0
+
+# Development Dependencies
+bandit>=1.7.5
+safety>=2.3.0
+
+# Testing & Quality
+coverage>=7.3.0
+pytest-xdist>=3.5.0
+pytest-benchmark>=4.0.0
+
+# Authentication & Authorization Dependencies
+authlib>=1.2.1
+itsdangerous>=2.1.2
+pyotp>=2.9.0  # For MFA/TOTP
+qrcode[pil]>=7.4.2  # For MFA QR codes
+auth0-python>=4.4.0  # Auth0 integration
+python-jose[cryptography]>=3.3.0  # JWT handling
+cryptography>=41.0.8  # Enhanced security
+bcrypt>=4.0.0  # Password hashing
+email-validator==2.1.0
+
+spacy>=3.7.2
+# For English NLP model, install in Dockerfile: RUN python -m spacy download en_core_web_sm
