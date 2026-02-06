@@ -1,0 +1,12 @@
+{
+  "name": "VitaSense PPA Dev Container",
+  "image": "python:3.10",
+  "settings": {
+    "terminal.integrated.shell.linux": "/bin/bash"
+  },
+  "extensions": [
+    "ms-python.python",
+    "ms-python.vscode-pylance"
+  ],
+  "postCreateCommand": "pip install pre-commit && pre-commit install"
+} 
