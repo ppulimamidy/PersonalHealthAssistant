@@ -1,0 +1,21 @@
+rxcui|name|tty
+860975|Metformin 500 MG Oral Tablet|BN
+197361|Lisinopril 10 MG Oral Tablet|BN
+83367|Atorvastatin 20 MG Oral Tablet|BN
+1191|Aspirin 81 MG Oral Tablet|BN
+5640|Ibuprofen 200 MG Oral Tablet|BN
+7646|Omeprazole 20 MG Oral Tablet|BN
+894659|Sertraline 50 MG Oral Tablet|BN
+197361|Amlodipine 5 MG Oral Tablet|BN
+52175|Losartan 50 MG Oral Tablet|BN
+197361|Simvastatin 20 MG Oral Tablet|BN
+860975|Metformin|IN
+197361|Lisinopril|IN
+83367|Atorvastatin|IN
+1191|Aspirin|IN
+5640|Ibuprofen|IN
+7646|Omeprazole|IN
+894659|Sertraline|IN
+197361|Amlodipine|IN
+52175|Losartan|IN
+197361|Simvastatin|IN 

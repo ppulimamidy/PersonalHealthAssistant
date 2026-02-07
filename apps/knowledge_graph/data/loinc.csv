@@ -1,0 +1,22 @@
+LOINC_NUM,COMPONENT,PROPERTY,TIME_ASPCT,SYSTEM,SCALE_TYP,METHOD_TYP,CLASS
+789-8,RBC,ACnc,PT,Blood,Qn,Manual count,Hematology
+718-7,Hemoglobin,MassCnc,PT,Blood,Qn,Spectrophotometry,Hematology
+4544-3,Hematocrit,MFr,PT,Blood,Qn,Calculated,Hematology
+787-2,MCV,EntVol,PT,Blood,Qn,Calculated,Hematology
+785-6,MCH,EntMass,PT,Blood,Qn,Calculated,Hematology
+786-4,MCHC,MassCnc,PT,Blood,Qn,Calculated,Hematology
+788-0,RDW,VRto,PT,Blood,Qn,Calculated,Hematology
+777-3,Platelets,NCnc,PT,Blood,Qn,Manual count,Hematology
+6690-2,WBC,NCnc,PT,Blood,Qn,Manual count,Hematology
+6768-6,Neutrophils,NFr,PT,Blood,Qn,Manual count,Hematology
+704-7,Basophils,NFr,PT,Blood,Qn,Manual count,Hematology
+706-2,Eosinophils,NFr,PT,Blood,Qn,Manual count,Hematology
+711-2,Lymphocytes,NFr,PT,Blood,Qn,Manual count,Hematology
+713-8,Monocytes,NFr,PT,Blood,Qn,Manual count,Hematology
+2345-7,Glucose,MassCnc,PT,Serum/Plasma,Qn,Enzymatic,Chemistry
+2160-0,Creatinine,MassCnc,PT,Serum/Plasma,Qn,Enzymatic,Chemistry
+2951-2,Sodium,SCnc,PT,Serum/Plasma,Qn,Ion selective electrode,Chemistry
+2823-3,Potassium,SCnc,PT,Serum/Plasma,Qn,Ion selective electrode,Chemistry
+2075-0,Chloride,SCnc,PT,Serum/Plasma,Qn,Ion selective electrode,Chemistry
+3094-0,Urea nitrogen,MassCnc,PT,Serum/Plasma,Qn,Enzymatic,Chemistry
+2093-3,Cholesterol,MassCnc,PT,Serum/Plasma,Qn,Enzymatic,Chemistry 
