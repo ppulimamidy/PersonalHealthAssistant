@@ -42,6 +42,7 @@ env/
 # Logs
 *.log
 logs/*.log.*
+traefik/logs/
 
 # Test results and reports
 *_test_results*.json
