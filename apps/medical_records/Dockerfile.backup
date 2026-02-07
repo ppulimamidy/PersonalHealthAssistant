@@ -1,0 +1,50 @@
+# Use Python 3.11 slim image
+FROM python:3.11-slim
+
+# Set working directory
+WORKDIR /app
+
+# Set environment variables
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app
+
+# Install system dependencies including Tesseract OCR
+RUN apt-get update && apt-get install -y \
+    gcc \
+    g++ \
+    libpq-dev \
+    libmagic1 \
+    curl \
+    tesseract-ocr \
+    tesseract-ocr-eng \
+    poppler-utils \
+    libpoppler-cpp-dev \
+    pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy the entire project
+COPY . .
+
+# Install Python dependencies
+RUN pip install --no-cache-dir -r apps/medical_records/requirements.txt
+
+# Create uploads directory
+RUN mkdir -p /app/uploads/medical_documents/temp \
+    /app/uploads/medical_documents/processed \
+    /app/uploads/medical_documents/archived
+
+# Create non-root user
+RUN useradd --create-home --shell /bin/bash app \
+    && chown -R app:app /app
+USER app
+
+# Expose port
+EXPOSE 8005
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8005/health || exit 1
+
+# Run the medical records application
+CMD ["uvicorn", "apps.medical_records.main:app", "--host", "0.0.0.0", "--port", "8005"]

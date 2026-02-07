@@ -1,0 +1,372 @@
+"""
+Clinical Reports API endpoints for Medical Records
+Handles clinical reports, templates, categories, and audit management.
+"""
+
+from typing import List, Optional, Dict, Any
+from uuid import UUID
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query, Request
+from fastapi.responses import FileResponse
+from fastapi.security import HTTPBearer
+from sqlalchemy.orm import Session
+import logging
+from jose import jwt, JWTError
+from datetime import datetime
+
+from apps.medical_records.schemas.clinical_reports import (
+    ClinicalReportCreate, ClinicalReportUpdate, ClinicalReportResponse,
+    ClinicalReportListResponse, ReportVersionResponse, ReportVersionListResponse,
+    ReportTemplateCreate, ReportTemplateUpdate, ReportTemplateResponse,
+    ReportTemplateListResponse, ReportCategoryCreate, ReportCategoryUpdate,
+    ReportCategoryResponse, ReportCategoryListResponse, ReportAuditLogResponse,
+    ReportAuditLogListResponse, ReportSearchRequest, ReportStatisticsResponse,
+    ReportType, ReportStatus, ReportPriority, ReportCategory, ReportTemplate
+)
+from apps.medical_records.services.clinical_reports_service import clinical_reports_service
+from apps.medical_records.services.service_integration import service_integration
+from common.database.connection import get_db
+from common.utils.logging import get_logger
+from common.config.settings import get_settings
+
+logger = get_logger(__name__)
+settings = get_settings()
+
+router = APIRouter(prefix="/clinical-reports", tags=["Clinical Reports"])
+security = HTTPBearer()
+
+
+def get_current_user(request: Request, token: str = Depends(security)):
+    """Get current user from JWT token."""
+    try:
+        # Decode JWT token
+        payload = jwt.decode(
+            token.credentials, 
+            settings.JWT_SECRET_KEY, 
+            algorithms=[settings.JWT_ALGORITHM]
+        )
+        
+        # Extract user information
+        user_id = payload.get("sub") or payload.get("user_id")
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Invalid token: missing user_id")
+        
+        # Check if token is expired
+        exp = payload.get("exp")
+        if exp and datetime.utcnow().timestamp() > exp:
+            raise HTTPException(status_code=401, detail="Token expired")
+        
+        return {
+            "user_id": user_id,
+            "email": payload.get("email"),
+            "user_type": payload.get("user_type", "user"),
+            "permissions": payload.get("permissions", [])
+        }
+        
+    except JWTError as e:
+        logger.error(f"JWT decode error: {e}")
+        raise HTTPException(status_code=401, detail="Invalid token")
+    except Exception as e:
+        logger.error(f"Authentication error: {e}")
+        raise HTTPException(status_code=401, detail="Invalid authentication credentials")
+
+
+# Clinical Reports Endpoints
+
+# Static Routes (must come before dynamic routes)
+@router.get("/templates", response_model=ReportTemplateListResponse)
+async def get_report_templates(
+    category: Optional[ReportCategory] = Query(None, description="Filter by category"),
+    template_type: Optional[ReportTemplate] = Query(None, description="Filter by template type"),
+    is_active: Optional[bool] = Query(None, description="Filter by active status"),
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get all report templates with optional filters."""
+    try:
+        templates = clinical_reports_service.get_templates(
+            db=db,
+            category=category,
+            template_type=template_type,
+            is_active=is_active
+        )
+        return templates
+    except Exception as e:
+        logger.error(f"Error getting report templates: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.get("/categories", response_model=ReportCategoryListResponse)
+async def get_report_categories(
+    include_inactive: bool = Query(False, description="Include inactive categories"),
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get all report categories."""
+    try:
+        categories = clinical_reports_service.get_categories(
+            db=db,
+            include_inactive=include_inactive
+        )
+        return categories
+    except Exception as e:
+        logger.error(f"Error getting report categories: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.get("/statistics", response_model=ReportStatisticsResponse)
+async def get_report_statistics(
+    patient_id: Optional[UUID] = Query(None, description="Filter by patient ID"),
+    date_from: Optional[str] = Query(None, description="Start date (YYYY-MM-DD)"),
+    date_to: Optional[str] = Query(None, description="End date (YYYY-MM-DD)"),
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get clinical report statistics."""
+    try:
+        stats = clinical_reports_service.get_statistics(
+            db=db,
+            patient_id=patient_id,
+            date_from=date_from,
+            date_to=date_to,
+            user_id=current_user["user_id"]
+        )
+        return stats
+    except Exception as e:
+        logger.error(f"Error getting report statistics: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.get("/enums/report-types")
+async def get_report_types():
+    """Get all available report types."""
+    return {
+        "report_types": [rt.value for rt in ReportType],
+        "description": "Available clinical report types"
+    }
+
+
+@router.get("/enums/report-statuses")
+async def get_report_statuses():
+    """Get all available report statuses."""
+    return {
+        "report_statuses": [rs.value for rs in ReportStatus],
+        "description": "Available clinical report statuses"
+    }
+
+
+@router.get("/enums/report-priorities")
+async def get_report_priorities():
+    """Get all available report priorities."""
+    return {
+        "report_priorities": [rp.value for rp in ReportPriority],
+        "description": "Available clinical report priorities"
+    }
+
+
+@router.get("/enums/report-categories")
+async def get_report_categories_enum():
+    """Get all available report categories."""
+    return {
+        "report_categories": [rc.value for rc in ReportCategory],
+        "description": "Available clinical report categories"
+    }
+
+
+@router.get("/enums/report-templates")
+async def get_report_templates_enum():
+    """Get all available report template types."""
+    return {
+        "report_templates": [rt.value for rt in ReportTemplate],
+        "description": "Available clinical report template types"
+    }
+
+
+# Dynamic Routes (must come after static routes)
+@router.post("/", response_model=ClinicalReportResponse)
+async def create_clinical_report(
+    report_data: ClinicalReportCreate,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Create a new clinical report."""
+    try:
+        report = clinical_reports_service.create_report(
+            db=db,
+            report_data=report_data,
+            author_id=current_user["user_id"]
+        )
+        return report
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error creating clinical report: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.get("/{report_id}", response_model=ClinicalReportResponse)
+async def get_clinical_report(
+    report_id: UUID,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get a clinical report by ID."""
+    try:
+        report = clinical_reports_service.get_report(
+            db=db,
+            report_id=report_id,
+            user_id=current_user["user_id"]
+        )
+        return report
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error getting clinical report: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.put("/{report_id}", response_model=ClinicalReportResponse)
+async def update_clinical_report(
+    report_id: UUID,
+    report_data: ClinicalReportUpdate,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Update a clinical report."""
+    try:
+        report = clinical_reports_service.update_report(
+            db=db,
+            report_id=report_id,
+            report_data=report_data,
+            user_id=current_user["user_id"]
+        )
+        return report
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error updating clinical report: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.delete("/{report_id}")
+async def delete_clinical_report(
+    report_id: UUID,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Delete a clinical report (soft delete)."""
+    try:
+        success = clinical_reports_service.delete_report(
+            db=db,
+            report_id=report_id,
+            user_id=current_user["user_id"]
+        )
+        return {"message": "Report deleted successfully", "success": success}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error deleting clinical report: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.post("/search", response_model=ClinicalReportListResponse)
+async def search_clinical_reports(
+    search_request: ReportSearchRequest,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Search clinical reports with filters."""
+    try:
+        results = clinical_reports_service.search_reports(
+            db=db,
+            search_request=search_request,
+            user_id=current_user["user_id"]
+        )
+        return results
+    except Exception as e:
+        logger.error(f"Error searching clinical reports: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.get("/{report_id}/versions", response_model=ReportVersionListResponse)
+async def get_report_versions(
+    report_id: UUID,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get all versions of a clinical report."""
+    try:
+        versions = clinical_reports_service.get_report_versions(
+            db=db,
+            report_id=report_id,
+            user_id=current_user["user_id"]
+        )
+        return versions
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error getting report versions: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.get("/{report_id}/audit-logs", response_model=ReportAuditLogListResponse)
+async def get_report_audit_logs(
+    report_id: UUID,
+    page: int = Query(1, ge=1, description="Page number"),
+    size: int = Query(20, ge=1, le=100, description="Page size"),
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get audit logs for a clinical report."""
+    try:
+        logs = clinical_reports_service.get_report_audit_logs(
+            db=db,
+            report_id=report_id,
+            user_id=current_user["user_id"],
+            page=page,
+            size=size
+        )
+        return logs
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error getting report audit logs: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+# Test Endpoint
+@router.get("/test/endpoints")
+async def test_clinical_reports_endpoints():
+    """Test endpoint to verify clinical reports API is working."""
+    return {
+        "message": "Clinical Reports API is working",
+        "available_endpoints": [
+            "POST /clinical-reports/",
+            "GET /clinical-reports/{report_id}",
+            "PUT /clinical-reports/{report_id}",
+            "DELETE /clinical-reports/{report_id}",
+            "POST /clinical-reports/search",
+            "GET /clinical-reports/{report_id}/versions",
+            "GET /clinical-reports/{report_id}/audit-logs",
+            "GET /clinical-reports/templates",
+            "GET /clinical-reports/categories",
+            "GET /clinical-reports/statistics",
+            "GET /clinical-reports/enums/report-types",
+            "GET /clinical-reports/enums/report-statuses",
+            "GET /clinical-reports/enums/report-priorities",
+            "GET /clinical-reports/enums/report-categories",
+            "GET /clinical-reports/enums/report-templates"
+        ],
+        "features": [
+            "Clinical report CRUD operations",
+            "Report versioning and history",
+            "Report templates management",
+            "Report categories and organization",
+            "Advanced search and filtering",
+            "Audit logging and tracking",
+            "Statistics and analytics",
+            "Author and reviewer tracking",
+            "Document categorization",
+            "Confidentiality controls",
+            "Review workflow management"
+        ]
+    } 
