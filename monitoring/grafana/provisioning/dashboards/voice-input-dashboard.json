@@ -1,0 +1,241 @@
+{
+  "id": null,
+  "title": "Voice Input Service Dashboard",
+  "tags": ["voice-input", "speech", "ai"],
+  "style": "dark",
+  "timezone": "browser",
+  "panels": [
+    {
+      "id": 1,
+      "title": "Voice Processing Requests",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "rate(voice_processing_requests_total{job=\"voice-input-service\"}[5m])",
+          "legendFormat": "Requests/sec"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "displayMode": "list",
+            "orientation": "auto"
+          }
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "id": 2,
+      "title": "Transcription Accuracy",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "transcription_accuracy{job=\"voice-input-service\"}",
+          "legendFormat": "Accuracy %"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "steps": [
+              {"color": "red", "value": null},
+              {"color": "yellow", "value": 85},
+              {"color": "green", "value": 95}
+            ]
+          },
+          "unit": "percent"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      }
+    },
+    {
+      "id": 3,
+      "title": "Processing Operations",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "rate(voice_transcriptions_total{job=\"voice-input-service\"}[5m])",
+          "legendFormat": "Transcriptions"
+        },
+        {
+          "expr": "rate(text_to_speech_total{job=\"voice-input-service\"}[5m])",
+          "legendFormat": "Text-to-Speech"
+        },
+        {
+          "expr": "rate(intent_recognition_total{job=\"voice-input-service\"}[5m])",
+          "legendFormat": "Intent Recognition"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          }
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 8
+      }
+    },
+    {
+      "id": 4,
+      "title": "Audio Processing Time",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, rate(audio_processing_duration_seconds_bucket{job=\"voice-input-service\"}[5m]))",
+          "legendFormat": "95th percentile"
+        },
+        {
+          "expr": "histogram_quantile(0.50, rate(audio_processing_duration_seconds_bucket{job=\"voice-input-service\"}[5m]))",
+          "legendFormat": "50th percentile"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "s"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      }
+    },
+    {
+      "id": 5,
+      "title": "AI Model Performance",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "ai_model_confidence{job=\"voice-input-service\"}",
+          "legendFormat": "Model Confidence"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "percent"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      }
+    },
+    {
+      "id": 6,
+      "title": "Response Time",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{job=\"voice-input-service\"}[5m]))",
+          "legendFormat": "95th percentile"
+        },
+        {
+          "expr": "histogram_quantile(0.50, rate(http_request_duration_seconds_bucket{job=\"voice-input-service\"}[5m]))",
+          "legendFormat": "50th percentile"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "s"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 24
+      }
+    },
+    {
+      "id": 7,
+      "title": "Error Rate",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "rate(http_requests_total{job=\"voice-input-service\", status=~\"4..|5..\"}[5m])",
+          "legendFormat": "Error Rate"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          }
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 24
+      }
+    },
+    {
+      "id": 8,
+      "title": "Multi-modal Processing",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "rate(multimodal_processing_total{job=\"voice-input-service\"}[5m])",
+          "legendFormat": "Multi-modal Requests"
+        },
+        {
+          "expr": "rate(vision_analysis_total{job=\"voice-input-service\"}[5m])",
+          "legendFormat": "Vision Analysis"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          }
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 32
+      }
+    }
+  ],
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "refresh": "30s"
+} 

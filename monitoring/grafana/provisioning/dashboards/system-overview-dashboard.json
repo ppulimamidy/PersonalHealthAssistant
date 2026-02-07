@@ -1,0 +1,291 @@
+{
+  "id": null,
+  "title": "Personal Health Assistant - System Overview",
+  "tags": ["overview", "system", "health"],
+  "style": "dark",
+  "timezone": "browser",
+  "panels": [
+    {
+      "id": 1,
+      "title": "Service Health Status",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "up{job=~\".*-service\"}",
+          "legendFormat": "{{job}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "steps": [
+              {"color": "red", "value": null},
+              {"color": "red", "value": 0},
+              {"color": "green", "value": 1}
+            ]
+          },
+          "custom": {
+            "displayMode": "list",
+            "orientation": "auto"
+          }
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "id": 2,
+      "title": "Total Requests/sec",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "sum(rate(http_requests_total{job=~\".*-service\"}[5m]))",
+          "legendFormat": "Total Requests/sec"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "reqps"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      }
+    },
+    {
+      "id": 3,
+      "title": "Average Response Time",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "avg(histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{job=~\".*-service\"}[5m])))",
+          "legendFormat": "95th percentile avg"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 1},
+              {"color": "red", "value": 5}
+            ]
+          },
+          "unit": "s"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      }
+    },
+    {
+      "id": 4,
+      "title": "Error Rate",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "sum(rate(http_requests_total{job=~\".*-service\", status=~\"4..|5..\"}[5m])) by (job)",
+          "legendFormat": "{{job}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          }
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 16
+      }
+    },
+    {
+      "id": 5,
+      "title": "Database Connections",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "pg_stat_database_numbackends{job=\"postgres\"}",
+          "legendFormat": "Active Connections"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 50},
+              {"color": "red", "value": 100}
+            ]
+          }
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 24
+      }
+    },
+    {
+      "id": 6,
+      "title": "Redis Memory Usage",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "redis_memory_used_bytes{job=\"redis\"} / redis_memory_max_bytes{job=\"redis\"} * 100",
+          "legendFormat": "Memory Usage %"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 70},
+              {"color": "red", "value": 90}
+            ]
+          },
+          "unit": "percent"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 24
+      }
+    },
+    {
+      "id": 7,
+      "title": "Traefik Requests",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "rate(traefik_service_requests_total{job=\"traefik\"}[5m])",
+          "legendFormat": "{{service}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          }
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 32
+      }
+    },
+    {
+      "id": 8,
+      "title": "System Resources",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "rate(process_cpu_seconds_total{job=~\".*-service\"}[5m]) * 100",
+          "legendFormat": "{{job}} CPU %"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "percent"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 40
+      }
+    },
+    {
+      "id": 9,
+      "title": "Memory Usage",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "process_resident_memory_bytes{job=~\".*-service\"} / 1024 / 1024",
+          "legendFormat": "{{job}} MB"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "MB"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 40
+      }
+    },
+    {
+      "id": 10,
+      "title": "AI Operations",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "rate(ai_operations_total{job=~\".*-service\"}[5m])",
+          "legendFormat": "{{job}} {{operation}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          }
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 48
+      }
+    }
+  ],
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "refresh": "30s"
+} 

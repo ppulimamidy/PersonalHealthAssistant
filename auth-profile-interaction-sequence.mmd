@@ -1,0 +1,97 @@
+sequenceDiagram
+    participant Client as Client App
+    participant Gateway as API Gateway
+    participant Auth as Auth Service
+    participant Profile as User Profile Service
+    participant DB as PostgreSQL
+    participant Kafka as Message Bus
+    participant Audit as Audit Service
+
+    Note over Client,Audit: User Registration Flow
+    Client->>Gateway: POST /api/v1/auth/register
+    Gateway->>Auth: Forward registration request
+    Auth->>DB: Create user record
+    Auth->>DB: Create audit log
+    Auth->>Kafka: Publish user.created event
+    Kafka->>Profile: Consume user.created event
+    Profile->>DB: Create default profile
+    Profile->>DB: Create default preferences
+    Profile->>Kafka: Publish profile.created event
+    Auth->>Gateway: Return user data + tokens
+    Gateway->>Client: Registration successful
+
+    Note over Client,Audit: User Login Flow
+    Client->>Gateway: POST /api/v1/auth/login
+    Gateway->>Auth: Forward login request
+    Auth->>DB: Validate credentials
+    Auth->>DB: Create session
+    Auth->>DB: Log login event
+    Auth->>Gateway: Return session tokens
+    Gateway->>Client: Login successful
+
+    Note over Client,Audit: Profile Access Flow
+    Client->>Gateway: GET /api/v1/user-profile/me
+    Gateway->>Auth: Validate JWT token
+    Auth->>DB: Verify session
+    Auth->>Gateway: Token valid
+    Gateway->>Profile: Forward profile request
+    Profile->>DB: Get user profile
+    Profile->>DB: Get user preferences
+    Profile->>Gateway: Return profile data
+    Gateway->>Client: Profile data
+
+    Note over Client,Audit: Profile Update Flow
+    Client->>Gateway: PUT /api/v1/user-profile/me
+    Gateway->>Auth: Validate JWT token
+    Auth->>Gateway: Token valid
+    Gateway->>Profile: Forward update request
+    Profile->>Profile: Validate profile data
+    Profile->>DB: Update profile
+    Profile->>DB: Update preferences
+    Profile->>Kafka: Publish profile.updated event
+    Profile->>Gateway: Return updated profile
+    Gateway->>Client: Profile updated
+
+    Note over Client,Audit: Profile Privacy Settings
+    Client->>Gateway: PUT /api/v1/user-profile/privacy
+    Gateway->>Auth: Validate JWT token
+    Auth->>Gateway: Token valid
+    Gateway->>Profile: Forward privacy request
+    Profile->>Profile: Validate privacy settings
+    Profile->>DB: Update privacy settings
+    Profile->>Kafka: Publish privacy.updated event
+    Profile->>Gateway: Return privacy settings
+    Gateway->>Client: Privacy updated
+
+    Note over Client,Audit: User Deletion Flow
+    Client->>Gateway: DELETE /api/v1/auth/users/me
+    Gateway->>Auth: Validate JWT token
+    Auth->>Gateway: Token valid
+    Gateway->>Auth: Forward deletion request
+    Auth->>DB: Mark user as deleted
+    Auth->>Kafka: Publish user.deleted event
+    Kafka->>Profile: Consume user.deleted event
+    Profile->>DB: Archive profile data
+    Profile->>DB: Archive preferences
+    Profile->>Kafka: Publish profile.archived event
+    Auth->>Gateway: Deletion successful
+    Gateway->>Client: Account deleted
+
+    Note over Client,Audit: Health Data Access (Future)
+    Client->>Gateway: GET /api/v1/health-tracking/vitals
+    Gateway->>Auth: Validate JWT token
+    Auth->>Gateway: Token valid
+    Gateway->>Profile: Get user health profile
+    Profile->>DB: Retrieve health attributes
+    Profile->>Gateway: Return health profile
+    Gateway->>Health: Forward with health profile
+    Health->>DB: Get vitals data
+    Health->>Gateway: Return vitals
+    Gateway->>Client: Health data
+
+    Note over Client,Audit: Cross-Service Communication
+    Note over Auth,Profile: Services communicate via:
+    Note over Auth,Profile: 1. Direct API calls (synchronous)
+    Note over Auth,Profile: 2. Kafka events (asynchronous)
+    Note over Auth,Profile: 3. Shared database (data consistency)
+    Note over Auth,Profile: 4. JWT tokens (authentication) 

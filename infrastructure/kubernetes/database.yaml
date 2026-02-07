@@ -1,0 +1,210 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-config
+  namespace: personal-health-assistant
+data:
+  POSTGRES_DB: "postgres"
+  POSTGRES_USER: "postgres"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: postgres-secret
+  namespace: personal-health-assistant
+type: Opaque
+data:
+  POSTGRES_PASSWORD: eW91ci1zdXBlci1zZWNyZXQtYW5kLWxvbmctcG9zdGdyZXMtcGFzc3dvcmQ=  # your-super-secret-and-long-postgres-password
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres-db
+  namespace: personal-health-assistant
+  labels:
+    app: postgres-db
+    component: database
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres-db
+  template:
+    metadata:
+      labels:
+        app: postgres-db
+    spec:
+      containers:
+      - name: postgres
+        image: timescale/timescaledb:latest-pg15
+        ports:
+        - containerPort: 5432
+        env:
+        - name: POSTGRES_DB
+          valueFrom:
+            configMapKeyRef:
+              name: postgres-config
+              key: POSTGRES_DB
+        - name: POSTGRES_USER
+          valueFrom:
+            configMapKeyRef:
+              name: postgres-config
+              key: POSTGRES_USER
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgres-secret
+              key: POSTGRES_PASSWORD
+        volumeMounts:
+        - name: postgres-storage
+          mountPath: /var/lib/postgresql/data
+        - name: init-scripts
+          mountPath: /docker-entrypoint-initdb.d
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+        livenessProbe:
+          exec:
+            command:
+            - pg_isready
+            - -U
+            - postgres
+            - -p
+            - "5432"
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          exec:
+            command:
+            - pg_isready
+            - -U
+            - postgres
+            - -p
+            - "5432"
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      volumes:
+      - name: postgres-storage
+        persistentVolumeClaim:
+          claimName: postgres-pvc
+      - name: init-scripts
+        configMap:
+          name: postgres-init-scripts
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-db
+  namespace: personal-health-assistant
+  labels:
+    app: postgres-db
+spec:
+  selector:
+    app: postgres-db
+  ports:
+  - port: 5432
+    targetPort: 5432
+    protocol: TCP
+  type: ClusterIP
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-pvc
+  namespace: personal-health-assistant
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-init-scripts
+  namespace: personal-health-assistant
+data:
+  01_extensions.sql: |
+    -- Enable required extensions
+    CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+    CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+    CREATE EXTENSION IF NOT EXISTS "pgjwt";
+    CREATE EXTENSION IF NOT EXISTS "pg_stat_statements";
+    CREATE EXTENSION IF NOT EXISTS "pg_trgm";
+    CREATE EXTENSION IF NOT EXISTS "pgvector";
+    
+    -- Enable TimescaleDB if available
+    CREATE EXTENSION IF NOT EXISTS "timescaledb";
+    
+    -- Create schemas
+    CREATE SCHEMA IF NOT EXISTS auth;
+    CREATE SCHEMA IF NOT EXISTS public;
+    CREATE SCHEMA IF NOT EXISTS storage;
+    
+  02_auth_setup.sql: |
+    -- Create auth users and roles
+    CREATE USER supabase_auth_admin WITH PASSWORD 'your-super-secret-and-long-postgres-password';
+    CREATE USER supabase_storage_admin WITH PASSWORD 'your-super-secret-and-long-postgres-password';
+    CREATE USER supabase_realtime WITH PASSWORD 'your-super-secret-and-long-postgres-password';
+    CREATE USER supabase_meta WITH PASSWORD 'your-super-secret-and-long-postgres-password';
+    
+    -- Grant permissions
+    GRANT ALL PRIVILEGES ON DATABASE postgres TO supabase_auth_admin;
+    GRANT ALL PRIVILEGES ON DATABASE postgres TO supabase_storage_admin;
+    GRANT ALL PRIVILEGES ON DATABASE postgres TO supabase_realtime;
+    GRANT ALL PRIVILEGES ON DATABASE postgres TO supabase_meta;
+    
+    -- Grant schema permissions
+    GRANT ALL ON SCHEMA public TO supabase_auth_admin;
+    GRANT ALL ON SCHEMA public TO supabase_storage_admin;
+    GRANT ALL ON SCHEMA public TO supabase_realtime;
+    GRANT ALL ON SCHEMA public TO supabase_meta;
+    
+    GRANT ALL ON SCHEMA auth TO supabase_auth_admin;
+    GRANT ALL ON SCHEMA storage TO supabase_storage_admin;
+    
+  03_schema.sql: |
+    -- Create health_assistant database
+    CREATE DATABASE IF NOT EXISTS health_assistant;
+    
+    -- Connect to health_assistant database
+    \c health_assistant;
+    
+    -- Create basic tables for auth service
+    CREATE TABLE IF NOT EXISTS users (
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        email VARCHAR(255) UNIQUE NOT NULL,
+        password_hash VARCHAR(255),
+        first_name VARCHAR(100),
+        last_name VARCHAR(100),
+        is_active BOOLEAN DEFAULT TRUE,
+        is_verified BOOLEAN DEFAULT FALSE,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    );
+    
+    CREATE TABLE IF NOT EXISTS sessions (
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+        token_hash VARCHAR(255) NOT NULL,
+        expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        is_active BOOLEAN DEFAULT TRUE
+    );
+    
+    CREATE TABLE IF NOT EXISTS audit_logs (
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        user_id UUID REFERENCES users(id),
+        action VARCHAR(100) NOT NULL,
+        resource_type VARCHAR(50),
+        resource_id VARCHAR(100),
+        details JSONB,
+        ip_address INET,
+        user_agent TEXT,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    ); 
