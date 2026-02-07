@@ -237,3 +237,4 @@ jobs:
           tags: ${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
+        continue-on-error: true
