@@ -1,0 +1,436 @@
+# Personal Health Assistant Helm Chart Values
+# Override these values for your deployment
+
+# Global settings
+global:
+  imageRegistry: ghcr.io
+  imagePullSecrets: []
+  storageClass: ""
+
+# Environment
+environment: production  # development, staging, production
+
+# Image settings
+image:
+  repository: ppulimamidy/personalhealthassistant
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+# Namespace
+namespace: health-assistant
+
+# Ingress configuration
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+  hosts:
+    - host: api.health-assistant.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: health-assistant-tls
+      hosts:
+        - api.health-assistant.local
+
+# ============================================
+# CORE SERVICES (MVP)
+# ============================================
+
+authService:
+  enabled: true
+  name: auth-service
+  replicaCount: 2
+  image:
+    repository: auth-service
+    tag: latest
+  port: 8000
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "100m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+  env:
+    JWT_SECRET_KEY: ""  # Set via secrets
+    JWT_ALGORITHM: "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: "30"
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+
+userProfileService:
+  enabled: true
+  name: user-profile-service
+  replicaCount: 2
+  image:
+    repository: user-profile-service
+    tag: latest
+  port: 8001
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "100m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 5
+
+healthTrackingService:
+  enabled: true
+  name: health-tracking-service
+  replicaCount: 2
+  image:
+    repository: health-tracking-service
+    tag: latest
+  port: 8002
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "200m"
+    limits:
+      memory: "1Gi"
+      cpu: "1000m"
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+
+# ============================================
+# DATA SERVICES
+# ============================================
+
+deviceDataService:
+  enabled: true
+  name: device-data-service
+  replicaCount: 2
+  image:
+    repository: device-data-service
+    tag: latest
+  port: 8004
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "100m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+
+medicalRecordsService:
+  enabled: true
+  name: medical-records-service
+  replicaCount: 2
+  image:
+    repository: medical-records-service
+    tag: latest
+  port: 8005
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "200m"
+    limits:
+      memory: "1Gi"
+      cpu: "1000m"
+
+nutritionService:
+  enabled: true
+  name: nutrition-service
+  replicaCount: 2
+  image:
+    repository: nutrition-service
+    tag: latest
+  port: 8007
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "100m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+
+# ============================================
+# AI/ML SERVICES
+# ============================================
+
+aiInsightsService:
+  enabled: true
+  name: ai-insights-service
+  replicaCount: 2
+  image:
+    repository: ai-insights-service
+    tag: latest
+  port: 8200
+  resources:
+    requests:
+      memory: "1Gi"
+      cpu: "500m"
+    limits:
+      memory: "2Gi"
+      cpu: "2000m"
+  env:
+    OPENAI_API_KEY: ""  # Set via secrets
+
+medicalAnalysisService:
+  enabled: true
+  name: medical-analysis-service
+  replicaCount: 2
+  image:
+    repository: medical-analysis-service
+    tag: latest
+  port: 8006
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "200m"
+    limits:
+      memory: "1Gi"
+      cpu: "1000m"
+
+healthAnalysisService:
+  enabled: true
+  name: health-analysis-service
+  replicaCount: 2
+  image:
+    repository: health-analysis-service
+    tag: latest
+  port: 8008
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "200m"
+    limits:
+      memory: "1Gi"
+      cpu: "1000m"
+
+aiReasoningOrchestrator:
+  enabled: true
+  name: ai-reasoning-orchestrator
+  replicaCount: 1
+  image:
+    repository: ai-reasoning-orchestrator
+    tag: latest
+  port: 8300
+  resources:
+    requests:
+      memory: "1Gi"
+      cpu: "500m"
+    limits:
+      memory: "2Gi"
+      cpu: "2000m"
+
+# ============================================
+# SPECIALIZED SERVICES
+# ============================================
+
+voiceInputService:
+  enabled: true
+  name: voice-input-service
+  replicaCount: 2
+  image:
+    repository: voice-input-service
+    tag: latest
+  port: 8003
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "200m"
+    limits:
+      memory: "1Gi"
+      cpu: "1000m"
+
+knowledgeGraphService:
+  enabled: true
+  name: knowledge-graph-service
+  replicaCount: 2
+  image:
+    repository: knowledge-graph-service
+    tag: latest
+  port: 8010
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "200m"
+    limits:
+      memory: "1Gi"
+      cpu: "1000m"
+
+genomicsService:
+  enabled: true
+  name: genomics-service
+  replicaCount: 1
+  image:
+    repository: genomics-service
+    tag: latest
+  port: 8012
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "200m"
+    limits:
+      memory: "1Gi"
+      cpu: "1000m"
+
+doctorCollaborationService:
+  enabled: true
+  name: doctor-collaboration-service
+  replicaCount: 2
+  image:
+    repository: doctor-collaboration-service
+    tag: latest
+  port: 8011
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "100m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+
+consentAuditService:
+  enabled: true
+  name: consent-audit-service
+  replicaCount: 2
+  image:
+    repository: consent-audit-service
+    tag: latest
+  port: 8009
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "100m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+
+analyticsService:
+  enabled: true
+  name: analytics-service
+  replicaCount: 2
+  image:
+    repository: analytics-service
+    tag: latest
+  port: 8210
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "200m"
+    limits:
+      memory: "1Gi"
+      cpu: "1000m"
+
+graphqlBff:
+  enabled: true
+  name: graphql-bff
+  replicaCount: 2
+  image:
+    repository: graphql-bff
+    tag: latest
+  port: 8400
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "100m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+
+# ============================================
+# INFRASTRUCTURE
+# ============================================
+
+postgresql:
+  enabled: true
+  auth:
+    postgresPassword: ""  # Set via secrets
+    database: health_assistant
+  primary:
+    persistence:
+      size: 50Gi
+    resources:
+      requests:
+        memory: "256Mi"
+        cpu: "100m"
+
+redis:
+  enabled: true
+  auth:
+    password: ""  # Set via secrets
+  master:
+    persistence:
+      size: 5Gi
+
+kafka:
+  enabled: true
+  replicaCount: 3
+  persistence:
+    size: 20Gi
+
+neo4j:
+  enabled: true
+  neo4j:
+    password: ""  # Set via secrets
+  volumes:
+    data:
+      size: 20Gi
+
+# ============================================
+# MONITORING
+# ============================================
+
+monitoring:
+  enabled: true
+
+prometheus:
+  enabled: true
+  server:
+    persistentVolume:
+      size: 20Gi
+
+grafana:
+  enabled: true
+  adminPassword: ""  # Set via secrets
+  persistence:
+    enabled: true
+    size: 5Gi
+
+# ============================================
+# SECRETS (Reference external secrets)
+# ============================================
+
+secrets:
+  # Use external secrets manager or create manually
+  existingSecret: "health-assistant-secrets"
+  keys:
+    databaseUrl: DATABASE_URL
+    jwtSecretKey: JWT_SECRET_KEY
+    openaiApiKey: OPENAI_API_KEY
+    supabaseUrl: SUPABASE_URL
+    supabaseKey: SUPABASE_KEY
+
+# ============================================
+# SERVICE MESH (Optional)
+# ============================================
+
+serviceMesh:
+  enabled: false
+  istio:
+    enabled: false
+  linkerd:
+    enabled: false
+
+# ============================================
+# NETWORK POLICIES
+# ============================================
+
+networkPolicies:
+  enabled: true
+  # Restrict traffic between services

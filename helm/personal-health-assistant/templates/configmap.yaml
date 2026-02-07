@@ -1,0 +1,52 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "personal-health-assistant.fullname" . }}-config
+  namespace: {{ .Values.namespace | default "health-assistant" }}
+  labels:
+    {{- include "personal-health-assistant.labels" . | nindent 4 }}
+data:
+  ENVIRONMENT: {{ .Values.environment | default "production" }}
+  LOG_LEVEL: {{ .Values.logLevel | default "INFO" }}
+
+  # Service URLs (internal DNS)
+  AUTH_SERVICE_URL: "http://auth-service:8000"
+  USER_PROFILE_SERVICE_URL: "http://user-profile-service:8001"
+  HEALTH_TRACKING_SERVICE_URL: "http://health-tracking-service:8002"
+  VOICE_INPUT_SERVICE_URL: "http://voice-input-service:8003"
+  DEVICE_DATA_SERVICE_URL: "http://device-data-service:8004"
+  MEDICAL_RECORDS_SERVICE_URL: "http://medical-records-service:8005"
+  MEDICAL_ANALYSIS_SERVICE_URL: "http://medical-analysis-service:8006"
+  NUTRITION_SERVICE_URL: "http://nutrition-service:8007"
+  HEALTH_ANALYSIS_SERVICE_URL: "http://health-analysis-service:8008"
+  CONSENT_AUDIT_SERVICE_URL: "http://consent-audit-service:8009"
+  KNOWLEDGE_GRAPH_SERVICE_URL: "http://knowledge-graph-service:8010"
+  DOCTOR_COLLABORATION_SERVICE_URL: "http://doctor-collaboration-service:8011"
+  GENOMICS_SERVICE_URL: "http://genomics-service:8012"
+  AI_INSIGHTS_SERVICE_URL: "http://ai-insights-service:8200"
+  ANALYTICS_SERVICE_URL: "http://analytics-service:8210"
+  AI_REASONING_ORCHESTRATOR_URL: "http://ai-reasoning-orchestrator:8300"
+  GRAPHQL_BFF_URL: "http://graphql-bff:8400"
+
+  # Database
+  {{- if .Values.postgresql.enabled }}
+  DATABASE_HOST: "{{ .Release.Name }}-postgresql"
+  DATABASE_PORT: "5432"
+  DATABASE_NAME: {{ .Values.postgresql.auth.database | default "health_assistant" }}
+  {{- end }}
+
+  # Redis
+  {{- if .Values.redis.enabled }}
+  REDIS_HOST: "{{ .Release.Name }}-redis-master"
+  REDIS_PORT: "6379"
+  {{- end }}
+
+  # Kafka
+  {{- if .Values.kafka.enabled }}
+  KAFKA_BOOTSTRAP_SERVERS: "{{ .Release.Name }}-kafka:9092"
+  {{- end }}
+
+  # Neo4j
+  {{- if .Values.neo4j.enabled }}
+  NEO4J_URI: "bolt://{{ .Release.Name }}-neo4j:7687"
+  {{- end }}

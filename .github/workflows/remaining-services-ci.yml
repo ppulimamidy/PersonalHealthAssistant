@@ -1,0 +1,248 @@
+name: Remaining Services CI/CD
+
+on:
+  push:
+    branches: [main, master, develop]
+    paths:
+      - 'apps/medical_analysis/**'
+      - 'apps/health_analysis/**'
+      - 'apps/doctor_collaboration/**'
+      - 'apps/consent_audit/**'
+      - 'apps/analytics/**'
+      - 'apps/graphql_bff/**'
+      - 'apps/ai_reasoning_orchestrator/**'
+      - 'common/**'
+      - '.github/workflows/remaining-services-ci.yml'
+  pull_request:
+    branches: [main, master, develop]
+    paths:
+      - 'apps/medical_analysis/**'
+      - 'apps/health_analysis/**'
+      - 'apps/doctor_collaboration/**'
+      - 'apps/consent_audit/**'
+      - 'apps/analytics/**'
+      - 'apps/graphql_bff/**'
+      - 'apps/ai_reasoning_orchestrator/**'
+      - 'common/**'
+
+env:
+  PYTHON_VERSION: '3.11'
+
+jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      medical_analysis: ${{ steps.changes.outputs.medical_analysis }}
+      health_analysis: ${{ steps.changes.outputs.health_analysis }}
+      doctor_collaboration: ${{ steps.changes.outputs.doctor_collaboration }}
+      consent_audit: ${{ steps.changes.outputs.consent_audit }}
+      analytics: ${{ steps.changes.outputs.analytics }}
+      graphql_bff: ${{ steps.changes.outputs.graphql_bff }}
+      ai_reasoning: ${{ steps.changes.outputs.ai_reasoning }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v2
+        id: changes
+        with:
+          filters: |
+            medical_analysis:
+              - 'apps/medical_analysis/**'
+            health_analysis:
+              - 'apps/health_analysis/**'
+            doctor_collaboration:
+              - 'apps/doctor_collaboration/**'
+            consent_audit:
+              - 'apps/consent_audit/**'
+            analytics:
+              - 'apps/analytics/**'
+            graphql_bff:
+              - 'apps/graphql_bff/**'
+            ai_reasoning:
+              - 'apps/ai_reasoning_orchestrator/**'
+
+  lint-all:
+    name: Lint All Services
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install black flake8
+
+      - name: Run Black formatter check
+        run: |
+          black --check --diff apps/medical_analysis/ apps/health_analysis/ \
+            apps/doctor_collaboration/ apps/consent_audit/ apps/analytics/ \
+            apps/graphql_bff/ apps/ai_reasoning_orchestrator/ common/
+        continue-on-error: true
+
+      - name: Run Flake8 linting
+        run: |
+          flake8 apps/medical_analysis/ apps/health_analysis/ \
+            apps/doctor_collaboration/ apps/consent_audit/ apps/analytics/ \
+            apps/graphql_bff/ apps/ai_reasoning_orchestrator/ \
+            --max-line-length=120 --extend-ignore=E203,W503
+        continue-on-error: true
+
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Bandit security scan
+        run: |
+          pip install bandit
+          bandit -r apps/medical_analysis/ apps/health_analysis/ \
+            apps/doctor_collaboration/ apps/consent_audit/ apps/analytics/ \
+            apps/graphql_bff/ apps/ai_reasoning_orchestrator/ \
+            -ll -ii
+        continue-on-error: true
+
+  build-medical-analysis:
+    name: Build Medical Analysis
+    runs-on: ubuntu-latest
+    needs: [detect-changes, lint-all]
+    if: needs.detect-changes.outputs.medical_analysis == 'true' && github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: apps/medical_analysis/Dockerfile
+          push: true
+          tags: ghcr.io/${{ github.repository }}/medical-analysis-service:${{ github.sha }}
+
+  build-health-analysis:
+    name: Build Health Analysis
+    runs-on: ubuntu-latest
+    needs: [detect-changes, lint-all]
+    if: needs.detect-changes.outputs.health_analysis == 'true' && github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: apps/health_analysis/Dockerfile
+          push: true
+          tags: ghcr.io/${{ github.repository }}/health-analysis-service:${{ github.sha }}
+
+  build-doctor-collaboration:
+    name: Build Doctor Collaboration
+    runs-on: ubuntu-latest
+    needs: [detect-changes, lint-all]
+    if: needs.detect-changes.outputs.doctor_collaboration == 'true' && github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: apps/doctor_collaboration/Dockerfile
+          push: true
+          tags: ghcr.io/${{ github.repository }}/doctor-collaboration-service:${{ github.sha }}
+
+  build-consent-audit:
+    name: Build Consent Audit
+    runs-on: ubuntu-latest
+    needs: [detect-changes, lint-all]
+    if: needs.detect-changes.outputs.consent_audit == 'true' && github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: apps/consent_audit/Dockerfile
+          push: true
+          tags: ghcr.io/${{ github.repository }}/consent-audit-service:${{ github.sha }}
+
+  build-analytics:
+    name: Build Analytics
+    runs-on: ubuntu-latest
+    needs: [detect-changes, lint-all]
+    if: needs.detect-changes.outputs.analytics == 'true' && github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: apps/analytics/Dockerfile
+          push: true
+          tags: ghcr.io/${{ github.repository }}/analytics-service:${{ github.sha }}
+
+  build-graphql-bff:
+    name: Build GraphQL BFF
+    runs-on: ubuntu-latest
+    needs: [detect-changes, lint-all]
+    if: needs.detect-changes.outputs.graphql_bff == 'true' && github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: apps/graphql_bff/Dockerfile
+          push: true
+          tags: ghcr.io/${{ github.repository }}/graphql-bff:${{ github.sha }}
+
+  build-ai-reasoning:
+    name: Build AI Reasoning Orchestrator
+    runs-on: ubuntu-latest
+    needs: [detect-changes, lint-all]
+    if: needs.detect-changes.outputs.ai_reasoning == 'true' && github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: apps/ai_reasoning_orchestrator/Dockerfile
+          push: true
+          tags: ghcr.io/${{ github.repository }}/ai-reasoning-orchestrator:${{ github.sha }}
