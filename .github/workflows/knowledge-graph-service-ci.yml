@@ -120,3 +120,4 @@ jobs:
             ghcr.io/${{ github.repository }}/${{ env.SERVICE_NAME }}:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+        continue-on-error: true
