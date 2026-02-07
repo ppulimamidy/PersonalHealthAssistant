@@ -1,0 +1,51 @@
+# Health Analysis Service Requirements
+
+# Core dependencies
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
+pydantic==2.10.4
+sqlalchemy==2.0.36
+asyncpg==0.30.0
+redis==5.2.1
+aiohttp==3.12.14
+
+# AI and Vision
+openai==1.58.1
+google-cloud-vision==3.7.2
+azure-cognitiveservices-vision-computervision==0.9.0
+
+# Medical AI Models - BioGPT and PubMedGPT
+transformers==4.52.4
+torch==2.6.0
+torchvision==0.21.0
+accelerate==0.30.1
+# sentencepiece==0.2.0  # Temporarily commented out due to compilation issues
+protobuf==4.25.1
+bitsandbytes==0.42.0
+
+# Medical and Health
+numpy==1.26.4
+pillow==10.4.0
+opencv-python==4.10.0.84
+
+# Medical Text Processing
+scikit-learn==1.5.2
+scipy==1.14.0
+pandas==2.2.2
+nltk==3.8.1
+spacy==3.8.2
+
+# Utilities
+python-multipart==0.0.20
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+python-dotenv==1.0.1
+httpx==0.28.0
+
+# Monitoring and Logging
+prometheus-client==0.20.0
+structlog==24.1.0
+
+# Development
+pytest==8.2.1
+pytest-asyncio==0.24.0 
