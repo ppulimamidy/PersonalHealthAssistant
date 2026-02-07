@@ -1,0 +1,199 @@
+{
+  "id": null,
+  "title": "User Profile Service Dashboard",
+  "tags": ["user-profile", "user-management"],
+  "style": "dark",
+  "timezone": "browser",
+  "panels": [
+    {
+      "id": 1,
+      "title": "User Profile Operations",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "rate(user_profile_operations_total{job=\"user-profile-service\"}[5m])",
+          "legendFormat": "{{operation}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "displayMode": "list",
+            "orientation": "auto"
+          }
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "id": 2,
+      "title": "Total Users",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "user_profiles_total{job=\"user-profile-service\"}",
+          "legendFormat": "Total Users"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          }
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      }
+    },
+    {
+      "id": 3,
+      "title": "Profile Update Rate",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "rate(user_profile_updates_total{job=\"user-profile-service\"}[5m])",
+          "legendFormat": "Profile Updates"
+        },
+        {
+          "expr": "rate(user_profile_creates_total{job=\"user-profile-service\"}[5m])",
+          "legendFormat": "Profile Creates"
+        },
+        {
+          "expr": "rate(user_profile_deletes_total{job=\"user-profile-service\"}[5m])",
+          "legendFormat": "Profile Deletes"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          }
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 8
+      }
+    },
+    {
+      "id": 4,
+      "title": "Response Time",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{job=\"user-profile-service\"}[5m]))",
+          "legendFormat": "95th percentile"
+        },
+        {
+          "expr": "histogram_quantile(0.50, rate(http_request_duration_seconds_bucket{job=\"user-profile-service\"}[5m]))",
+          "legendFormat": "50th percentile"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "s"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      }
+    },
+    {
+      "id": 5,
+      "title": "Error Rate",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "rate(http_requests_total{job=\"user-profile-service\", status=~\"4..|5..\"}[5m])",
+          "legendFormat": "Error Rate"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          }
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      }
+    },
+    {
+      "id": 6,
+      "title": "Active User Sessions",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "user_active_sessions{job=\"user-profile-service\"}",
+          "legendFormat": "Active Sessions"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          }
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 24
+      }
+    },
+    {
+      "id": 7,
+      "title": "Database Operations",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "rate(db_operations_total{job=\"user-profile-service\"}[5m])",
+          "legendFormat": "{{operation}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          }
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 24
+      }
+    }
+  ],
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "refresh": "30s"
+} 

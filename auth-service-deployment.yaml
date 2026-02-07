@@ -1,0 +1,193 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    deployment.kubernetes.io/revision: "36"
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"apps/v1","kind":"Deployment","metadata":{"annotations":{},"labels":{"app":"auth-service","component":"authentication","version":"v1.0.0"},"name":"auth-service","namespace":"personal-health-assistant"},"spec":{"replicas":3,"selector":{"matchLabels":{"app":"auth-service"}},"strategy":{"rollingUpdate":{"maxSurge":1,"maxUnavailable":0},"type":"RollingUpdate"},"template":{"metadata":{"annotations":{"prometheus.io/path":"/metrics","prometheus.io/port":"8000","prometheus.io/scrape":"true"},"labels":{"app":"auth-service","version":"v1.0.0"}},"spec":{"affinity":{"podAntiAffinity":{"preferredDuringSchedulingIgnoredDuringExecution":[{"podAffinityTerm":{"labelSelector":{"matchExpressions":[{"key":"app","operator":"In","values":["auth-service"]}]},"topologyKey":"kubernetes.io/hostname"},"weight":100}]}},"containers":[{"env":[{"name":"ENVIRONMENT","value":"production"},{"name":"LOG_LEVEL","value":"INFO"},{"name":"DATABASE_URL","value":"postgresql://postgres:your-super-secret-and-long-postgres-password@postgres-db:5432/health_assistant"},{"name":"REDIS_URL","valueFrom":{"secretKeyRef":{"key":"redis-url","name":"auth-service-secrets"}}},{"name":"JWT_SECRET_KEY","valueFrom":{"secretKeyRef":{"key":"jwt-secret-key","name":"auth-service-secrets"}}},{"name":"SUPABASE_URL","valueFrom":{"secretKeyRef":{"key":"supabase-url","name":"auth-service-secrets"}}},{"name":"SUPABASE_KEY","valueFrom":{"secretKeyRef":{"key":"supabase-key","name":"auth-service-secrets"}}},{"name":"AUTH0_DOMAIN","valueFrom":{"secretKeyRef":{"key":"auth0-domain","name":"auth-service-secrets"}}},{"name":"AUTH0_CLIENT_ID","valueFrom":{"secretKeyRef":{"key":"auth0-client-id","name":"auth-service-secrets"}}},{"name":"AUTH0_CLIENT_SECRET","valueFrom":{"secretKeyRef":{"key":"auth0-client-secret","name":"auth-service-secrets"}}},{"name":"CORS_ORIGINS","value":"[\"https://your-domain.com\", \"https://app.your-domain.com\"]"},{"name":"ALLOWED_HOSTS","value":"[\"your-domain.com\", \"api.your-domain.com\"]"},{"name":"PROMETHEUS_ENABLED","value":"true"},{"name":"GRAFANA_ENABLED","value":"true"}],"image":"ghcr.io/ppulimamidy/auth-service:1.0.18","imagePullPolicy":"Always","livenessProbe":{"failureThreshold":3,"httpGet":{"path":"/health","port":8000},"initialDelaySeconds":30,"periodSeconds":10,"timeoutSeconds":5},"name":"auth-service","ports":[{"containerPort":8000,"name":"http","protocol":"TCP"}],"readinessProbe":{"failureThreshold":3,"httpGet":{"path":"/ready","port":8000},"initialDelaySeconds":5,"periodSeconds":5,"timeoutSeconds":3},"resources":{"limits":{"cpu":"500m","memory":"512Mi"},"requests":{"cpu":"250m","memory":"256Mi"}},"securityContext":{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]},"readOnlyRootFilesystem":true},"volumeMounts":[{"mountPath":"/tmp","name":"tmp"},{"mountPath":"/app/logs","name":"logs"}]}],"imagePullSecrets":[{"name":"ghcr-secret"}],"nodeSelector":{"kubernetes.io/os":"linux"},"securityContext":{"fsGroup":1000,"runAsGroup":1000,"runAsNonRoot":true,"runAsUser":1000},"serviceAccountName":"auth-service-account","tolerations":[{"effect":"NoSchedule","key":"node-role.kubernetes.io/master","operator":"Exists"}],"volumes":[{"emptyDir":{},"name":"tmp"},{"emptyDir":{},"name":"logs"}]}}}}
+  creationTimestamp: "2025-06-25T01:56:07Z"
+  generation: 36
+  labels:
+    app: auth-service
+    component: authentication
+    version: v1.0.0
+  name: auth-service
+  namespace: personal-health-assistant
+  resourceVersion: "78305"
+  uid: 362c3046-045b-4cff-9613-53e264eb2ac5
+spec:
+  progressDeadlineSeconds: 600
+  replicas: 3
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: auth-service
+  strategy:
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+    type: RollingUpdate
+  template:
+    metadata:
+      annotations:
+        kubectl.kubernetes.io/restartedAt: "2025-06-25T12:35:55-04:00"
+        prometheus.io/path: /metrics
+        prometheus.io/port: "8000"
+        prometheus.io/scrape: "true"
+      creationTimestamp: null
+      labels:
+        app: auth-service
+        version: v1.0.0
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - auth-service
+              topologyKey: kubernetes.io/hostname
+            weight: 100
+      containers:
+      - env:
+        - name: ENVIRONMENT
+          value: production
+        - name: LOG_LEVEL
+          value: INFO
+        - name: DATABASE_URL
+          value: postgresql://postgres:your-super-secret-and-long-postgres-password@postgres-db:5432/health_assistant
+        - name: REDIS_URL
+          valueFrom:
+            secretKeyRef:
+              key: redis-url
+              name: auth-service-secrets
+        - name: JWT_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              key: jwt-secret-key
+              name: auth-service-secrets
+        - name: SUPABASE_URL
+          valueFrom:
+            secretKeyRef:
+              key: supabase-url
+              name: auth-service-secrets
+        - name: SUPABASE_KEY
+          valueFrom:
+            secretKeyRef:
+              key: supabase-key
+              name: auth-service-secrets
+        - name: AUTH0_DOMAIN
+          valueFrom:
+            secretKeyRef:
+              key: auth0-domain
+              name: auth-service-secrets
+        - name: AUTH0_CLIENT_ID
+          valueFrom:
+            secretKeyRef:
+              key: auth0-client-id
+              name: auth-service-secrets
+        - name: AUTH0_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              key: auth0-client-secret
+              name: auth-service-secrets
+        - name: CORS_ORIGINS
+          value: '["https://your-domain.com", "https://app.your-domain.com"]'
+        - name: ALLOWED_HOSTS
+          value: '["your-domain.com", "api.your-domain.com"]'
+        - name: PROMETHEUS_ENABLED
+          value: "true"
+        - name: GRAFANA_ENABLED
+          value: "true"
+        image: ghcr.io/ppulimamidy/auth-service:1.0.18
+        imagePullPolicy: Always
+        livenessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /health
+            port: 8000
+            scheme: HTTP
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 5
+        name: auth-service
+        ports:
+        - containerPort: 8000
+          name: http
+          protocol: TCP
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /ready
+            port: 8000
+            scheme: HTTP
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 5
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 250m
+            memory: 256Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /tmp
+          name: tmp
+        - mountPath: /app/logs
+          name: logs
+      dnsPolicy: ClusterFirst
+      imagePullSecrets:
+      - name: ghcr-secret
+      nodeSelector:
+        kubernetes.io/os: linux
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext:
+        fsGroup: 1000
+        runAsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000
+      serviceAccount: auth-service-account
+      serviceAccountName: auth-service-account
+      terminationGracePeriodSeconds: 30
+      tolerations:
+      - effect: NoSchedule
+        key: node-role.kubernetes.io/master
+        operator: Exists
+      volumes:
+      - emptyDir: {}
+        name: tmp
+      - emptyDir: {}
+        name: logs
+status:
+  conditions:
+  - lastTransitionTime: "2025-06-25T01:56:07Z"
+    lastUpdateTime: "2025-06-25T01:56:07Z"
+    message: Deployment does not have minimum availability.
+    reason: MinimumReplicasUnavailable
+    status: "False"
+    type: Available
+  - lastTransitionTime: "2025-06-25T16:35:55Z"
+    lastUpdateTime: "2025-06-25T16:35:55Z"
+    message: ReplicaSet "auth-service-7577b4bdf9" is progressing.
+    reason: ReplicaSetUpdated
+    status: "True"
+    type: Progressing
+  observedGeneration: 36
+  replicas: 4
+  unavailableReplicas: 4
+  updatedReplicas: 1

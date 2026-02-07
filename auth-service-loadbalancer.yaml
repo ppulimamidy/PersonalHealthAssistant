@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: auth-service-lb
+  namespace: personal-health-assistant
+  labels:
+    app: auth-service
+    component: authentication
+spec:
+  type: LoadBalancer
+  ports:
+  - port: 80
+    targetPort: 8000
+    protocol: TCP
+    name: http
+  selector:
+    app: auth-service
+  sessionAffinity: None

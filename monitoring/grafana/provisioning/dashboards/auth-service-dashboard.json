@@ -1,0 +1,207 @@
+{
+  "id": null,
+  "title": "Auth Service Dashboard",
+  "tags": ["auth", "security", "authentication"],
+  "style": "dark",
+  "timezone": "browser",
+  "panels": [
+    {
+      "id": 1,
+      "title": "Authentication Requests",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "rate(http_requests_total{job=\"auth-service\"}[5m])",
+          "legendFormat": "{{method}} {{handler}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "displayMode": "list",
+            "orientation": "auto"
+          }
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "id": 2,
+      "title": "Login Success Rate",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "rate(auth_login_success_total{job=\"auth-service\"}[5m]) / (rate(auth_login_attempts_total{job=\"auth-service\"}[5m]) + rate(auth_login_success_total{job=\"auth-service\"}[5m])) * 100",
+          "legendFormat": "Success Rate %"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "steps": [
+              {"color": "red", "value": null},
+              {"color": "yellow", "value": 80},
+              {"color": "green", "value": 95}
+            ]
+          },
+          "unit": "percent"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      }
+    },
+    {
+      "id": 3,
+      "title": "JWT Token Operations",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "rate(jwt_tokens_created_total{job=\"auth-service\"}[5m])",
+          "legendFormat": "Tokens Created"
+        },
+        {
+          "expr": "rate(jwt_tokens_validated_total{job=\"auth-service\"}[5m])",
+          "legendFormat": "Tokens Validated"
+        },
+        {
+          "expr": "rate(jwt_tokens_revoked_total{job=\"auth-service\"}[5m])",
+          "legendFormat": "Tokens Revoked"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          }
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 8
+      }
+    },
+    {
+      "id": 4,
+      "title": "Response Time",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{job=\"auth-service\"}[5m]))",
+          "legendFormat": "95th percentile"
+        },
+        {
+          "expr": "histogram_quantile(0.50, rate(http_request_duration_seconds_bucket{job=\"auth-service\"}[5m]))",
+          "legendFormat": "50th percentile"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "s"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      }
+    },
+    {
+      "id": 5,
+      "title": "Error Rate",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "rate(http_requests_total{job=\"auth-service\", status=~\"4..|5..\"}[5m])",
+          "legendFormat": "Error Rate"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          }
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      }
+    },
+    {
+      "id": 6,
+      "title": "Active Sessions",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "auth_active_sessions{job=\"auth-service\"}",
+          "legendFormat": "Active Sessions"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          }
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 24
+      }
+    },
+    {
+      "id": 7,
+      "title": "Failed Login Attempts",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "rate(auth_login_failed_total{job=\"auth-service\"}[5m])",
+          "legendFormat": "Failed Logins"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          }
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 24
+      }
+    }
+  ],
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "refresh": "30s"
+} 

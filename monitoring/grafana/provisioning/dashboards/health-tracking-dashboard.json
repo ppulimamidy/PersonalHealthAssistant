@@ -1,0 +1,230 @@
+{
+  "id": null,
+  "title": "Health Tracking Service Dashboard",
+  "tags": ["health-tracking", "analytics", "monitoring"],
+  "style": "dark",
+  "timezone": "browser",
+  "panels": [
+    {
+      "id": 1,
+      "title": "Health Data Points",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "rate(health_data_points_total{job=\"health-tracking-service\"}[5m])",
+          "legendFormat": "Data Points/sec"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "displayMode": "list",
+            "orientation": "auto"
+          }
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "id": 2,
+      "title": "Active Alerts",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "health_alerts_active{job=\"health-tracking-service\"}",
+          "legendFormat": "Active Alerts"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 5},
+              {"color": "red", "value": 10}
+            ]
+          }
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      }
+    },
+    {
+      "id": 3,
+      "title": "Health Metrics by Type",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "rate(health_metrics_total{job=\"health-tracking-service\"}[5m])",
+          "legendFormat": "{{metric_type}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          }
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 8
+      }
+    },
+    {
+      "id": 4,
+      "title": "Analytics Processing",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "rate(analytics_processing_total{job=\"health-tracking-service\"}[5m])",
+          "legendFormat": "Analytics Processing"
+        },
+        {
+          "expr": "rate(insights_generated_total{job=\"health-tracking-service\"}[5m])",
+          "legendFormat": "Insights Generated"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          }
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      }
+    },
+    {
+      "id": 5,
+      "title": "Alert Generation Rate",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "rate(health_alerts_generated_total{job=\"health-tracking-service\"}[5m])",
+          "legendFormat": "Alerts Generated"
+        },
+        {
+          "expr": "rate(health_alerts_resolved_total{job=\"health-tracking-service\"}[5m])",
+          "legendFormat": "Alerts Resolved"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          }
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      }
+    },
+    {
+      "id": 6,
+      "title": "Response Time",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{job=\"health-tracking-service\"}[5m]))",
+          "legendFormat": "95th percentile"
+        },
+        {
+          "expr": "histogram_quantile(0.50, rate(http_request_duration_seconds_bucket{job=\"health-tracking-service\"}[5m]))",
+          "legendFormat": "50th percentile"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "s"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 24
+      }
+    },
+    {
+      "id": 7,
+      "title": "Error Rate",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "rate(http_requests_total{job=\"health-tracking-service\", status=~\"4..|5..\"}[5m])",
+          "legendFormat": "Error Rate"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          }
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 24
+      }
+    },
+    {
+      "id": 8,
+      "title": "Agent Performance",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "rate(agent_executions_total{job=\"health-tracking-service\"}[5m])",
+          "legendFormat": "{{agent_type}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          }
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 32
+      }
+    }
+  ],
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "refresh": "30s"
+} 

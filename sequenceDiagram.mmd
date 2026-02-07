@@ -1,0 +1,10 @@
+sequenceDiagram
+    participant User as User Interface
+    participant API as Records API
+    participant DB as Database
+    participant Storage as File Storage
+
+    User->>API: Upload medical report
+    API->>DB: Store metadata
+    API->>Storage: Store document
+    API->>User: Confirm upload

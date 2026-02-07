@@ -1,0 +1,45 @@
+
+
+services:
+  traefik:
+    image: traefik:v2.10
+    container_name: traefik
+    command:
+      - "--api.insecure=true"
+      - "--providers.docker=true"
+      - "--entrypoints.web.address=:80"
+    ports:
+      - "80:80"
+      - "8080:8080"  # Traefik dashboard
+    networks:
+      - web
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped
+
+  voice-input-service:
+    image: voice-input-service:latest
+    build:
+      context: .
+      dockerfile: apps/voice_input/Dockerfile
+    container_name: voice-input-service
+    command: uvicorn main:app --host 0.0.0.0 --port 8004
+    environment:
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    # ports:
+    #   - "8004:8004"
+    networks:
+      - web
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.voice-input.rule=Host(`voice-input.localhost`)"
+      - "traefik.http.routers.voice-input.entrypoints=web"
+      - "traefik.http.services.voice-input-service.loadbalancer.server.port=8004"
+      - "traefik.http.routers.voice-input.service=voice-input-service"
+      - "traefik.http.routers.voice-input.middlewares=voice-input-cors@file,voice-input-stripprefix@file"
+    restart: unless-stopped
+
+networks:
+  web:
+    external: false 

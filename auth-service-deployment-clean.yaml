@@ -1,0 +1,155 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth-service
+  namespace: personal-health-assistant
+  labels:
+    app: auth-service
+    component: authentication
+    version: v1.0.0
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: auth-service
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: auth-service
+        version: v1.0.0
+      annotations:
+        prometheus.io/path: /metrics
+        prometheus.io/port: "8000"
+        prometheus.io/scrape: "true"
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - auth-service
+              topologyKey: kubernetes.io/hostname
+            weight: 100
+      containers:
+      - name: auth-service
+        image: ghcr.io/ppulimamidy/auth-service:1.0.23
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8000
+          name: http
+          protocol: TCP
+        env:
+        - name: ENVIRONMENT
+          value: production
+        - name: LOG_LEVEL
+          value: INFO
+        - name: DATABASE_URL
+          value: postgresql://postgres:your-super-secret-and-long-postgres-password@postgres-db:5432/health_assistant
+        - name: REDIS_URL
+          valueFrom:
+            secretKeyRef:
+              key: redis-url
+              name: auth-service-secrets
+        - name: JWT_SECRET_KEY
+          value: "your-super-secret-jwt-key-change-in-production"
+        - name: SUPABASE_URL
+          valueFrom:
+            secretKeyRef:
+              key: supabase-url
+              name: auth-service-secrets
+        - name: SUPABASE_KEY
+          valueFrom:
+            secretKeyRef:
+              key: supabase-key
+              name: auth-service-secrets
+        - name: AUTH0_DOMAIN
+          valueFrom:
+            secretKeyRef:
+              key: auth0-domain
+              name: auth-service-secrets
+        - name: AUTH0_CLIENT_ID
+          valueFrom:
+            secretKeyRef:
+              key: auth0-client-id
+              name: auth-service-secrets
+        - name: AUTH0_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              key: auth0-client-secret
+              name: auth-service-secrets
+        - name: CORS_ORIGINS
+          value: '["https://your-domain.com", "https://app.your-domain.com"]'
+        - name: ALLOWED_HOSTS
+          value: '["your-domain.com", "api.your-domain.com"]'
+        - name: PROMETHEUS_ENABLED
+          value: "true"
+        - name: GRAFANA_ENABLED
+          value: "true"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+            scheme: HTTP
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+          successThreshold: 1
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+            scheme: HTTP
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+          successThreshold: 1
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 250m
+            memory: 256Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+        volumeMounts:
+        - mountPath: /tmp
+          name: tmp
+        - mountPath: /app/logs
+          name: logs
+      imagePullSecrets:
+      - name: ghcr-secret
+      nodeSelector:
+        kubernetes.io/os: linux
+      securityContext:
+        fsGroup: 1000
+        runAsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000
+      serviceAccountName: auth-service-account
+      tolerations:
+      - effect: NoSchedule
+        key: node-role.kubernetes.io/master
+        operator: Exists
+      volumes:
+      - emptyDir: {}
+        name: tmp
+      - emptyDir: {}
+        name: logs
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 30 

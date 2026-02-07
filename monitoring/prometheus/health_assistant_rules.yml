@@ -1,0 +1,255 @@
+groups:
+  - name: health_assistant_recording_rules
+    rules:
+      # Request rate per service
+      - record: health_assistant:request_rate
+        expr: rate(http_requests_total[5m])
+      
+      # Error rate per service
+      - record: health_assistant:error_rate
+        expr: rate(http_requests_total{status=~"5.."}[5m])
+      
+      # Success rate per service
+      - record: health_assistant:success_rate
+        expr: rate(http_requests_total{status=~"2.."}[5m])
+      
+      # Response time percentiles
+      - record: health_assistant:response_time_p95
+        expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m]))
+      
+      - record: health_assistant:response_time_p99
+        expr: histogram_quantile(0.99, rate(http_request_duration_seconds_bucket[5m]))
+      
+      # Database connection pool usage
+      - record: health_assistant:db_connection_usage
+        expr: db_connections_active / db_connections_max
+      
+      # Redis memory usage
+      - record: health_assistant:redis_memory_usage
+        expr: redis_memory_used_bytes / redis_memory_max_bytes
+      
+      # Service health status
+      - record: health_assistant:service_health
+        expr: up
+
+  - name: health_assistant_alerts
+    rules:
+      # High error rate alert
+      - alert: HighErrorRate
+        expr: health_assistant:error_rate > 0.05
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High error rate detected"
+          description: "Service {{ $labels.job }} has error rate of {{ $value }}"
+
+      # High response time alert
+      - alert: HighResponseTime
+        expr: health_assistant:response_time_p95 > 2
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High response time detected"
+          description: "Service {{ $labels.job }} has 95th percentile response time of {{ $value }}s"
+
+      # Service down alert
+      - alert: ServiceDown
+        expr: up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Service is down"
+          description: "Service {{ $labels.job }} is down"
+
+      # Database connection pool exhaustion
+      - alert: DatabaseConnectionPoolExhausted
+        expr: health_assistant:db_connection_usage > 0.8
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Database connection pool nearly exhausted"
+          description: "Database connection pool usage is {{ $value | humanizePercentage }}"
+
+      # Redis memory usage high
+      - alert: RedisMemoryUsageHigh
+        expr: health_assistant:redis_memory_usage > 0.8
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Redis memory usage is high"
+          description: "Redis memory usage is {{ $value | humanizePercentage }}"
+
+      # High CPU usage
+      - alert: HighCPUUsage
+        expr: 100 - (avg by(instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High CPU usage detected"
+          description: "CPU usage is {{ $value }}%"
+
+      # High memory usage
+      - alert: HighMemoryUsage
+        expr: (node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / node_memory_MemTotal_bytes * 100 > 85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High memory usage detected"
+          description: "Memory usage is {{ $value }}%"
+
+      # Disk space low
+      - alert: DiskSpaceLow
+        expr: (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) * 100 < 10
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Disk space is low"
+          description: "Disk usage is {{ $value }}%"
+
+      # Circuit breaker open
+      - alert: CircuitBreakerOpen
+        expr: circuit_breaker_state == 1
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Circuit breaker is open"
+          description: "Circuit breaker for {{ $labels.service }} is open"
+
+      # Rate limiting triggered
+      - alert: RateLimitExceeded
+        expr: rate(rate_limit_exceeded_total[5m]) > 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Rate limiting is being triggered"
+          description: "Rate limiting is being triggered for {{ $labels.service }}"
+
+      # Authentication failures
+      - alert: HighAuthFailures
+        expr: rate(auth_failures_total[5m]) > 10
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High authentication failure rate"
+          description: "Authentication failure rate is {{ $value }} per second"
+
+      # Health check failures
+      - alert: HealthCheckFailed
+        expr: health_check_status == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Health check failed"
+          description: "Health check for {{ $labels.service }} is failing"
+
+      # API Gateway errors
+      - alert: APIGatewayErrors
+        expr: rate(api_gateway_errors_total[5m]) > 0.1
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "API Gateway errors detected"
+          description: "API Gateway error rate is {{ $value }} per second"
+
+      # Service dependency failures
+      - alert: ServiceDependencyFailed
+        expr: service_dependency_status == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Service dependency failed"
+          description: "Dependency {{ $labels.dependency }} for {{ $labels.service }} is failing"
+
+      # Database query performance
+      - alert: SlowDatabaseQueries
+        expr: histogram_quantile(0.95, rate(db_query_duration_seconds_bucket[5m])) > 1
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Slow database queries detected"
+          description: "95th percentile database query time is {{ $value }}s"
+
+      # Cache hit rate low
+      - alert: LowCacheHitRate
+        expr: rate(cache_hits_total[5m]) / (rate(cache_hits_total[5m]) + rate(cache_misses_total[5m])) < 0.8
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Low cache hit rate"
+          description: "Cache hit rate is {{ $value | humanizePercentage }}"
+
+      # External API failures
+      - alert: ExternalAPIFailures
+        expr: rate(external_api_errors_total[5m]) > 0.1
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "External API failures detected"
+          description: "External API error rate is {{ $value }} per second"
+
+      # Message queue backlog
+      - alert: MessageQueueBacklog
+        expr: message_queue_size > 1000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Message queue backlog detected"
+          description: "Message queue size is {{ $value }} messages"
+
+      # SSL certificate expiration
+      - alert: SSLCertificateExpiringSoon
+        expr: ssl_certificate_expiry_days < 30
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "SSL certificate expiring soon"
+          description: "SSL certificate for {{ $labels.domain }} expires in {{ $value }} days"
+
+      # Backup failures
+      - alert: BackupFailed
+        expr: backup_status == 0
+        for: 1h
+        labels:
+          severity: critical
+        annotations:
+          summary: "Backup failed"
+          description: "Backup for {{ $labels.service }} has failed"
+
+      # Security alerts
+      - alert: UnauthorizedAccessAttempts
+        expr: rate(unauthorized_access_attempts_total[5m]) > 5
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Unauthorized access attempts detected"
+          description: "Unauthorized access attempt rate is {{ $value }} per second"
+
+      # Data integrity issues
+      - alert: DataIntegrityCheckFailed
+        expr: data_integrity_check_status == 0
+        for: 1h
+        labels:
+          severity: critical
+        annotations:
+          summary: "Data integrity check failed"
+          description: "Data integrity check for {{ $labels.service }} has failed" 
