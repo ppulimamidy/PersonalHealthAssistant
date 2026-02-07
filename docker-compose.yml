@@ -7,7 +7,7 @@ services:
     ports:
       - "54323:5432"
     environment:
-      POSTGRES_PASSWORD: your-super-secret-and-long-postgres-password
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
       POSTGRES_DB: postgres
     volumes:
       - supabase_db_data:/var/lib/postgresql/data
@@ -32,7 +32,7 @@ services:
       GOTRUE_API_PORT: 9999
       API_EXTERNAL_URL: http://localhost:8000
       GOTRUE_DB_DRIVER: postgres
-      GOTRUE_DB_DATABASE_URL: postgres://supabase_auth_admin:your-super-secret-and-long-postgres-password@supabase-db:5432/postgres?sslmode=disable
+      GOTRUE_DB_DATABASE_URL: postgres://supabase_auth_admin:${POSTGRES_PASSWORD:-changeme}@supabase-db:5432/postgres?sslmode=disable
       GOTRUE_SITE_URL: http://localhost:3000
       GOTRUE_URI_ALLOW_LIST: http://localhost:3000,http://localhost:3001,http://localhost:3002
       GOTRUE_DISABLE_SIGNUP: "false"
@@ -40,7 +40,7 @@ services:
       GOTRUE_JWT_AUD: authenticated
       GOTRUE_JWT_DEFAULT_GROUP_NAME: authenticated
       GOTRUE_JWT_EXP: 3600
-      GOTRUE_JWT_SECRET: your-super-secret-jwt-token-with-at-least-32-characters-long
+      GOTRUE_JWT_SECRET: ${SUPABASE_JWT_SECRET:-your-super-secret-jwt-token-change-me}
       GOTRUE_EXTERNAL_EMAIL_ENABLED: "true"
       GOTRUE_MAILER_AUTOCONFIRM: "true"
       GOTRUE_SMTP_ADMIN_EMAIL: admin@email.com
@@ -64,10 +64,10 @@ services:
     ports:
       - "3000:3000"
     environment:
-      PGRST_DB_URI: postgres://postgres:your-super-secret-and-long-postgres-password@supabase-db:5432/postgres
+      PGRST_DB_URI: postgres://postgres:${POSTGRES_PASSWORD:-changeme}@supabase-db:5432/postgres
       PGRST_DB_SCHEMAS: public,storage,graphql_public
       PGRST_DB_ANON_ROLE: anon
-      PGRST_JWT_SECRET: your-super-secret-jwt-token-with-at-least-32-characters-long
+      PGRST_JWT_SECRET: ${SUPABASE_JWT_SECRET:-your-super-secret-jwt-token-change-me}
       PGRST_DB_USE_LEGACY_GUCS: "false"
     depends_on:
       - supabase-db
@@ -82,10 +82,10 @@ services:
       DB_HOST: supabase-db
       DB_PORT: 5432
       DB_USER: supabase_realtime
-      DB_PASSWORD: your-super-secret-and-long-postgres-password
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
       DB_NAME: postgres
       PORT: 4000
-      JWT_SECRET: your-super-secret-jwt-token-with-at-least-32-characters-long
+      JWT_SECRET: ${SUPABASE_JWT_SECRET:-your-super-secret-jwt-token-change-me}
       REPLICATION_MODE: RLS
       REPLICATION_POLL_INTERVAL: 100
       SECURE_CHANNELS: "true"
@@ -105,12 +105,12 @@ services:
     ports:
       - "5000:5000"
     environment:
-      ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0
-      SERVICE_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU
+      ANON_KEY: ${SUPABASE_ANON_KEY:-your-supabase-anon-key}
+      SERVICE_KEY: ${SUPABASE_SERVICE_KEY:-your-supabase-service-key}
       PROJECT_REF: personal-health-assistant-local
       POSTGREST_URL: http://supabase-rest:3000
-      PGRST_JWT_SECRET: your-super-secret-jwt-token-with-at-least-32-characters-long
-      DATABASE_URL: postgres://supabase_storage_admin:your-super-secret-and-long-postgres-password@supabase-db:5432/postgres
+      PGRST_JWT_SECRET: ${SUPABASE_JWT_SECRET:-your-super-secret-jwt-token-change-me}
+      DATABASE_URL: postgres://supabase_storage_admin:${POSTGRES_PASSWORD:-changeme}@supabase-db:5432/postgres
       PGOPTIONS: "-c search_path=storage"
       FILE_SIZE_LIMIT: 52428800
       STORAGE_BACKEND: file
@@ -140,8 +140,8 @@ services:
       PG_META_DB_PORT: 5432
       PG_META_DB_NAME: postgres
       PG_META_DB_USER: supabase_meta
-      PG_META_DB_PASSWORD: your-super-secret-and-long-postgres-password
-      PG_META_JWT_SECRET: your-super-secret-jwt-token-with-at-least-32-characters-long
+      PG_META_DB_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      PG_META_JWT_SECRET: ${SUPABASE_JWT_SECRET:-your-super-secret-jwt-token-change-me}
     depends_on:
       - supabase-db
 
@@ -160,13 +160,13 @@ services:
       - "3001:3000"
     environment:
       STUDIO_PG_META_URL: http://supabase-meta:8080
-      POSTGRES_PASSWORD: your-super-secret-and-long-postgres-password
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
       DEFAULT_ORGANIZATION_NAME: Default Organization
       DEFAULT_PROJECT_NAME: Default Project
       SUPABASE_URL: http://supabase-rest:3000
       SUPABASE_PUBLIC_URL: http://localhost:3000
-      SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0
-      SUPABASE_SERVICE_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:-your-supabase-anon-key}
+      SUPABASE_SERVICE_KEY: ${SUPABASE_SERVICE_KEY:-your-supabase-service-key}
     depends_on:
       - supabase-rest
       - supabase-meta
@@ -264,7 +264,7 @@ services:
     environment:
       POSTGRES_DB: health_assistant
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: your-super-secret-and-long-postgres-password
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
     volumes:
       - postgres_health_data:/var/lib/postgresql/data
       - ./schema.sql:/docker-entrypoint-initdb.d/01_schema.sql
@@ -286,9 +286,9 @@ services:
     environment:
       - ENVIRONMENT=development
       - LOG_LEVEL=INFO
-      - DATABASE_URL=postgresql://postgres:your-super-secret-and-long-postgres-password@postgres-health-assistant:5432/health_assistant
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:-changeme}@postgres-health-assistant:5432/health_assistant
       - REDIS_URL=redis://redis:6379/0
-      - JWT_SECRET_KEY=your-super-secret-jwt-key-for-development-only
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-change-this-jwt-secret-key}
       - ALLOWED_HOSTS=["localhost", "127.0.0.1", "user-profile-service", "user-profile.localhost"]
       - CORS_ORIGINS=["http://localhost:3000", "http://localhost:8080"]
       - PROMETHEUS_ENABLED=true
@@ -325,16 +325,16 @@ services:
     environment:
       - ENVIRONMENT=development
       - LOG_LEVEL=INFO
-      - DATABASE_URL=postgresql://postgres:your-super-secret-and-long-postgres-password@postgres-health-assistant:5432/health_assistant
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:-changeme}@postgres-health-assistant:5432/health_assistant
       - REDIS_URL=redis://redis:6379/0
-      - JWT_SECRET_KEY=your-super-secret-jwt-key-for-development-only
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-change-this-jwt-secret-key}
       - ALLOWED_HOSTS=["localhost", "127.0.0.1", "auth-service", "auth.localhost"]
       - CORS_ORIGINS=["http://localhost:3000", "http://localhost:8080"]
       - PROMETHEUS_ENABLED=true
       - GRAFANA_ENABLED=true
       - SUPABASE_URL=http://supabase-rest:3000
-      - SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0
-      - SUPABASE_SERVICE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU
+      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY:-your-supabase-anon-key}
+      - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY:-your-supabase-service-key}
     depends_on:
       - postgres-health-assistant
       - redis
@@ -368,9 +368,9 @@ services:
     environment:
       - ENVIRONMENT=development
       - LOG_LEVEL=INFO
-      - DATABASE_URL=postgresql://postgres:your-super-secret-and-long-postgres-password@postgres-health-assistant:5432/health_assistant
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:-changeme}@postgres-health-assistant:5432/health_assistant
       - REDIS_URL=redis://redis:6379/0
-      - JWT_SECRET_KEY=your-super-secret-jwt-key-for-development-only
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-change-this-jwt-secret-key}
       - ALLOWED_HOSTS=["localhost", "127.0.0.1", "health-tracking-service", "health-tracking.localhost"]
       - CORS_ORIGINS=["http://localhost:3000", "http://localhost:8080"]
       - PROMETHEUS_ENABLED=true
@@ -412,9 +412,9 @@ services:
     environment:
       - ENVIRONMENT=development
       - LOG_LEVEL=INFO
-      - DATABASE_URL=postgresql://postgres:your-super-secret-and-long-postgres-password@postgres-health-assistant:5432/health_assistant
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:-changeme}@postgres-health-assistant:5432/health_assistant
       - REDIS_URL=redis://redis:6379/0
-      - JWT_SECRET_KEY=your-super-secret-jwt-key-for-development-only
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-change-this-jwt-secret-key}
       - PROMETHEUS_ENABLED=true
       - GRAFANA_ENABLED=true
       - AUTH_SERVICE_URL=http://auth-service:8000
@@ -424,7 +424,7 @@ services:
       - EPIC_FHIR_PRIVATE_KEY_PATH=/certs/epic_private_key.pem
       - EPIC_FHIR_CERTIFICATE_PATH=/certs/epi_certificate.pem
       - EPIC_FHIR_CLIENT_ID=${EPIC_FHIR_CLIENT_ID:-}
-      - EPIC_FHIR_CLIENT_SECRET=***REMOVED***
+      - EPIC_FHIR_CLIENT_SECRET=${EPIC_FHIR_CLIENT_SECRET:-}
       - EPIC_FHIR_ENVIRONMENT=SANDBOX
       - EPIC_FHIR_REDIRECT_URI=http://localhost:8005/api/v1/medical-records/epic-fhir/callback
     volumes:
@@ -457,9 +457,9 @@ services:
     environment:
       - ENVIRONMENT=development
       - LOG_LEVEL=INFO
-      - DATABASE_URL=postgresql://postgres:your-super-secret-and-long-postgres-password@postgres-health-assistant:5432/health_assistant
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:-changeme}@postgres-health-assistant:5432/health_assistant
       - REDIS_URL=redis://redis:6379/0
-      - JWT_SECRET_KEY=your-super-secret-jwt-key-for-development-only
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-change-this-jwt-secret-key}
       - ALLOWED_HOSTS=["localhost", "127.0.0.1", "device-data-service", "device-data.localhost"]
       - CORS_ORIGINS=["http://localhost:3000", "http://localhost:3003", "http://localhost:8080", "http://localhost:5173", "http://127.0.0.1:5173"]
       - PROMETHEUS_ENABLED=true
@@ -499,9 +499,9 @@ services:
     environment:
       - ENVIRONMENT=development
       - LOG_LEVEL=INFO
-      - DATABASE_URL=postgresql://postgres:your-super-secret-and-long-postgres-password@postgres-health-assistant:5432/health_assistant
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:-changeme}@postgres-health-assistant:5432/health_assistant
       - REDIS_URL=redis://redis:6379/0
-      - JWT_SECRET_KEY=your-super-secret-jwt-key-for-development-only
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-change-this-jwt-secret-key}
       - ALLOWED_HOSTS=["localhost", "127.0.0.1", "ai-insights-service", "ai-insights.localhost"]
       - CORS_ORIGINS=["http://localhost:3000", "http://localhost:8080"]
       - PROMETHEUS_ENABLED=true
@@ -547,9 +547,9 @@ services:
     environment:
       - ENVIRONMENT=development
       - LOG_LEVEL=INFO
-      - DATABASE_URL=postgresql://postgres:your-super-secret-and-long-postgres-password@postgres-health-assistant:5432/health_assistant
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:-changeme}@postgres-health-assistant:5432/health_assistant
       - REDIS_URL=redis://redis:6379/0
-      - JWT_SECRET_KEY=your-super-secret-jwt-key-for-development-only
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-change-this-jwt-secret-key}
       - ALLOWED_HOSTS=["localhost", "127.0.0.1", "voice-input-service", "voice-input.localhost"]
       - CORS_ORIGINS=["http://localhost:3000", "http://localhost:8080"]
       - PROMETHEUS_ENABLED=true
@@ -614,9 +614,9 @@ services:
     environment:
       - ENVIRONMENT=development
       - LOG_LEVEL=INFO
-      - DATABASE_URL=postgresql://postgres:your-super-secret-and-long-postgres-password@postgres-health-assistant:5432/health_assistant
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:-changeme}@postgres-health-assistant:5432/health_assistant
       - REDIS_URL=redis://redis:6379/0
-      - JWT_SECRET_KEY=your-super-secret-jwt-key-for-development-only
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-change-this-jwt-secret-key}
       - ALLOWED_HOSTS=["localhost", "127.0.0.1", "medical-analysis-service", "medical-analysis.localhost"]
       - CORS_ORIGINS=["http://localhost:3000", "http://localhost:8080"]
       - PROMETHEUS_ENABLED=true
@@ -666,9 +666,9 @@ services:
     environment:
       - ENVIRONMENT=development
       - LOG_LEVEL=INFO
-      - DATABASE_URL=postgresql://postgres:your-super-secret-and-long-postgres-password@postgres-health-assistant:5432/health_assistant
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:-changeme}@postgres-health-assistant:5432/health_assistant
       - REDIS_URL=redis://redis:6379/0
-      - JWT_SECRET_KEY=your-super-secret-jwt-key-for-development-only
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-change-this-jwt-secret-key}
       - ALLOWED_HOSTS=["localhost", "127.0.0.1", "nutrition-service", "nutrition.localhost"]
       - CORS_ORIGINS=["http://localhost:3000", "http://localhost:8080", "http://localhost:5173"]
       - PROMETHEUS_ENABLED=true
@@ -730,9 +730,9 @@ services:
     environment:
       - ENVIRONMENT=development
       - LOG_LEVEL=INFO
-      - DATABASE_URL=postgresql://postgres:your-super-secret-and-long-postgres-password@postgres-health-assistant:5432/health_assistant
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:-changeme}@postgres-health-assistant:5432/health_assistant
       - REDIS_URL=redis://redis:6379/0
-      - JWT_SECRET_KEY=your-super-secret-jwt-key-for-development-only
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-change-this-jwt-secret-key}
       - ALLOWED_HOSTS=["localhost", "127.0.0.1", "health-analysis-service", "health-analysis.localhost"]
       - CORS_ORIGINS=["http://localhost:3000", "http://localhost:8080", "http://localhost:5173"]
       - PROMETHEUS_ENABLED=true
@@ -794,9 +794,9 @@ services:
     environment:
       - ENVIRONMENT=development
       - LOG_LEVEL=INFO
-      - DATABASE_URL=postgresql://postgres:your-super-secret-and-long-postgres-password@postgres-health-assistant:5432/health_assistant
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:-changeme}@postgres-health-assistant:5432/health_assistant
       - REDIS_URL=redis://redis:6379/0
-      - JWT_SECRET_KEY=your-super-secret-jwt-key-for-development-only
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-change-this-jwt-secret-key}
       - ALLOWED_HOSTS=["localhost", "127.0.0.1", "consent-audit-service", "consent-audit.localhost"]
       - CORS_ORIGINS=["http://localhost:3000", "http://localhost:8080", "http://localhost:5173"]
       - PROMETHEUS_ENABLED=true
@@ -854,9 +854,9 @@ services:
     environment:
       - ENVIRONMENT=development
       - LOG_LEVEL=INFO
-      - DATABASE_URL=postgresql://postgres:your-super-secret-and-long-postgres-password@postgres-health-assistant:5432/health_assistant
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:-changeme}@postgres-health-assistant:5432/health_assistant
       - REDIS_URL=redis://redis:6379/0
-      - JWT_SECRET_KEY=your-super-secret-jwt-key-for-development-only
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-change-this-jwt-secret-key}
       - ALLOWED_HOSTS=["localhost", "127.0.0.1", "analytics-service", "analytics.localhost"]
       - CORS_ORIGINS=["http://localhost:3000", "http://localhost:8080", "http://localhost:5173"]
       - PROMETHEUS_ENABLED=true
@@ -914,7 +914,7 @@ services:
     image: neo4j:5.15.0
     container_name: neo4j-graph-db
     environment:
-      - NEO4J_AUTH=neo4j/your-super-secret-neo4j-password
+      - NEO4J_AUTH=neo4j/${NEO4J_PASSWORD:-changeme}
       - NEO4J_PLUGINS=["apoc"]
       - NEO4J_dbms_security_procedures_unrestricted=apoc.*
       - NEO4J_dbms_memory_heap_initial__size=512m
@@ -929,7 +929,7 @@ services:
       - neo4j_import:/var/lib/neo4j/import
       - neo4j_plugins:/plugins
     healthcheck:
-      test: ["CMD", "cypher-shell", "-u", "neo4j", "-p", "your-super-secret-neo4j-password", "RETURN 1"]
+      test: ["CMD", "cypher-shell", "-u", "neo4j", "-p", "${NEO4J_PASSWORD:-changeme}", "RETURN 1"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -946,9 +946,9 @@ services:
     environment:
       - NEO4J_URI=bolt://neo4j:7687
       - NEO4J_USER=neo4j
-      - NEO4J_PASSWORD=your-super-secret-neo4j-password
+      - NEO4J_PASSWORD=${NEO4J_PASSWORD:-changeme}
       - QDRANT_URL=http://qdrant:6333
-      - DATABASE_URL=postgresql://postgres:your-super-secret-and-long-postgres-password@postgres-health-assistant:5432/health_assistant
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:-changeme}@postgres-health-assistant:5432/health_assistant
       - REDIS_URL=redis://redis:6379
       - AUTH_SERVICE_URL=http://auth-service:8000
       - USER_PROFILE_SERVICE_URL=http://user-profile-service:8001
@@ -1011,9 +1011,9 @@ services:
     environment:
       - ENVIRONMENT=development
       - LOG_LEVEL=INFO
-      - DATABASE_URL=postgresql://postgres:your-super-secret-and-long-postgres-password@postgres-health-assistant:5432/health_assistant
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:-changeme}@postgres-health-assistant:5432/health_assistant
       - REDIS_URL=redis://redis:6379/0
-      - JWT_SECRET_KEY=your-super-secret-jwt-key-for-development-only
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-change-this-jwt-secret-key}
       - ALLOWED_HOSTS=["localhost", "127.0.0.1", "doctor-collaboration-service", "doctor-collaboration.localhost"]
       - CORS_ORIGINS=["http://localhost:3000", "http://localhost:8080", "http://localhost:5173"]
       - PROMETHEUS_ENABLED=true
@@ -1077,9 +1077,9 @@ services:
     environment:
       - ENVIRONMENT=development
       - LOG_LEVEL=INFO
-      - DATABASE_URL=postgresql://postgres:your-super-secret-and-long-postgres-password@postgres-health-assistant:5432/health_assistant
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:-changeme}@postgres-health-assistant:5432/health_assistant
       - REDIS_URL=redis://redis:6379/0
-      - JWT_SECRET_KEY=your-super-secret-jwt-key-for-development-only
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-change-this-jwt-secret-key}
       - ALLOWED_HOSTS=["localhost", "127.0.0.1", "genomics-service", "genomics.localhost"]
       - CORS_ORIGINS=["http://localhost:3000", "http://localhost:8080", "http://localhost:5173"]
       - PROMETHEUS_ENABLED=true
@@ -1149,9 +1149,9 @@ services:
     environment:
       - ENVIRONMENT=development
       - LOG_LEVEL=INFO
-      - DATABASE_URL=postgresql://postgres:your-super-secret-and-long-postgres-password@postgres-health-assistant:5432/health_assistant
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:-changeme}@postgres-health-assistant:5432/health_assistant
       - REDIS_URL=redis://redis:6379/0
-      - JWT_SECRET_KEY=your-super-secret-jwt-key-for-development-only
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-change-this-jwt-secret-key}
       - ALLOWED_HOSTS=["localhost", "127.0.0.1", "ai-reasoning-orchestrator", "ai-reasoning.localhost"]
       - CORS_ORIGINS=["http://localhost:3000", "http://localhost:8080", "http://localhost:5173"]
       - PROMETHEUS_ENABLED=true
@@ -1223,9 +1223,9 @@ services:
     environment:
       - ENVIRONMENT=development
       - LOG_LEVEL=INFO
-      - DATABASE_URL=postgresql://postgres:your-super-secret-and-long-postgres-password@postgres-health-assistant:5432/health_assistant
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:-changeme}@postgres-health-assistant:5432/health_assistant
       - REDIS_URL=redis://redis:6379/0
-      - JWT_SECRET_KEY=your-super-secret-jwt-key-for-development-only
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-change-this-jwt-secret-key}
       - ALLOWED_HOSTS=["localhost", "127.0.0.1", "graphql-bff", "graphql-bff.localhost"]
       - CORS_ORIGINS=["http://localhost:3000", "http://localhost:8080", "http://localhost:5173"]
       - PROMETHEUS_ENABLED=true
