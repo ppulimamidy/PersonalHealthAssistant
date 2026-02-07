@@ -1,0 +1,89 @@
+{{- if .Values.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "personal-health-assistant.fullname" . }}
+  namespace: {{ .Values.namespace | default "health-assistant" }}
+  labels:
+    {{- include "personal-health-assistant.labels" . | nindent 4 }}
+  {{- with .Values.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if .Values.ingress.className }}
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- end }}
+  {{- if .Values.ingress.tls }}
+  tls:
+    {{- range .Values.ingress.tls }}
+    - hosts:
+        {{- range .hosts }}
+        - {{ . | quote }}
+        {{- end }}
+      secretName: {{ .secretName }}
+    {{- end }}
+  {{- end }}
+  rules:
+    {{- range .Values.ingress.hosts }}
+    - host: {{ .host | quote }}
+      http:
+        paths:
+          # Auth Service
+          - path: /api/v1/auth
+            pathType: Prefix
+            backend:
+              service:
+                name: auth-service
+                port:
+                  number: 8000
+          # User Profile Service
+          - path: /api/v1/profile
+            pathType: Prefix
+            backend:
+              service:
+                name: user-profile-service
+                port:
+                  number: 8001
+          # Health Tracking Service
+          - path: /api/v1/health
+            pathType: Prefix
+            backend:
+              service:
+                name: health-tracking-service
+                port:
+                  number: 8002
+          # Device Data Service
+          - path: /api/v1/devices
+            pathType: Prefix
+            backend:
+              service:
+                name: device-data-service
+                port:
+                  number: 8004
+          # Medical Records Service
+          - path: /api/v1/medical-records
+            pathType: Prefix
+            backend:
+              service:
+                name: medical-records-service
+                port:
+                  number: 8005
+          # AI Insights Service
+          - path: /api/v1/insights
+            pathType: Prefix
+            backend:
+              service:
+                name: ai-insights-service
+                port:
+                  number: 8200
+          # GraphQL BFF
+          - path: /graphql
+            pathType: Prefix
+            backend:
+              service:
+                name: graphql-bff
+                port:
+                  number: 8400
+    {{- end }}
+{{- end }}

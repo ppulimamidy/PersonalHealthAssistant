@@ -1,0 +1,84 @@
+{{- if .Values.authService.enabled }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.authService.name }}
+  namespace: {{ .Values.namespace | default "health-assistant" }}
+  labels:
+    app: {{ .Values.authService.name }}
+    {{- include "personal-health-assistant.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.authService.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ .Values.authService.name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.authService.name }}
+    spec:
+      containers:
+        - name: {{ .Values.authService.name }}
+          image: "{{ .Values.global.imageRegistry }}/{{ .Values.image.repository }}/{{ .Values.authService.image.repository }}:{{ .Values.authService.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.authService.port }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "personal-health-assistant.fullname" . }}-config
+            - secretRef:
+                name: {{ .Values.secrets.existingSecret }}
+          resources:
+            {{- toYaml .Values.authService.resources | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.authService.port }}
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.authService.port }}
+            initialDelaySeconds: 5
+            periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.authService.name }}
+  namespace: {{ .Values.namespace | default "health-assistant" }}
+  labels:
+    app: {{ .Values.authService.name }}
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.authService.port }}
+      targetPort: {{ .Values.authService.port }}
+      protocol: TCP
+  selector:
+    app: {{ .Values.authService.name }}
+---
+{{- if .Values.authService.autoscaling.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ .Values.authService.name }}-hpa
+  namespace: {{ .Values.namespace | default "health-assistant" }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ .Values.authService.name }}
+  minReplicas: {{ .Values.authService.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.authService.autoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.authService.autoscaling.targetCPUUtilizationPercentage }}
+{{- end }}
+{{- end }}
