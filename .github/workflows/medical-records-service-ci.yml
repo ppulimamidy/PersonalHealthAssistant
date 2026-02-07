@@ -13,6 +13,11 @@ on:
       - 'apps/medical_records/**'
       - 'common/**'
 
+permissions:
+  contents: read
+  packages: write
+  security-events: write
+
 env:
   PYTHON_VERSION: '3.11'
   SERVICE_NAME: 'medical-records-service'
