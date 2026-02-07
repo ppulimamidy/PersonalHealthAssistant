@@ -1,0 +1,52 @@
+# Medical Analysis Service Traefik Configuration
+
+http:
+  routers:
+    medical-analysis:
+      rule: "Host(`medical-analysis.localhost`)"
+      service: medical-analysis-service
+      entryPoints:
+        - web
+      middlewares:
+        - medical-analysis-cors
+      tls: {}
+
+  services:
+    medical-analysis-service:
+      loadBalancer:
+        servers:
+          - url: "http://medical-analysis-service:8006"
+        healthCheck:
+          path: "/ready"
+          interval: "30s"
+          timeout: "10s"
+
+  middlewares:
+    medical-analysis-cors:
+      headers:
+        accessControlAllowMethods:
+          - GET
+          - POST
+          - PUT
+          - DELETE
+          - OPTIONS
+        accessControlAllowOriginList:
+          - "http://localhost:3000"
+          - "http://localhost:8080"
+          - "http://medical-analysis.localhost"
+        accessControlAllowHeaders:
+          - "*"
+        accessControlAllowCredentials: true
+        accessControlMaxAge: 86400
+
+
+
+# TCP Configuration (if needed for WebSocket support)
+# Note: Host rules are not supported for TCP routers
+# tcp:
+#   routers:
+#     medical-analysis-ws:
+#       service: medical-analysis-service
+#       entryPoints:
+#         - web
+#       tls: {} 

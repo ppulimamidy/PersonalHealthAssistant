@@ -1,0 +1,31 @@
+http:
+  routers:
+    medical-records:
+      rule: "Host(`medical-records.localhost`)"
+      service: medical-records
+      entryPoints:
+        - web
+      middlewares:
+        - medical-records-cors
+
+  services:
+    medical-records:
+      loadBalancer:
+        servers:
+          - url: "http://host.docker.internal:8005"
+
+  middlewares:
+    medical-records-cors:
+      headers:
+        accessControlAllowMethods:
+          - GET
+          - POST
+          - PUT
+          - DELETE
+          - OPTIONS
+        accessControlAllowOriginList:
+          - "http://localhost:3000"
+          - "http://localhost:8080"
+        accessControlAllowHeaders:
+          - "*"
+        accessControlAllowCredentials: true 

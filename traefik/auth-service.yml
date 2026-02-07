@@ -1,0 +1,109 @@
+# Enhanced Auth Service Traefik Configuration
+# Includes forward authentication, security headers, and rate limiting
+
+http:
+  routers:
+    auth-service:
+      rule: "Host(`auth.localhost`) || Host(`auth.personalhealthassistant.com`)"
+      service: auth-service
+      entryPoints:
+        - web
+      middlewares:
+        - auth-security-headers
+        - auth-rate-limit
+        - auth-cors
+        - request-id
+        - compress
+      priority: 100
+
+    # Public auth endpoints (no forward auth)
+    auth-public:
+      rule: "Host(`auth.localhost`) && (PathPrefix(`/api/v1/auth/login`) || PathPrefix(`/api/v1/auth/register`) || PathPrefix(`/api/v1/auth/validate`) || PathPrefix(`/health`) || PathPrefix(`/ready`))"
+      service: auth-service
+      entryPoints:
+        - web
+      middlewares:
+        - auth-security-headers
+        - auth-rate-limit
+        - auth-cors
+        - request-id
+        - compress
+      priority: 200
+
+  services:
+    auth-service:
+      loadBalancer:
+        servers:
+          - url: "http://auth-service:8000"
+        healthCheck:
+          path: "/health"
+          interval: "30s"
+          timeout: "10s"
+          headers:
+            X-Health-Check: "true"
+        passHostHeader: true
+
+  middlewares:
+    auth-security-headers:
+      headers:
+        customRequestHeaders:
+          X-Service: "auth-service"
+          X-Forwarded-Proto: "http"
+        customResponseHeaders:
+          X-Service: "auth-service"
+          X-Frame-Options: "DENY"
+          X-Content-Type-Options: "nosniff"
+          X-XSS-Protection: "1; mode=block"
+          Referrer-Policy: "strict-origin-when-cross-origin"
+          Content-Security-Policy: "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; frame-ancestors 'none';"
+        # Remove SSL redirect for development
+        # sslRedirect: true
+        # forceSTSHeader: true
+        # stsIncludeSubdomains: true
+        # stsPreload: true
+        # stsSeconds: 31536000
+
+    auth-rate-limit:
+      rateLimit:
+        burst: 100
+        average: 50
+        period: "1s"
+        sourceCriterion:
+          ipStrategy:
+            depth: 1
+            excludedIPs:
+              - "127.0.0.1"
+              - "::1"
+
+    auth-cors:
+      headers:
+        accessControlAllowMethods:
+          - GET
+          - POST
+          - PUT
+          - DELETE
+          - OPTIONS
+        accessControlAllowOriginList:
+          - "http://localhost:3000"
+          - "http://localhost:8080"
+          - "http://localhost:5173"
+          - "https://personalhealthassistant.com"
+          - "https://*.personalhealthassistant.com"
+        accessControlAllowHeaders:
+          - "*"
+        accessControlAllowCredentials: true
+        accessControlMaxAge: 86400
+        addVaryHeader: true
+
+    request-id:
+      headers:
+        customRequestHeaders:
+          X-Request-ID: "request-id"
+        customResponseHeaders:
+          X-Request-ID: "request-id"
+
+    compress:
+      compress:
+        excludedContentTypes:
+          - "application/json"
+          - "text/plain" 

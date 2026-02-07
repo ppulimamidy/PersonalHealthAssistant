@@ -1,0 +1,38 @@
+http:
+  routers:
+    graphql-bff:
+      rule: "Host(`graphql-bff.localhost`)"
+      service: graphql-bff
+      entryPoints:
+        - web
+      middlewares:
+        - graphql-bff-cors
+        - graphql-bff-stripprefix
+
+  services:
+    graphql-bff:
+      loadBalancer:
+        servers:
+          - url: "http://graphql-bff:8400"
+
+  middlewares:
+    graphql-bff-cors:
+      headers:
+        accessControlAllowMethods:
+          - GET
+          - POST
+          - PUT
+          - DELETE
+          - OPTIONS
+        accessControlAllowOriginList:
+          - "http://localhost:3000"
+          - "http://localhost:8080"
+          - "http://localhost:5173"
+        accessControlAllowHeaders:
+          - "*"
+        accessControlAllowCredentials: true
+
+    graphql-bff-stripprefix:
+      stripPrefix:
+        prefixes:
+          - "/graphql-bff"

@@ -1,0 +1,79 @@
+# Traefik configuration for Genomics Service
+# This file configures routing and load balancing for the genomics service
+
+http:
+  routers:
+    genomics:
+      rule: "Host(`genomics.localhost`)"
+      service: genomics-service
+      entryPoints:
+        - web
+      middlewares:
+        - genomics-cors
+        - genomics-rate-limit
+        - genomics-security
+
+  services:
+    genomics-service:
+      loadBalancer:
+        servers:
+          - url: "http://genomics-service:8012"
+        healthCheck:
+          path: "/health"
+          interval: "30s"
+          timeout: "10s"
+          headers:
+            User-Agent: "Traefik Health Check"
+
+  middlewares:
+    genomics-cors:
+      headers:
+        accessControlAllowMethods:
+          - GET
+          - POST
+          - PUT
+          - DELETE
+          - OPTIONS
+        accessControlAllowOriginList:
+          - "http://localhost:3000"
+          - "http://localhost:8080"
+          - "http://localhost:5173"
+        accessControlAllowHeaders:
+          - "*"
+        accessControlAllowCredentials: true
+        accessControlMaxAge: 86400
+
+    genomics-rate-limit:
+      rateLimit:
+        burst: 100
+        average: 50
+
+    genomics-security:
+      headers:
+        frameDeny: true
+        sslRedirect: false
+        browserXssFilter: true
+        contentTypeNosniff: true
+        forceSTSHeader: false
+        stsIncludeSubdomains: false
+        stsPreload: false
+        customRequestHeaders:
+          X-Forwarded-Proto: "https"
+        customResponseHeaders:
+          X-Robots-Tag: "noindex,nofollow,nosnippet,noarchive,notranslate,noimageindex"
+          Server: ""
+
+# TCP configuration (if needed for specific protocols)
+tcp:
+  routers:
+    genomics-tcp:
+      rule: "HostSNI(`genomics.localhost`)"
+      service: genomics-service-tcp
+      entryPoints:
+        - web
+
+  services:
+    genomics-service-tcp:
+      loadBalancer:
+        servers:
+          - address: "genomics-service:8012" 

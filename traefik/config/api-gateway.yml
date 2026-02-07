@@ -1,0 +1,36 @@
+http:
+  routers:
+    api-gateway:
+      rule: "Host(`api-gateway.localhost`)"
+      service: api-gateway
+      entryPoints:
+        - web
+      middlewares:
+        - api-gateway-cors
+        - auth-forward
+        - rate-limit-user
+        - security-headers
+
+  services:
+    api-gateway:
+      loadBalancer:
+        servers:
+          - url: "http://host.docker.internal:8000"
+
+  middlewares:
+    api-gateway-cors:
+      headers:
+        accessControlAllowMethods:
+          - GET
+          - POST
+          - PUT
+          - DELETE
+          - OPTIONS
+          - PATCH
+        accessControlAllowOriginList:
+          - "http://localhost:3000"
+          - "http://localhost:8080"
+          - "http://localhost:5173"
+        accessControlAllowHeaders:
+          - "*"
+        accessControlAllowCredentials: true

@@ -1,0 +1,233 @@
+{
+  "timestamp": "2025-08-04T23:13:50.468014",
+  "test_name": "Knowledge Graph Service Integration Test",
+  "results": {
+    "service_health": {
+      "knowledge_graph": {
+        "status": "healthy",
+        "response": {
+          "service": "knowledge-graph-service",
+          "status": "healthy",
+          "timestamp": "2025-08-04T23:13:51.007223",
+          "neo4j": "healthy",
+          "qdrant": "healthy",
+          "version": "1.0.0",
+          "collections": 2
+        }
+      },
+      "medical_records": {
+        "status": "healthy",
+        "response": {
+          "status": "healthy",
+          "service": "medical_records",
+          "version": "1.0.0",
+          "timestamp": "2024-01-01T00:00:00Z"
+        }
+      },
+      "auth": {
+        "status": "healthy",
+        "response": {
+          "status": "healthy",
+          "service": "auth-service",
+          "version": "1.0.0",
+          "environment": "development"
+        }
+      },
+      "ai_insights": {
+        "status": "healthy",
+        "response": {
+          "service": "ai_insights",
+          "status": "healthy",
+          "version": "1.0.0",
+          "endpoints": {
+            "insights": "/api/v1/ai-insights/insights",
+            "recommendations": "/api/v1/ai-insights/recommendations",
+            "health_scores": "/api/v1/ai-insights/health-scores",
+            "patterns": "/api/v1/ai-insights/patterns",
+            "agents": "/api/v1/ai-insights/agents"
+          }
+        }
+      },
+      "health_tracking": {
+        "status": "healthy",
+        "response": {
+          "success": true,
+          "message": "Health Tracking Service is healthy",
+          "timestamp": "2025-08-04T23:13:51.551151",
+          "request_id": null,
+          "data": {
+            "status": "healthy",
+            "service": "health-tracking-service",
+            "version": "2.0.0",
+            "timestamp": 1754349231.550121,
+            "checks": {
+              "database": true,
+              "analytics": true,
+              "insights": true,
+              "agents": true
+            }
+          }
+        }
+      }
+    },
+    "knowledge_graph_endpoints": {
+      "statistics": {
+        "status": "success",
+        "data": {
+          "total_entities": 218,
+          "total_relationships": 115,
+          "entities_by_type": {
+            "condition": 32,
+            "symptom": 32,
+            "medication": 20,
+            "treatment": 28,
+            "procedure": 20,
+            "lab_test": 28,
+            "vital_sign": 28,
+            "risk_factor": 30
+          },
+          "relationships_by_type": {
+            "manifests_as": 30,
+            "treated_by": 25,
+            "risk_factor_for": 31,
+            "interacts_with": 5,
+            "complicates": 8,
+            "monitored_by": 16
+          },
+          "ontology_coverage": {},
+          "last_updated": "2025-08-04T23:13:51.571557",
+          "graph_density": 0.0024309812708747307,
+          "average_degree": 1.055045871559633
+        }
+      },
+      "entities": {
+        "status": "success",
+        "count": 5,
+        "sample": [
+          {
+            "name": "DIABETES_MELLITUS_TYPE_2",
+            "display_name": "Diabetes Mellitus Type 2",
+            "entity_type": "condition",
+            "description": "A chronic metabolic disorder characterized by high blood sugar",
+            "synonyms": [],
+            "ontology_ids": {},
+            "confidence": "medium",
+            "evidence_level": "level_c",
+            "source": "custom",
+            "metadata": {
+              "source": "sample_data_generator",
+              "category": "condition"
+            },
+            "id": "e8f2ef83-2828-4d89-baac-cd452c088b55",
+            "created_at": "2025-08-02T02:41:44.114008",
+            "updated_at": "2025-08-02T02:41:44.114008",
+            "relationship_count": 0
+          },
+          {
+            "name": "HYPERTENSION",
+            "display_name": "Hypertension",
+            "entity_type": "condition",
+            "description": "High blood pressure",
+            "synonyms": [],
+            "ontology_ids": {},
+            "confidence": "medium",
+            "evidence_level": "level_c",
+            "source": "custom",
+            "metadata": {
+              "source": "sample_data_generator",
+              "category": "condition"
+            },
+            "id": "1624ee35-8ebc-44a0-b785-310eb8cdd668",
+            "created_at": "2025-08-02T02:41:44.646289",
+            "updated_at": "2025-08-02T02:41:44.646289",
+            "relationship_count": 0
+          }
+        ]
+      },
+      "search": {
+        "status": "success",
+        "query": "diabetes",
+        "results_count": 0,
+        "results": []
+      }
+    },
+    "medical_records_integration": {
+      "enrichment_endpoint": {
+        "status": "endpoint_available",
+        "endpoint": "http://medical-records.localhost/api/v1/medical-records/lab-results/{lab_result_id}/enrich-with-knowledge-graph",
+        "method": "POST",
+        "description": "Enriches lab results with knowledge graph entities and recommendations"
+      },
+      "validation_endpoint": {
+        "status": "endpoint_available",
+        "endpoint": "http://medical-records.localhost/api/v1/medical-records/lab-results/validate-medical-codes",
+        "method": "POST",
+        "description": "Validates medical codes against the knowledge graph"
+      }
+    },
+    "ai_insights_integration": {
+      "ai_insights_health": {
+        "status": "healthy",
+        "endpoints": {
+          "insights": "/api/v1/ai-insights/insights",
+          "recommendations": "/api/v1/ai-insights/recommendations",
+          "health_scores": "/api/v1/ai-insights/health-scores",
+          "patterns": "/api/v1/ai-insights/patterns",
+          "agents": "/api/v1/ai-insights/agents"
+        }
+      }
+    },
+    "integration_scenarios": {
+      "scenario_1": {
+        "name": "Medical Entity Recognition",
+        "description": "Extract medical entities from lab results using Knowledge Graph",
+        "workflow": [
+          "1. Lab result uploaded to Medical Records Service",
+          "2. Medical text extracted from lab result",
+          "3. Knowledge Graph Service searches for medical entities",
+          "4. Entities returned with confidence scores and relationships",
+          "5. Medical Records Service enriches lab result with entities"
+        ]
+      },
+      "scenario_2": {
+        "name": "Treatment Recommendations",
+        "description": "Generate treatment recommendations based on conditions",
+        "workflow": [
+          "1. Patient conditions identified from medical records",
+          "2. Knowledge Graph Service queried for condition-treatment relationships",
+          "3. Evidence-based treatments retrieved",
+          "4. Recommendations ranked by confidence and evidence level",
+          "5. AI Insights Service generates personalized recommendations"
+        ]
+      },
+      "scenario_3": {
+        "name": "Drug Interaction Checking",
+        "description": "Check for potential drug interactions",
+        "workflow": [
+          "1. Patient medications extracted from medical records",
+          "2. Knowledge Graph Service queried for drug interaction relationships",
+          "3. Potential interactions identified with confidence scores",
+          "4. Risk assessment generated",
+          "5. Alerts sent to healthcare providers"
+        ]
+      },
+      "scenario_4": {
+        "name": "Medical Code Validation",
+        "description": "Validate medical codes against standardized ontologies",
+        "workflow": [
+          "1. Medical codes received from external systems",
+          "2. Knowledge Graph Service validates codes against ontologies",
+          "3. Invalid codes flagged for review",
+          "4. Standardized codes suggested for invalid entries",
+          "5. Data quality improved for analytics"
+        ]
+      }
+    }
+  },
+  "summary": {
+    "total_tests": 8,
+    "passed": 8,
+    "failed": 0,
+    "integration_status": "fully_integrated"
+  }
+}
