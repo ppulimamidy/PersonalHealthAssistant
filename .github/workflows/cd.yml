@@ -2,14 +2,15 @@ name: CD
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, master ]
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v4
+
     - name: Deploy
       run: |
         echo "Deploying application..."
-        # Add your deployment command here, e.g., docker-compose up -d 
+        # Add your deployment command here, e.g., docker-compose up -d
