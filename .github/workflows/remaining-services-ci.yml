@@ -25,6 +25,11 @@ on:
       - 'apps/ai_reasoning_orchestrator/**'
       - 'common/**'
 
+permissions:
+  contents: read
+  packages: write
+  security-events: write
+
 env:
   PYTHON_VERSION: '3.11'
 
