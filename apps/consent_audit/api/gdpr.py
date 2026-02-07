@@ -10,13 +10,28 @@ This module provides comprehensive GDPR endpoints including:
 
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Query
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from common.database.connection import get_async_db
 from common.utils.logging import get_logger
+
+from models.audit import (
+    AuditEventType,
+    AuditSeverity,
+    ConsentAuditLogCreate,
+)
+from services.audit_service import (
+    get_compliance_status,
+    get_audit_logs,
+    get_audit_summary,
+    get_consent_status,
+    create_audit_log,
+)
 
 
 class GDPRRightExerciseRequest(BaseModel):
@@ -26,8 +41,6 @@ class GDPRRightExerciseRequest(BaseModel):
     data_categories: Optional[List[str]] = None
     details: Optional[Dict[str, Any]] = None
 
-# Temporarily disabled due to SQLAlchemy model issues
-# from services.audit_service import AuditService, get_audit_service
 
 logger = get_logger(__name__)
 
@@ -36,134 +49,119 @@ security = HTTPBearer()
 
 
 async def get_current_user_id(
-    credentials: HTTPAuthorizationCredentials = Depends(security)
+    credentials: HTTPAuthorizationCredentials = Depends(security),
 ) -> UUID:
     """Extract user ID from JWT token."""
     try:
-        # This would typically validate the JWT token and extract user ID
-        # For now, we'll use a placeholder implementation
         return UUID("00000000-0000-0000-0000-000000000000")  # Placeholder
     except Exception as e:
         logger.error(f"Failed to get current user ID: {e}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid authentication credentials"
+            detail="Invalid authentication credentials",
         )
+
+
+# ---------------------------------------------------------------------------
+# GDPR Compliance Status
+# ---------------------------------------------------------------------------
 
 
 @router.get("/compliance/status")
 async def get_gdpr_compliance_status(
-    user_id: Optional[UUID] = Query(None, description="User ID to check")
-    # audit_service: AuditService = Depends(get_audit_service)  # Temporarily disabled
+    user_id: Optional[UUID] = Query(None, description="User ID to check"),
+    db: AsyncSession = Depends(get_async_db),
 ):
     """Get comprehensive GDPR compliance status."""
     try:
-        # Placeholder response - would typically query audit data
-        gdpr_status = {
-            "gdpr_compliant": True,
-            "gdpr_score": 98.5,
-            "total_violations": 0,
-            "total_events": 150,
-            "period": {
-                "start": (datetime.utcnow() - timedelta(days=30)).isoformat(),
-                "end": datetime.utcnow().isoformat()
-            },
-            "principles": {
-                "lawfulness_fairness_transparency": True,
-                "purpose_limitation": True,
-                "data_minimization": True,
-                "accuracy": True,
-                "storage_limitation": True,
-                "integrity_confidentiality": True,
-                "accountability": True
-            },
-            "data_subject_rights": {
-                "right_to_access": True,
-                "right_to_rectification": True,
-                "right_to_erasure": True,
-                "right_to_portability": True,
-                "right_to_restriction": True,
-                "right_to_object": True,
-                "right_to_withdraw_consent": True
-            },
-            "recommendations": [
-                "Continue monitoring GDPR compliance",
-                "Regular review of data processing activities"
-            ]
+        gdpr_status = await get_compliance_status(db, framework="gdpr", user_id=user_id)
+
+        gdpr_compliant = gdpr_status.get("gdpr_compliant", True)
+
+        # Augment with GDPR-specific principles
+        gdpr_status["principles"] = {
+            "lawfulness_fairness_transparency": gdpr_compliant,
+            "purpose_limitation": gdpr_compliant,
+            "data_minimization": gdpr_compliant,
+            "accuracy": gdpr_compliant,
+            "storage_limitation": gdpr_compliant,
+            "integrity_confidentiality": gdpr_compliant,
+            "accountability": gdpr_compliant,
         }
-        
+        gdpr_status["data_subject_rights"] = {
+            "right_to_access": True,
+            "right_to_rectification": True,
+            "right_to_erasure": True,
+            "right_to_portability": True,
+            "right_to_restriction": True,
+            "right_to_object": True,
+            "right_to_withdraw_consent": True,
+        }
+
         return gdpr_status
-        
     except Exception as e:
         logger.error(f"Failed to get GDPR compliance status: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get GDPR compliance status: {str(e)}"
+            detail=f"Failed to get GDPR compliance status: {str(e)}",
         )
+
+
+# ---------------------------------------------------------------------------
+# Data Subject Rights
+# ---------------------------------------------------------------------------
 
 
 @router.get("/data-subject-rights/{user_id}")
 async def get_gdpr_data_subject_rights(
-    user_id: UUID
-    # audit_service: AuditService = Depends(get_audit_service)  # Temporarily disabled
+    user_id: UUID,
+    db: AsyncSession = Depends(get_async_db),
 ):
     """Get GDPR data subject rights for a user."""
     try:
-        # This would typically query the user's data and consent information
-        # For now, we'll return a placeholder response
-        
-        gdpr_rights = {
+        consents = await get_consent_status(db, user_id)
+        has_active = any(c.granted and c.revoked_at is None for c in consents)
+
+        return {
             "user_id": str(user_id),
+            "has_active_consent": has_active,
+            "total_consent_records": len(consents),
             "rights": {
                 "right_to_access": {
                     "available": True,
                     "description": "Right to access personal data",
-                    "last_exercised": None,
-                    "next_available": datetime.utcnow().isoformat(),
-                    "processing_time": "30 days"
+                    "processing_time": "30 days",
                 },
                 "right_to_rectification": {
                     "available": True,
                     "description": "Right to correct inaccurate data",
-                    "last_exercised": None,
-                    "next_available": datetime.utcnow().isoformat(),
-                    "processing_time": "30 days"
+                    "processing_time": "30 days",
                 },
                 "right_to_erasure": {
                     "available": True,
                     "description": "Right to be forgotten",
-                    "last_exercised": None,
-                    "next_available": datetime.utcnow().isoformat(),
-                    "processing_time": "30 days"
+                    "processing_time": "30 days",
                 },
                 "right_to_portability": {
                     "available": True,
                     "description": "Right to data portability",
-                    "last_exercised": None,
-                    "next_available": datetime.utcnow().isoformat(),
-                    "processing_time": "30 days"
+                    "processing_time": "30 days",
                 },
                 "right_to_restriction": {
                     "available": True,
                     "description": "Right to restrict processing",
-                    "last_exercised": None,
-                    "next_available": datetime.utcnow().isoformat(),
-                    "processing_time": "30 days"
+                    "processing_time": "30 days",
                 },
                 "right_to_object": {
                     "available": True,
                     "description": "Right to object to processing",
-                    "last_exercised": None,
-                    "next_available": datetime.utcnow().isoformat(),
-                    "processing_time": "30 days"
+                    "processing_time": "30 days",
                 },
                 "right_to_withdraw_consent": {
                     "available": True,
                     "description": "Right to withdraw consent",
-                    "last_exercised": None,
-                    "next_available": datetime.utcnow().isoformat(),
-                    "processing_time": "Immediate"
-                }
+                    "processing_time": "Immediate",
+                },
             },
             "data_categories": [
                 "personal_information",
@@ -172,7 +170,7 @@ async def get_gdpr_data_subject_rights(
                 "usage_data",
                 "preferences",
                 "biometric_data",
-                "location_data"
+                "location_data",
             ],
             "processing_purposes": [
                 "health_monitoring",
@@ -180,7 +178,7 @@ async def get_gdpr_data_subject_rights(
                 "analytics",
                 "research",
                 "improvement",
-                "marketing"
+                "marketing",
             ],
             "legal_basis": [
                 "consent",
@@ -188,233 +186,281 @@ async def get_gdpr_data_subject_rights(
                 "legal_obligation",
                 "vital_interests",
                 "public_task",
-                "legitimate_interests"
-            ]
+                "legitimate_interests",
+            ],
         }
-        
-        return gdpr_rights
-        
     except Exception as e:
         logger.error(f"Failed to get GDPR data subject rights for user {user_id}: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get GDPR data subject rights: {str(e)}"
+            detail=f"Failed to get GDPR data subject rights: {str(e)}",
         )
+
+
+# ---------------------------------------------------------------------------
+# Exercise GDPR Right
+# ---------------------------------------------------------------------------
 
 
 @router.post("/exercise-right")
 async def exercise_gdpr_right(
     request: Request,
-    exercise_request: GDPRRightExerciseRequest
-    # audit_service: AuditService = Depends(get_audit_service)  # Temporarily disabled
+    exercise_request: GDPRRightExerciseRequest,
+    db: AsyncSession = Depends(get_async_db),
 ):
     """Exercise a GDPR data subject right."""
     try:
-        logger.info(f"User {exercise_request.user_id} exercising GDPR right: {exercise_request.right_type}")
-        
-        # This would typically process the GDPR right exercise
-        # For now, we'll return a placeholder response
-        
+        logger.info(
+            f"User {exercise_request.user_id} exercising GDPR right: {exercise_request.right_type}"
+        )
+
+        # Map right type to audit event type
+        event_type_map = {
+            "right_to_access": AuditEventType.RIGHT_TO_ACCESS,
+            "right_to_rectification": AuditEventType.RIGHT_TO_RECTIFICATION,
+            "right_to_erasure": AuditEventType.RIGHT_TO_ERASURE,
+            "right_to_portability": AuditEventType.RIGHT_TO_PORTABILITY,
+            "right_to_restriction": AuditEventType.RIGHT_TO_RESTRICTION,
+            "right_to_object": AuditEventType.RIGHT_TO_OBJECT,
+        }
+        event_type = event_type_map.get(
+            exercise_request.right_type, AuditEventType.DATA_ACCESS
+        )
+
+        request_id = uuid4()
+
+        audit_data = ConsentAuditLogCreate(
+            user_id=exercise_request.user_id,
+            event_type=event_type,
+            event_description=exercise_request.description,
+            actor_id=exercise_request.user_id,
+            actor_type="user",
+            severity=AuditSeverity.MEDIUM,
+            event_data={
+                "right_type": exercise_request.right_type,
+                "data_categories": exercise_request.data_categories or [],
+                "details": exercise_request.details or {},
+                "request_id": str(request_id),
+                "regulation": "GDPR",
+            },
+            ip_address=request.client.host if request.client else None,
+            user_agent=request.headers.get("user-agent"),
+        )
+        await create_audit_log(db, audit_data)
+        await db.commit()
+
         return {
             "gdpr_right_exercised": exercise_request.right_type,
             "status": "processing",
-            "request_id": f"gdpr-{exercise_request.right_type}-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}",
-            "estimated_completion": (datetime.utcnow() + timedelta(days=30)).isoformat(),
+            "request_id": str(request_id),
+            "estimated_completion": (
+                datetime.utcnow() + timedelta(days=30)
+            ).isoformat(),
             "user_id": str(exercise_request.user_id),
             "description": exercise_request.description,
             "data_categories": exercise_request.data_categories or [],
             "details": exercise_request.details or {},
             "timestamp": datetime.utcnow().isoformat(),
-            "regulation": "GDPR"
+            "regulation": "GDPR",
         }
-        
     except Exception as e:
-        logger.error(f"Failed to exercise GDPR right {exercise_request.right_type} for user {exercise_request.user_id}: {e}")
+        await db.rollback()
+        logger.error(
+            f"Failed to exercise GDPR right {exercise_request.right_type} "
+            f"for user {exercise_request.user_id}: {e}"
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to exercise GDPR right: {str(e)}"
+            detail=f"Failed to exercise GDPR right: {str(e)}",
         )
+
+
+# ---------------------------------------------------------------------------
+# Data Processing Impact Assessment (DPIA)
+# ---------------------------------------------------------------------------
 
 
 @router.get("/data-processing-impact")
 async def get_data_processing_impact_assessment(
     user_id: Optional[UUID] = Query(None, description="User ID to check"),
-    processing_purpose: Optional[str] = Query(None, description="Processing purpose to assess")
+    processing_purpose: Optional[str] = Query(
+        None, description="Processing purpose to assess"
+    ),
+    db: AsyncSession = Depends(get_async_db),
 ):
     """Get data processing impact assessment for GDPR compliance."""
     try:
-        # This would typically perform a DPIA (Data Protection Impact Assessment)
-        # For now, we'll return a placeholder response
-        
-        dpia = {
-            "assessment_id": f"dpia-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}",
+        summary = await get_audit_summary(db, user_id=user_id)
+
+        score = summary.compliance_score
+        risk_level = "low" if score >= 90 else ("medium" if score >= 70 else "high")
+
+        return {
+            "assessment_id": str(uuid4()),
             "user_id": str(user_id) if user_id else "system-wide",
             "processing_purpose": processing_purpose or "health_monitoring",
             "assessment_date": datetime.utcnow().isoformat(),
-            "risk_level": "medium",
-            "gdpr_compliant": True,
+            "risk_level": risk_level,
+            "gdpr_compliant": score >= 90,
+            "compliance_score": score,
+            "total_events_assessed": summary.total_events,
             "assessment_results": {
                 "necessity": {
-                    "score": 8,
+                    "score": min(10, round(score / 10)),
                     "description": "Processing is necessary for health monitoring",
-                    "compliant": True
+                    "compliant": True,
                 },
                 "proportionality": {
-                    "score": 7,
+                    "score": min(10, round(score / 10)),
                     "description": "Processing is proportional to the purpose",
-                    "compliant": True
+                    "compliant": True,
                 },
                 "data_minimization": {
-                    "score": 8,
+                    "score": min(10, round(score / 10)),
                     "description": "Only necessary data is processed",
-                    "compliant": True
+                    "compliant": True,
                 },
                 "security": {
-                    "score": 9,
+                    "score": 10
+                    if summary.security_incidents == 0
+                    else max(1, 10 - summary.security_incidents),
                     "description": "Appropriate security measures in place",
-                    "compliant": True
+                    "compliant": summary.security_incidents == 0,
                 },
                 "transparency": {
-                    "score": 8,
+                    "score": min(10, round(score / 10)),
                     "description": "Processing is transparent to data subjects",
-                    "compliant": True
-                }
+                    "compliant": True,
+                },
             },
             "recommendations": [
                 "Continue monitoring data processing activities",
                 "Regular review of consent mechanisms",
-                "Periodic security assessments"
-            ]
+                "Periodic security assessments",
+            ],
         }
-        
-        return dpia
-        
     except Exception as e:
         logger.error(f"Failed to get data processing impact assessment: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get data processing impact assessment: {str(e)}"
+            detail=f"Failed to get data processing impact assessment: {str(e)}",
         )
+
+
+# ---------------------------------------------------------------------------
+# Breach Notification
+# ---------------------------------------------------------------------------
 
 
 @router.get("/breach-notification")
 async def get_breach_notification_status(
-    user_id: Optional[UUID] = Query(None, description="User ID to check")
+    user_id: Optional[UUID] = Query(None, description="User ID to check"),
+    db: AsyncSession = Depends(get_async_db),
 ):
     """Get GDPR breach notification status and requirements."""
     try:
-        # This would typically check for data breaches and notification requirements
-        # For now, we'll return a placeholder response
-        
-        breach_status = {
+        summary = await get_audit_summary(db, user_id=user_id)
+
+        return {
             "user_id": str(user_id) if user_id else "system-wide",
-            "breaches_detected": 0,
-            "notifications_required": 0,
+            "breaches_detected": summary.data_breaches,
+            "notifications_required": summary.data_breaches,
             "notifications_sent": 0,
-            "gdpr_compliant": True,
+            "gdpr_compliant": summary.data_breaches == 0,
             "notification_timeline": {
                 "detection_to_assessment": "72 hours",
                 "assessment_to_notification": "72 hours",
-                "total_timeline": "72 hours"
+                "total_timeline": "72 hours",
             },
             "notification_requirements": {
                 "supervisory_authority": True,
                 "data_subjects": True,
-                "documentation": True
+                "documentation": True,
             },
-            "last_assessment": datetime.utcnow().isoformat()
+            "last_assessment": datetime.utcnow().isoformat(),
         }
-        
-        return breach_status
-        
     except Exception as e:
         logger.error(f"Failed to get breach notification status: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get breach notification status: {str(e)}"
+            detail=f"Failed to get breach notification status: {str(e)}",
         )
+
+
+# ---------------------------------------------------------------------------
+# GDPR Requests
+# ---------------------------------------------------------------------------
 
 
 @router.get("/requests/{user_id}")
 async def get_gdpr_requests(
-    user_id: UUID
-    # audit_service: AuditService = Depends(get_audit_service)  # Temporarily disabled
+    user_id: UUID,
+    db: AsyncSession = Depends(get_async_db),
 ):
-    """Get GDPR-related requests for a user."""
+    """Get GDPR-related requests for a user (right-exercise audit logs)."""
     try:
-        # This would typically query the user's GDPR requests from the database
-        # For now, we'll return a placeholder response
-        
-        gdpr_requests = {
+        # Fetch audit logs that represent right-exercise events
+        right_types = [
+            AuditEventType.RIGHT_TO_ACCESS,
+            AuditEventType.RIGHT_TO_RECTIFICATION,
+            AuditEventType.RIGHT_TO_ERASURE,
+            AuditEventType.RIGHT_TO_PORTABILITY,
+            AuditEventType.RIGHT_TO_RESTRICTION,
+            AuditEventType.RIGHT_TO_OBJECT,
+        ]
+
+        all_requests: list = []
+        for evt in right_types:
+            logs = await get_audit_logs(
+                db, user_id=user_id, event_type=evt, skip=0, limit=1000
+            )
+            for log in logs:
+                all_requests.append(
+                    {
+                        "request_id": str(log.id),
+                        "request_type": log.event_type,
+                        "status": "processing",
+                        "submitted_date": log.event_timestamp.isoformat(),
+                        "description": log.event_description,
+                        "data_categories": log.event_data.get("data_categories", [])
+                        if log.event_data
+                        else [],
+                        "gdpr_article": _right_to_article(log.event_type),
+                    }
+                )
+
+        all_requests.sort(key=lambda x: x["submitted_date"], reverse=True)
+
+        return {
             "user_id": str(user_id),
-            "total_requests": 3,
-            "requests": [
-                {
-                    "request_id": "gdpr-access-20250715-001",
-                    "request_type": "right_to_access",
-                    "status": "completed",
-                    "submitted_date": "2025-07-15T10:30:00Z",
-                    "completed_date": "2025-07-30T14:20:00Z",
-                    "description": "Request for access to personal health data",
-                    "data_categories": ["health_data", "personal_information"],
-                    "processing_time": "15 days",
-                    "gdpr_article": "Article 15",
-                    "response_data": {
-                        "data_provided": True,
-                        "data_format": "JSON",
-                        "data_size": "2.5 MB"
-                    }
-                },
-                {
-                    "request_id": "gdpr-erasure-20250720-002",
-                    "request_type": "right_to_erasure",
-                    "status": "processing",
-                    "submitted_date": "2025-07-20T16:45:00Z",
-                    "completed_date": None,
-                    "description": "Request for deletion of marketing preferences",
-                    "data_categories": ["preferences", "marketing_data"],
-                    "processing_time": "30 days",
-                    "gdpr_article": "Article 17",
-                    "response_data": {
-                        "data_provided": False,
-                        "data_format": None,
-                        "data_size": None
-                    }
-                },
-                {
-                    "request_id": "gdpr-portability-20250725-003",
-                    "request_type": "right_to_portability",
-                    "status": "pending",
-                    "submitted_date": "2025-07-25T09:15:00Z",
-                    "completed_date": None,
-                    "description": "Request for data portability to another service",
-                    "data_categories": ["health_data", "device_data", "usage_data"],
-                    "processing_time": "30 days",
-                    "gdpr_article": "Article 20",
-                    "response_data": {
-                        "data_provided": False,
-                        "data_format": None,
-                        "data_size": None
-                    }
-                }
-            ],
-            "request_statistics": {
-                "completed": 1,
-                "processing": 1,
-                "pending": 1,
-                "average_processing_time": "18 days"
-            },
-            "last_updated": datetime.utcnow().isoformat()
+            "total_requests": len(all_requests),
+            "requests": all_requests,
+            "last_updated": datetime.utcnow().isoformat(),
         }
-        
-        return gdpr_requests
-        
     except Exception as e:
         logger.error(f"Failed to get GDPR requests for user {user_id}: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get GDPR requests: {str(e)}"
+            detail=f"Failed to get GDPR requests: {str(e)}",
         )
+
+
+def _right_to_article(event_type: str) -> str:
+    """Map event type to GDPR article."""
+    mapping = {
+        "right_to_access": "Article 15",
+        "right_to_rectification": "Article 16",
+        "right_to_erasure": "Article 17",
+        "right_to_portability": "Article 20",
+        "right_to_restriction": "Article 18",
+        "right_to_object": "Article 21",
+    }
+    return mapping.get(event_type, "Article 7")
+
+
+# ---------------------------------------------------------------------------
+# Health
+# ---------------------------------------------------------------------------
 
 
 @router.get("/health")
@@ -430,6 +476,6 @@ async def gdpr_health_check():
             "data_processing_impact_assessment",
             "breach_notification_tracking",
             "gdpr_audit_trails",
-            "gdpr_requests_tracking"
-        ]
-    } 
+            "gdpr_requests_tracking",
+        ],
+    }

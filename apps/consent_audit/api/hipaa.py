@@ -15,10 +15,16 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Query
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from common.database.connection import get_async_db
 from common.utils.logging import get_logger
 
-from services.audit_service import AuditService, get_audit_service
+from services.audit_service import (
+    get_audit_summary,
+    get_audit_logs,
+    get_compliance_status,
+)
 
 logger = get_logger(__name__)
 
@@ -27,47 +33,52 @@ security = HTTPBearer()
 
 
 async def get_current_user_id(
-    credentials: HTTPAuthorizationCredentials = Depends(security)
+    credentials: HTTPAuthorizationCredentials = Depends(security),
 ) -> UUID:
     """Extract user ID from JWT token."""
     try:
-        # This would typically validate the JWT token and extract user ID
-        # For now, we'll use a placeholder implementation
         return UUID("00000000-0000-0000-0000-000000000000")  # Placeholder
     except Exception as e:
         logger.error(f"Failed to get current user ID: {e}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid authentication credentials"
+            detail="Invalid authentication credentials",
         )
+
+
+# ---------------------------------------------------------------------------
+# HIPAA Compliance Status
+# ---------------------------------------------------------------------------
 
 
 @router.get("/compliance/status")
 async def get_hipaa_compliance_status(
     user_id: Optional[UUID] = Query(None, description="User ID to check"),
-    audit_service: AuditService = Depends(get_audit_service)
+    db: AsyncSession = Depends(get_async_db),
 ):
     """Get comprehensive HIPAA compliance status."""
     try:
-        # Get audit summary for HIPAA compliance
-        summary = await audit_service.get_audit_summary(
-            user_id=user_id,
-            start_date=datetime.utcnow() - timedelta(days=30)
-        )
-        
-        # Calculate HIPAA compliance score
+        summary = await get_audit_summary(db, user_id=user_id)
+
         hipaa_score = 100.0
         if summary.total_events > 0:
-            hipaa_score = ((summary.total_events - summary.hipaa_violations) / summary.total_events) * 100
-        
-        hipaa_status = {
+            hipaa_score = round(
+                (
+                    (summary.total_events - summary.hipaa_violations)
+                    / summary.total_events
+                )
+                * 100,
+                2,
+            )
+
+        hipaa_status: Dict[str, Any] = {
             "hipaa_compliant": hipaa_score >= 95.0,
-            "hipaa_score": round(hipaa_score, 2),
+            "hipaa_score": hipaa_score,
             "total_violations": summary.hipaa_violations,
             "total_events": summary.total_events,
             "period": {
                 "start": summary.period_start.isoformat(),
-                "end": summary.period_end.isoformat()
+                "end": summary.period_end.isoformat(),
             },
             "privacy_rule": {
                 "notice_of_privacy_practices": hipaa_score >= 90.0,
@@ -75,7 +86,7 @@ async def get_hipaa_compliance_status(
                 "minimum_necessary": hipaa_score >= 90.0,
                 "patient_rights": hipaa_score >= 90.0,
                 "business_associate_agreements": hipaa_score >= 90.0,
-                "training": hipaa_score >= 90.0
+                "training": hipaa_score >= 90.0,
             },
             "security_rule": {
                 "administrative_safeguards": hipaa_score >= 90.0,
@@ -83,206 +94,217 @@ async def get_hipaa_compliance_status(
                 "technical_safeguards": hipaa_score >= 90.0,
                 "access_controls": hipaa_score >= 90.0,
                 "audit_controls": hipaa_score >= 90.0,
-                "transmission_security": hipaa_score >= 90.0
+                "transmission_security": hipaa_score >= 90.0,
             },
             "breach_notification": {
                 "breach_detection": summary.data_breaches == 0,
                 "notification_procedures": True,
                 "risk_assessment": True,
-                "documentation": True
+                "documentation": True,
             },
-            "recommendations": []
+            "recommendations": [],
         }
-        
-        # Add recommendations based on violations
+
         if summary.hipaa_violations > 0:
             hipaa_status["recommendations"].append(
                 "Review and address HIPAA violations in audit logs"
             )
-        
         if hipaa_score < 95.0:
             hipaa_status["recommendations"].append(
                 "Improve HIPAA compliance practices to achieve 95%+ score"
             )
-        
         if summary.data_breaches > 0:
             hipaa_status["recommendations"].append(
                 "Implement additional security measures to prevent PHI breaches"
             )
-        
+
         return hipaa_status
-        
     except Exception as e:
         logger.error(f"Failed to get HIPAA compliance status: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get HIPAA compliance status: {str(e)}"
+            detail=f"Failed to get HIPAA compliance status: {str(e)}",
         )
+
+
+# ---------------------------------------------------------------------------
+# Privacy Rule
+# ---------------------------------------------------------------------------
 
 
 @router.get("/privacy-rule/status")
 async def get_hipaa_privacy_rule_status(
-    user_id: Optional[UUID] = Query(None, description="User ID to check")
+    user_id: Optional[UUID] = Query(None, description="User ID to check"),
+    db: AsyncSession = Depends(get_async_db),
 ):
     """Get HIPAA Privacy Rule compliance status."""
     try:
-        # This would typically check Privacy Rule compliance
-        # For now, we'll return a placeholder response
-        
-        privacy_rule_status = {
+        summary = await get_audit_summary(db, user_id=user_id)
+        score = 100.0
+        if summary.total_events > 0:
+            score = round(
+                (
+                    (summary.total_events - summary.hipaa_violations)
+                    / summary.total_events
+                )
+                * 100,
+                2,
+            )
+        compliant = score >= 90.0
+
+        return {
             "user_id": str(user_id) if user_id else "system-wide",
-            "privacy_rule_compliant": True,
+            "privacy_rule_compliant": compliant,
+            "score": score,
             "assessment_date": datetime.utcnow().isoformat(),
             "requirements": {
                 "notice_of_privacy_practices": {
-                    "compliant": True,
+                    "compliant": compliant,
                     "description": "Notice of Privacy Practices provided to patients",
-                    "last_review": datetime.utcnow().isoformat(),
-                    "next_review": (datetime.utcnow() + timedelta(days=365)).isoformat()
                 },
                 "patient_authorization": {
-                    "compliant": True,
+                    "compliant": compliant,
                     "description": "Patient authorization obtained for uses/disclosures",
-                    "last_review": datetime.utcnow().isoformat(),
-                    "next_review": (datetime.utcnow() + timedelta(days=365)).isoformat()
                 },
                 "minimum_necessary": {
-                    "compliant": True,
+                    "compliant": compliant,
                     "description": "Minimum necessary standard applied",
-                    "last_review": datetime.utcnow().isoformat(),
-                    "next_review": (datetime.utcnow() + timedelta(days=365)).isoformat()
                 },
                 "patient_rights": {
-                    "compliant": True,
+                    "compliant": compliant,
                     "description": "Patient rights procedures implemented",
-                    "last_review": datetime.utcnow().isoformat(),
-                    "next_review": (datetime.utcnow() + timedelta(days=365)).isoformat()
                 },
                 "business_associate_agreements": {
-                    "compliant": True,
+                    "compliant": compliant,
                     "description": "Business associate agreements in place",
-                    "last_review": datetime.utcnow().isoformat(),
-                    "next_review": (datetime.utcnow() + timedelta(days=365)).isoformat()
                 },
                 "training": {
-                    "compliant": True,
+                    "compliant": compliant,
                     "description": "Training on privacy policies completed",
-                    "last_review": datetime.utcnow().isoformat(),
-                    "next_review": (datetime.utcnow() + timedelta(days=365)).isoformat()
-                }
+                },
             },
             "recommendations": [
                 "Continue monitoring Privacy Rule compliance",
                 "Regular review of privacy practices",
-                "Ongoing staff training"
-            ]
+                "Ongoing staff training",
+            ],
         }
-        
-        return privacy_rule_status
-        
     except Exception as e:
         logger.error(f"Failed to get HIPAA Privacy Rule status: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get HIPAA Privacy Rule status: {str(e)}"
+            detail=f"Failed to get HIPAA Privacy Rule status: {str(e)}",
         )
+
+
+# ---------------------------------------------------------------------------
+# Security Rule
+# ---------------------------------------------------------------------------
 
 
 @router.get("/security-rule/status")
 async def get_hipaa_security_rule_status(
-    user_id: Optional[UUID] = Query(None, description="User ID to check")
+    user_id: Optional[UUID] = Query(None, description="User ID to check"),
+    db: AsyncSession = Depends(get_async_db),
 ):
     """Get HIPAA Security Rule compliance status."""
     try:
-        # This would typically check Security Rule compliance
-        # For now, we'll return a placeholder response
-        
-        security_rule_status = {
+        summary = await get_audit_summary(db, user_id=user_id)
+        score = 100.0
+        if summary.total_events > 0:
+            score = round(
+                (
+                    (summary.total_events - summary.hipaa_violations)
+                    / summary.total_events
+                )
+                * 100,
+                2,
+            )
+        compliant = score >= 90.0
+
+        return {
             "user_id": str(user_id) if user_id else "system-wide",
-            "security_rule_compliant": True,
+            "security_rule_compliant": compliant,
+            "score": score,
             "assessment_date": datetime.utcnow().isoformat(),
             "safeguards": {
                 "administrative": {
-                    "compliant": True,
+                    "compliant": compliant,
                     "description": "Administrative safeguards implemented",
-                    "last_review": datetime.utcnow().isoformat(),
-                    "next_review": (datetime.utcnow() + timedelta(days=365)).isoformat(),
                     "components": [
                         "Security management process",
                         "Assigned security responsibility",
                         "Workforce security",
                         "Information access management",
-                        "Security awareness and training"
-                    ]
+                        "Security awareness and training",
+                    ],
                 },
                 "physical": {
-                    "compliant": True,
+                    "compliant": compliant,
                     "description": "Physical safeguards in place",
-                    "last_review": datetime.utcnow().isoformat(),
-                    "next_review": (datetime.utcnow() + timedelta(days=365)).isoformat(),
                     "components": [
                         "Facility access controls",
                         "Workstation use",
                         "Workstation security",
-                        "Device and media controls"
-                    ]
+                        "Device and media controls",
+                    ],
                 },
                 "technical": {
-                    "compliant": True,
+                    "compliant": compliant,
                     "description": "Technical safeguards deployed",
-                    "last_review": datetime.utcnow().isoformat(),
-                    "next_review": (datetime.utcnow() + timedelta(days=365)).isoformat(),
                     "components": [
                         "Access control",
                         "Audit controls",
                         "Integrity",
                         "Person or entity authentication",
-                        "Transmission security"
-                    ]
-                }
+                        "Transmission security",
+                    ],
+                },
             },
             "recommendations": [
                 "Continue monitoring Security Rule compliance",
                 "Regular security assessments",
-                "Ongoing security training"
-            ]
+                "Ongoing security training",
+            ],
         }
-        
-        return security_rule_status
-        
     except Exception as e:
         logger.error(f"Failed to get HIPAA Security Rule status: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get HIPAA Security Rule status: {str(e)}"
+            detail=f"Failed to get HIPAA Security Rule status: {str(e)}",
         )
+
+
+# ---------------------------------------------------------------------------
+# Breach Notification
+# ---------------------------------------------------------------------------
 
 
 @router.get("/breach-notification")
 async def get_hipaa_breach_notification_status(
-    user_id: Optional[UUID] = Query(None, description="User ID to check")
+    user_id: Optional[UUID] = Query(None, description="User ID to check"),
+    db: AsyncSession = Depends(get_async_db),
 ):
     """Get HIPAA breach notification status and requirements."""
     try:
-        # This would typically check for PHI breaches and notification requirements
-        # For now, we'll return a placeholder response
-        
-        breach_notification_status = {
+        summary = await get_audit_summary(db, user_id=user_id)
+
+        return {
             "user_id": str(user_id) if user_id else "system-wide",
-            "breaches_detected": 0,
-            "notifications_required": 0,
+            "breaches_detected": summary.data_breaches,
+            "notifications_required": summary.data_breaches,
             "notifications_sent": 0,
-            "hipaa_compliant": True,
+            "hipaa_compliant": summary.data_breaches == 0,
             "notification_timeline": {
                 "detection_to_assessment": "60 days",
                 "assessment_to_notification": "60 days",
-                "total_timeline": "60 days"
+                "total_timeline": "60 days",
             },
             "notification_requirements": {
                 "individuals": True,
                 "secretary_of_hhs": True,
                 "media": False,
-                "documentation": True
+                "documentation": True,
             },
             "risk_assessment": {
                 "methodology": "Four-factor risk assessment",
@@ -290,69 +312,101 @@ async def get_hipaa_breach_notification_status(
                     "Nature and extent of PHI involved",
                     "Unauthorized person who used PHI",
                     "Whether PHI was actually acquired or viewed",
-                    "Extent to which risk has been mitigated"
+                    "Extent to which risk has been mitigated",
                 ],
-                "last_assessment": datetime.utcnow().isoformat()
+                "last_assessment": datetime.utcnow().isoformat(),
             },
-            "last_assessment": datetime.utcnow().isoformat()
+            "last_assessment": datetime.utcnow().isoformat(),
         }
-        
-        return breach_notification_status
-        
     except Exception as e:
         logger.error(f"Failed to get HIPAA breach notification status: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get HIPAA breach notification status: {str(e)}"
+            detail=f"Failed to get HIPAA breach notification status: {str(e)}",
         )
+
+
+# ---------------------------------------------------------------------------
+# PHI Access Log
+# ---------------------------------------------------------------------------
 
 
 @router.get("/phi-access-log")
 async def get_phi_access_log(
     user_id: Optional[UUID] = Query(None, description="User ID to check"),
-    start_date: Optional[datetime] = Query(None, description="Start date for filtering"),
+    start_date: Optional[datetime] = Query(
+        None, description="Start date for filtering"
+    ),
     end_date: Optional[datetime] = Query(None, description="End date for filtering"),
     limit: int = Query(100, ge=1, le=1000, description="Number of records to return"),
-    offset: int = Query(0, ge=0, description="Number of records to skip")
+    offset: int = Query(0, ge=0, description="Number of records to skip"),
+    db: AsyncSession = Depends(get_async_db),
 ):
     """Get PHI access log for HIPAA compliance."""
     try:
-        # This would typically query PHI access logs
-        # For now, we'll return a placeholder response
-        
-        phi_access_log = {
+        from models.audit import AuditEventType as ET
+
+        logs = await get_audit_logs(
+            db,
+            user_id=user_id,
+            event_type=ET.DATA_ACCESS,
+            start_date=start_date,
+            end_date=end_date,
+            skip=offset,
+            limit=limit,
+        )
+
+        records = [
+            {
+                "id": str(log.id),
+                "user_id": str(log.user_id),
+                "event_type": log.event_type,
+                "description": log.event_description,
+                "timestamp": log.event_timestamp.isoformat(),
+                "ip_address": log.ip_address,
+                "authorized": log.hipaa_compliant,
+            }
+            for log in logs
+        ]
+
+        authorized = sum(1 for r in records if r["authorized"])
+        unauthorized = len(records) - authorized
+
+        return {
             "user_id": str(user_id) if user_id else "system-wide",
-            "access_records": [],
-            "total_records": 0,
+            "access_records": records,
+            "total_records": len(records),
             "period": {
                 "start": start_date.isoformat() if start_date else None,
-                "end": end_date.isoformat() if end_date else None
+                "end": end_date.isoformat() if end_date else None,
             },
             "summary": {
-                "authorized_access": 0,
-                "unauthorized_access": 0,
-                "total_access": 0
-            }
+                "authorized_access": authorized,
+                "unauthorized_access": unauthorized,
+                "total_access": len(records),
+            },
         }
-        
-        return phi_access_log
-        
     except Exception as e:
         logger.error(f"Failed to get PHI access log: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get PHI access log: {str(e)}"
+            detail=f"Failed to get PHI access log: {str(e)}",
         )
+
+
+# ---------------------------------------------------------------------------
+# Business Associates
+# ---------------------------------------------------------------------------
 
 
 @router.get("/business-associates")
 async def get_business_associates_status():
     """Get business associate agreements and compliance status."""
     try:
-        # This would typically query business associate information
-        # For now, we'll return a placeholder response
-        
-        business_associates_status = {
+        # Business-associate management is mostly a manual / admin process,
+        # so we return structural data. A future enhancement could store BAAs
+        # in the DB.
+        return {
             "total_business_associates": 0,
             "agreements_in_place": 0,
             "agreements_expired": 0,
@@ -362,18 +416,20 @@ async def get_business_associates_status():
             "recommendations": [
                 "Review business associate agreements annually",
                 "Monitor business associate compliance",
-                "Update agreements as needed"
-            ]
+                "Update agreements as needed",
+            ],
         }
-        
-        return business_associates_status
-        
     except Exception as e:
         logger.error(f"Failed to get business associates status: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get business associates status: {str(e)}"
+            detail=f"Failed to get business associates status: {str(e)}",
         )
+
+
+# ---------------------------------------------------------------------------
+# Health
+# ---------------------------------------------------------------------------
 
 
 @router.get("/health")
@@ -389,6 +445,6 @@ async def hipaa_health_check():
             "security_rule_compliance",
             "breach_notification_tracking",
             "phi_access_logging",
-            "business_associate_management"
-        ]
-    } 
+            "business_associate_management",
+        ],
+    }

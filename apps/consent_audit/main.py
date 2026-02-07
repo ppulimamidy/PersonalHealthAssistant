@@ -23,12 +23,15 @@ from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 # Add the project root to Python path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+sys.path.insert(
+    0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+)
 
 from common.config.settings import get_settings
 from common.utils.logging import get_logger, setup_logging
 from common.database.connection import get_db_manager
 from common.models.registry import register_model
+from common.middleware.prometheus_metrics import setup_prometheus_metrics
 
 # Setup logging
 setup_logging()
@@ -46,18 +49,24 @@ async def lifespan(app: FastAPI):
     """Application lifespan manager."""
     # Startup
     logger.info("Starting Personal Health Assistant Consent Audit Service...")
-    
+
     # Register models in the global registry
-    # Temporarily disabled due to model relationship issues
-    # try:
-    #     from models.audit import ConsentAuditLog, DataProcessingAudit, ComplianceReport
-    #     register_model("ConsentAuditLog", ConsentAuditLog)
-    #     register_model("DataProcessingAudit", DataProcessingAudit)
-    #     register_model("ComplianceReport", ComplianceReport)
-    #     logger.info("Consent audit models registered in global registry")
-    # except Exception as e:
-    #     logger.warning(f"Failed to register consent audit models: {e}")
-    
+    try:
+        from models.audit import (
+            ConsentAuditLog,
+            DataProcessingAudit,
+            ComplianceReport,
+            ConsentRecord,
+        )
+
+        register_model("ConsentAuditLog", ConsentAuditLog)
+        register_model("DataProcessingAudit", DataProcessingAudit)
+        register_model("ComplianceReport", ComplianceReport)
+        register_model("ConsentRecord", ConsentRecord)
+        logger.info("Consent audit models registered in global registry")
+    except Exception as e:
+        logger.warning(f"Failed to register consent audit models: {e}")
+
     # Start database health monitoring
     try:
         await db_manager.start_health_monitoring()
@@ -65,12 +74,12 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"Failed to start database health monitoring: {e}")
         raise
-    
+
     yield
-    
+
     # Shutdown
     logger.info("Shutting down Personal Health Assistant Consent Audit Service...")
-    
+
     # Stop database health monitoring and close connections
     try:
         await db_manager.stop_health_monitoring()
@@ -88,7 +97,7 @@ app = FastAPI(
     docs_url="/docs" if settings.ENVIRONMENT != "production" else None,
     redoc_url="/redoc" if settings.ENVIRONMENT != "production" else None,
     openapi_url="/openapi.json" if settings.ENVIRONMENT != "production" else None,
-    lifespan=lifespan
+    lifespan=lifespan,
 )
 
 # Add CORS middleware
@@ -101,10 +110,18 @@ app.add_middleware(
 )
 
 # Add trusted host middleware
-app.add_middleware(
-    TrustedHostMiddleware,
-    allowed_hosts=settings.ALLOWED_HOSTS
-)
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.ALLOWED_HOSTS)
+
+# Setup Prometheus metrics
+setup_prometheus_metrics(app, service_name="consent-audit-service")
+
+# Configure OpenTelemetry tracing
+try:
+    from common.utils.opentelemetry_config import configure_opentelemetry
+
+    configure_opentelemetry(app, "consent-audit-service")
+except ImportError:
+    pass
 
 
 # Exception handlers
@@ -114,7 +131,7 @@ async def http_exception_handler(request, exc):
     logger.error(f"HTTP Exception: {exc.status_code} - {exc.detail}")
     return JSONResponse(
         status_code=exc.status_code,
-        content={"detail": exc.detail, "status_code": exc.status_code}
+        content={"detail": exc.detail, "status_code": exc.status_code},
     )
 
 
@@ -124,7 +141,7 @@ async def validation_exception_handler(request, exc):
     logger.error(f"Validation Error: {exc.errors()}")
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-        content={"detail": "Validation error", "errors": exc.errors()}
+        content={"detail": "Validation error", "errors": exc.errors()},
     )
 
 
@@ -134,7 +151,7 @@ async def general_exception_handler(request, exc):
     logger.error(f"General Exception: {str(exc)}", exc_info=True)
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        content={"detail": "Internal server error"}
+        content={"detail": "Internal server error"},
     )
 
 
@@ -150,7 +167,7 @@ async def health_check() -> Dict[str, Any]:
         except Exception as e:
             logger.error(f"Database health check failed: {e}")
             db_status = "unhealthy"
-        
+
         return {
             "status": "healthy",
             "service": "consent_audit",
@@ -162,14 +179,13 @@ async def health_check() -> Dict[str, Any]:
                 "audit_engine": "healthy",
                 "compliance_checker": "healthy",
                 "gdpr_processor": "healthy",
-                "hipaa_validator": "healthy"
-            }
+                "hipaa_validator": "healthy",
+            },
         }
     except Exception as e:
         logger.error(f"Health check failed: {e}")
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Service unhealthy"
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Service unhealthy"
         )
 
 
@@ -184,25 +200,24 @@ async def readiness_check() -> Dict[str, Any]:
             db_ready = True
         except Exception as e:
             logger.error(f"Database readiness check failed: {e}")
-        
+
         if not db_ready:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Service not ready"
+                detail="Service not ready",
             )
-        
+
         return {
             "status": "ready",
             "service": "consent_audit",
-            "timestamp": "2024-01-01T00:00:00Z"
+            "timestamp": "2024-01-01T00:00:00Z",
         }
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Readiness check failed: {e}")
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Service not ready"
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Service not ready"
         )
 
 
@@ -222,7 +237,7 @@ async def root() -> Dict[str, Any]:
             "Compliance reporting",
             "Consent verification",
             "Data subject rights management",
-            "Audit trail generation"
+            "Audit trail generation",
         ],
         "endpoints": {
             "health": "/health",
@@ -232,38 +247,41 @@ async def root() -> Dict[str, Any]:
             "compliance": "/api/v1/compliance",
             "consent": "/api/v1/consent",
             "gdpr": "/api/v1/gdpr",
-            "hipaa": "/api/v1/hipaa"
-        }
+            "hipaa": "/api/v1/hipaa",
+        },
     }
 
 
 # Include routers
 try:
-    # Temporarily disabled due to model relationship issues
     from api.audit import router as audit_router
     from api.compliance import router as compliance_router
     from api.consent import router as consent_router
     from api.gdpr import router as gdpr_router
-    # from api.hipaa import router as hipaa_router
-    
+    from api.hipaa import router as hipaa_router
+
     app.include_router(audit_router, prefix="/api/v1/audit", tags=["audit"])
-    app.include_router(compliance_router, prefix="/api/v1/compliance", tags=["compliance"])
+    app.include_router(
+        compliance_router, prefix="/api/v1/compliance", tags=["compliance"]
+    )
     app.include_router(consent_router, prefix="/api/v1/consent", tags=["consent"])
     app.include_router(gdpr_router, prefix="/api/v1/gdpr", tags=["gdpr"])
-    # app.include_router(hipaa_router, prefix="/api/v1/hipaa", tags=["hipaa"])
-    
-    logger.info("Consent, GDPR, Audit, and Compliance routers included successfully")
+    app.include_router(hipaa_router, prefix="/api/v1/hipaa", tags=["hipaa"])
+
+    logger.info(
+        "Consent, GDPR, HIPAA, Audit, and Compliance routers included successfully"
+    )
 except Exception as e:
     logger.error(f"Failed to include routers: {e}")
 
 
 if __name__ == "__main__":
     import uvicorn
-    
+
     uvicorn.run(
         "main:app",
         host="0.0.0.0",
         port=8009,
         reload=settings.ENVIRONMENT == "development",
-        log_level="info"
-    ) 
+        log_level="info",
+    )

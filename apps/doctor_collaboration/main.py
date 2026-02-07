@@ -9,7 +9,9 @@ from contextlib import asynccontextmanager
 from typing import Dict, Any
 
 # Add project root to path for imports
-project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+project_root = os.path.dirname(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+)
 sys.path.insert(0, project_root)
 
 from fastapi import FastAPI, Request, HTTPException, Depends, APIRouter
@@ -17,20 +19,23 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPBearer
-from sqlalchemy.orm import Session
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-
 from common.config.settings import get_settings
 from common.utils.logging import get_logger, setup_logging
 from common.middleware.auth import AuthMiddleware
 from common.middleware.error_handling import ErrorHandlingMiddleware
 from common.middleware.rate_limiter import RateLimitingMiddleware
 from common.middleware.security import SecurityMiddleware
-from common.database.connection import get_db
-from apps.doctor_collaboration.api import appointments, messaging, consultations, notifications
+from common.database.connection import get_async_db, get_db_manager
+from apps.doctor_collaboration.api import (
+    appointments,
+    messaging,
+    consultations,
+    notifications,
+)
 from apps.doctor_collaboration.services import collaboration_service
 from apps.doctor_collaboration.models import *
+from common.middleware.prometheus_metrics import setup_prometheus_metrics
+
 # from apps.doctor_collaboration.agents import collaboration_agents
 
 # Get settings and logger
@@ -40,36 +45,27 @@ logger = get_logger(__name__)
 # Security scheme
 security = HTTPBearer()
 
-# Database setup
-engine = create_engine(
-    settings.DATABASE_URL,
-    echo=settings.DEBUG,
-    pool_pre_ping=True,
-    pool_recycle=300
-)
-
-SessionLocal = sessionmaker(
-    engine, class_=Session, expire_on_commit=False
-)
+# Database setup - use shared async database manager
+db_manager = get_db_manager()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan manager."""
     logger.info("🚀 Starting Doctor Collaboration Service...")
-    
+
     # Initialize services that don't require database sessions
     # Note: CollaborationService requires database session, so it will be created per-request
-    
+
     logger.info("✅ Doctor Collaboration Service started successfully")
-    
+
     yield
-    
+
     # Shutdown
     logger.info("🛑 Shutting down Doctor Collaboration Service...")
-    
+
     # Close database connections
-    engine.dispose()
+    await db_manager.close()
     logger.info("✅ Doctor Collaboration Service shutdown complete")
 
 
@@ -80,62 +76,74 @@ app = FastAPI(
     version="1.0.0",
     docs_url="/docs" if settings.DEBUG else None,
     redoc_url="/redoc" if settings.DEBUG else None,
-    lifespan=lifespan
+    lifespan=lifespan,
 )
 
 # Add middleware in order (last added = first executed)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:8080", "http://localhost:5173", "http://127.0.0.1:5173", "*"],
+    allow_origins=[
+        "http://localhost:3000",
+        "http://localhost:8080",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "*",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-app.add_middleware(
-    TrustedHostMiddleware,
-    allowed_hosts=settings.ALLOWED_HOSTS
-)
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.ALLOWED_HOSTS)
 
-app.add_middleware(
-    ErrorHandlingMiddleware
-)
+app.add_middleware(ErrorHandlingMiddleware)
 
-# app.add_middleware(
-#     RateLimitingMiddleware
-# )
+app.add_middleware(RateLimitingMiddleware)
 
-app.add_middleware(
-    SecurityMiddleware
-)
+app.add_middleware(SecurityMiddleware)
 
-app.add_middleware(
-    AuthMiddleware
-)
+app.add_middleware(AuthMiddleware)
+
+# Setup Prometheus metrics
+setup_prometheus_metrics(app, service_name="doctor-collaboration-service")
+
+# Configure OpenTelemetry tracing
+try:
+    from common.utils.opentelemetry_config import configure_opentelemetry
+
+    configure_opentelemetry(app, "doctor-collaboration-service")
+except ImportError:
+    pass
 
 # Include API routers
-app.include_router(appointments.router, prefix="/api/v1/appointments", tags=["Appointments"])
+app.include_router(
+    appointments.router, prefix="/api/v1/appointments", tags=["Appointments"]
+)
 app.include_router(messaging.router, prefix="/api/v1/messaging", tags=["Messaging"])
-app.include_router(consultations.router, prefix="/api/v1/consultations", tags=["Consultations"])
-app.include_router(notifications.router, prefix="/api/v1/notifications", tags=["Notifications"])
+app.include_router(
+    consultations.router, prefix="/api/v1/consultations", tags=["Consultations"]
+)
+app.include_router(
+    notifications.router, prefix="/api/v1/notifications", tags=["Notifications"]
+)
 
 # Health check endpoints
 @app.get("/health", tags=["Health"])
 async def health_check():
     """Health check endpoint."""
     try:
-        # Check database connectivity
+        # Check database connectivity using async session
         from sqlalchemy import text
-        db = SessionLocal()
-        db.execute(text("SELECT 1"))
-        db.close()
-        
+
+        async with db_manager.get_async_session() as session:
+            await session.execute(text("SELECT 1"))
+
         return {
             "status": "healthy",
             "service": "doctor-collaboration",
             "version": "1.0.0",
             "database": "connected",
-            "timestamp": "2025-08-04T19:30:00Z"
+            "timestamp": "2025-08-04T19:30:00Z",
         }
     except Exception as e:
         logger.error(f"Health check failed: {e}")
@@ -146,21 +154,21 @@ async def health_check():
 async def readiness_check():
     """Readiness check endpoint."""
     try:
-        # Check all dependencies
+        # Check all dependencies using async session
         from sqlalchemy import text
-        db = SessionLocal()
-        db.execute(text("SELECT 1"))
-        db.close()
-        
+
+        async with db_manager.get_async_session() as session:
+            await session.execute(text("SELECT 1"))
+
         return {
             "status": "ready",
             "service": "doctor-collaboration",
             "dependencies": {
                 "database": "ready",
                 "collaboration_service": "ready",
-                "ai_agents": "ready"
+                "ai_agents": "ready",
             },
-            "timestamp": "2025-08-04T19:30:00Z"
+            "timestamp": "2025-08-04T19:30:00Z",
         }
     except Exception as e:
         logger.error(f"Readiness check failed: {e}")
@@ -181,8 +189,8 @@ async def root():
             "appointments": "/api/v1/appointments",
             "messaging": "/api/v1/messaging",
             "consultations": "/api/v1/consultations",
-            "notifications": "/api/v1/notifications"
-        }
+            "notifications": "/api/v1/notifications",
+        },
     }
 
 
@@ -192,7 +200,7 @@ async def test():
     return {
         "message": "Doctor Collaboration Service is running",
         "status": "success",
-        "timestamp": "2025-08-04T19:30:00Z"
+        "timestamp": "2025-08-04T19:30:00Z",
     }
 
 
@@ -207,13 +215,13 @@ async def test_appointments():
             "appointment_type": "consultation",
             "scheduled_date": "2025-08-05T10:00:00Z",
             "duration_minutes": 30,
-            "notes": "Test appointment"
+            "notes": "Test appointment",
         }
-        
+
         return {
             "message": "Appointments endpoint test successful",
             "test_data": test_appointment,
-            "status": "success"
+            "status": "success",
         }
     except Exception as e:
         logger.error(f"Appointments test failed: {e}")
@@ -230,13 +238,13 @@ async def test_messaging():
             "recipient_id": "test-recipient-id",
             "message_type": "text",
             "content": "Test message content",
-            "priority": "normal"
+            "priority": "normal",
         }
-        
+
         return {
             "message": "Messaging endpoint test successful",
             "test_data": test_message,
-            "status": "success"
+            "status": "success",
         }
     except Exception as e:
         logger.error(f"Messaging test failed: {e}")
@@ -254,13 +262,13 @@ async def test_consultations():
             "consultation_type": "follow_up",
             "scheduled_date": "2025-08-05T14:00:00Z",
             "duration_minutes": 45,
-            "notes": "Test consultation"
+            "notes": "Test consultation",
         }
-        
+
         return {
             "message": "Consultations endpoint test successful",
             "test_data": test_consultation,
-            "status": "success"
+            "status": "success",
         }
     except Exception as e:
         logger.error(f"Consultations test failed: {e}")
@@ -272,35 +280,34 @@ async def test_integration(credentials: HTTPBearer = Depends(security)):
     """Test integration with other services."""
     try:
         # Test integration with auth service
-        auth_response = {
-            "auth_service": "connected",
-            "user_authentication": "working"
-        }
-        
+        auth_response = {"auth_service": "connected", "user_authentication": "working"}
+
         # Test integration with medical records
         medical_records_response = {
             "medical_records_service": "connected",
-            "patient_data_access": "working"
+            "patient_data_access": "working",
         }
-        
+
         # Test integration with user profile
         user_profile_response = {
             "user_profile_service": "connected",
-            "profile_data_access": "working"
+            "profile_data_access": "working",
         }
-        
+
         return {
             "message": "Integration tests successful",
             "integrations": {
                 "auth_service": auth_response,
                 "medical_records": medical_records_response,
-                "user_profile": user_profile_response
+                "user_profile": user_profile_response,
             },
-            "status": "success"
+            "status": "success",
         }
     except Exception as e:
         logger.error(f"Integration test failed: {e}")
-        raise HTTPException(status_code=500, detail=f"Integration test failed: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Integration test failed: {str(e)}"
+        )
 
 
 @app.exception_handler(Exception)
@@ -312,26 +319,24 @@ async def global_exception_handler(request: Request, exc: Exception):
         content={
             "error": "Internal server error",
             "message": str(exc),
-            "service": "doctor-collaboration"
-        }
+            "service": "doctor-collaboration",
+        },
     )
 
 
-def override_get_db():
+async def override_get_db():
     """Override database dependency for testing."""
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+    async with db_manager.get_async_session() as session:
+        yield session
 
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(
         "main:app",
         host=settings.HOST,
         port=settings.PORT,
         reload=settings.DEBUG,
-        log_level=settings.LOG_LEVEL.lower()
-    ) 
+        log_level=settings.LOG_LEVEL.lower(),
+    )

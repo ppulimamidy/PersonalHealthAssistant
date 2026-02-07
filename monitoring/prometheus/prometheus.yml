@@ -3,8 +3,6 @@ global:
   evaluation_interval: 15s
 
 rule_files:
-  # - "first_rules.yml"
-  # - "second_rules.yml"
   - "health_assistant_rules.yml"
 
 scrape_configs:
@@ -20,7 +18,19 @@ scrape_configs:
     metrics_path: /metrics
     scrape_interval: 10s
 
-  # Auth Service
+  # ============================================================
+  # Application Services
+  # ============================================================
+
+  # API Gateway (port 8080)
+  - job_name: 'api-gateway'
+    static_configs:
+      - targets: ['api-gateway:8080']
+    metrics_path: /metrics
+    scrape_interval: 15s
+    scrape_timeout: 10s
+
+  # Auth Service (port 8000)
   - job_name: 'auth-service'
     static_configs:
       - targets: ['auth-service:8000']
@@ -28,44 +38,176 @@ scrape_configs:
     scrape_interval: 15s
     scrape_timeout: 10s
 
-  # User Profile Service
+  # User Profile Service (port 8001)
   - job_name: 'user-profile-service'
     static_configs:
-      - targets: ['user-profile-service:8000']
+      - targets: ['user-profile-service:8001']
     metrics_path: /metrics
     scrape_interval: 15s
     scrape_timeout: 10s
 
-  # Health Tracking Service
+  # Health Tracking Service (port 8002)
   - job_name: 'health-tracking-service'
     static_configs:
-      - targets: ['health-tracking-service:8000']
+      - targets: ['health-tracking-service:8002']
     metrics_path: /metrics
     scrape_interval: 15s
     scrape_timeout: 10s
 
-  # PostgreSQL metrics (if using postgres_exporter)
+  # Voice Input Service (port 8003)
+  - job_name: 'voice-input-service'
+    static_configs:
+      - targets: ['voice-input-service:8003']
+    metrics_path: /metrics
+    scrape_interval: 15s
+    scrape_timeout: 10s
+
+  # Device Data Service (port 8004)
+  - job_name: 'device-data-service'
+    static_configs:
+      - targets: ['device-data-service:8004']
+    metrics_path: /metrics
+    scrape_interval: 15s
+    scrape_timeout: 10s
+
+  # Medical Records Service (port 8005)
+  - job_name: 'medical-records-service'
+    static_configs:
+      - targets: ['medical-records-service:8005']
+    metrics_path: /metrics
+    scrape_interval: 15s
+    scrape_timeout: 10s
+
+  # Medical Analysis Service (port 8006)
+  - job_name: 'medical-analysis-service'
+    static_configs:
+      - targets: ['medical-analysis-service:8006']
+    metrics_path: /metrics
+    scrape_interval: 15s
+    scrape_timeout: 10s
+
+  # Nutrition Service (port 8007)
+  - job_name: 'nutrition-service'
+    static_configs:
+      - targets: ['nutrition-service:8007']
+    metrics_path: /metrics
+    scrape_interval: 15s
+    scrape_timeout: 10s
+
+  # Health Analysis Service (port 8008)
+  - job_name: 'health-analysis-service'
+    static_configs:
+      - targets: ['health-analysis-service:8008']
+    metrics_path: /metrics
+    scrape_interval: 15s
+    scrape_timeout: 10s
+
+  # Consent Audit Service (port 8009)
+  - job_name: 'consent-audit-service'
+    static_configs:
+      - targets: ['consent-audit-service:8009']
+    metrics_path: /metrics
+    scrape_interval: 15s
+    scrape_timeout: 10s
+
+  # Knowledge Graph Service (port 8010)
+  - job_name: 'knowledge-graph-service'
+    static_configs:
+      - targets: ['knowledge-graph-service:8010']
+    metrics_path: /metrics
+    scrape_interval: 15s
+    scrape_timeout: 10s
+
+  # Doctor Collaboration Service (port 8011)
+  - job_name: 'doctor-collaboration-service'
+    static_configs:
+      - targets: ['doctor-collaboration-service:8011']
+    metrics_path: /metrics
+    scrape_interval: 15s
+    scrape_timeout: 10s
+
+  # Genomics Service (port 8012)
+  - job_name: 'genomics-service'
+    static_configs:
+      - targets: ['genomics-service:8012']
+    metrics_path: /metrics
+    scrape_interval: 15s
+    scrape_timeout: 10s
+
+  # AI Insights Service (port 8200)
+  - job_name: 'ai-insights-service'
+    static_configs:
+      - targets: ['ai-insights-service:8200']
+    metrics_path: /metrics
+    scrape_interval: 15s
+    scrape_timeout: 10s
+
+  # Analytics Service (port 8210)
+  - job_name: 'analytics-service'
+    static_configs:
+      - targets: ['analytics-service:8210']
+    metrics_path: /metrics
+    scrape_interval: 15s
+    scrape_timeout: 10s
+
+  # AI Reasoning Orchestrator (port 8300)
+  - job_name: 'ai-reasoning-orchestrator'
+    static_configs:
+      - targets: ['ai-reasoning-orchestrator:8300']
+    metrics_path: /metrics
+    scrape_interval: 15s
+    scrape_timeout: 10s
+
+  # GraphQL BFF (port 8400)
+  - job_name: 'graphql-bff'
+    static_configs:
+      - targets: ['graphql-bff:8400']
+    metrics_path: /metrics
+    scrape_interval: 15s
+    scrape_timeout: 10s
+
+  # Ecommerce Service (port 8013)
+  - job_name: 'ecommerce-service'
+    static_configs:
+      - targets: ['ecommerce-service:8013']
+    metrics_path: /metrics
+    scrape_interval: 15s
+    scrape_timeout: 10s
+
+  # Explainability Service (port 8014)
+  - job_name: 'explainability-service'
+    static_configs:
+      - targets: ['explainability-service:8014']
+    metrics_path: /metrics
+    scrape_interval: 15s
+    scrape_timeout: 10s
+
+  # ============================================================
+  # Infrastructure Services
+  # ============================================================
+
+  # PostgreSQL metrics (via postgres_exporter)
   - job_name: 'postgres'
     static_configs:
-      - targets: ['postgres-db:5432']
+      - targets: ['postgres-exporter:9187']
     scrape_interval: 30s
 
-  # Redis metrics (if using redis_exporter)
+  # Redis metrics (via redis_exporter)
   - job_name: 'redis'
     static_configs:
-      - targets: ['redis:6379']
+      - targets: ['redis-exporter:9121']
     scrape_interval: 30s
 
-  # Node Exporter (for host metrics)
+  # Node Exporter (host metrics)
   - job_name: 'node-exporter'
     static_configs:
       - targets: ['node-exporter:9100']
     scrape_interval: 30s
 
-  # Docker metrics
+  # Docker metrics (cAdvisor)
   - job_name: 'docker'
     static_configs:
-      - targets: ['docker:9323']
+      - targets: ['cadvisor:8080']
     scrape_interval: 30s
 
   # Jaeger metrics
@@ -87,6 +229,4 @@ alerting:
   alertmanagers:
     - static_configs:
         - targets:
-          # - alertmanager:9093
-
-# Recording rules for common queries 
+          - alertmanager:9093
