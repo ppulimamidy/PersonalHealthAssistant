@@ -1,457 +1,180 @@
-# Personal Physician Assistant (PPA) - Data Model
+# Personal Health Assistant
 
-## Overview
-This repository contains the comprehensive data model for the Personal Physician Assistant (PPA) application, built on Supabase. The schema is designed to support a wide range of healthcare and wellness features while maintaining strict data privacy and security standards.
+A comprehensive health management platform with AI-powered insights, real-time monitoring, and personalized recommendations.
 
-## Key Features
+**How to use:**
+1. Run `./setup.sh` from the project root.  
+   - This will check prerequisites, set up the Python environment, install all missing dependencies, start Docker services, set up the database, run tests, and validate everything.
+2. If you want to install only missing dependencies, run:  
+   `python scripts/install_missing_dependencies.py`
+3. To check your environment at any time, run:  
+   `python scripts/validate_requirements.py`
 
-### 1. Authentication & User Management
-- Secure user authentication via Supabase Auth
-- Role-based access control (Patient, Doctor, Admin)
-- User profile management with health-specific attributes
+**You are now ready for development!**  
+All tools, frameworks, and software are in place and validated.  
+If you add new dependencies in the future, just update `requirements.txt` and rerun the setup or installer script.
 
-### 2. Medical Records & Health Data
-- Comprehensive medical history tracking
-- Medication and supplement management
-- Lab results and biomarker tracking
-- Genomic data integration
-- Voice and multimodal input support
-- Real-time health data streaming
-- Hybrid event processing
-- Detailed food tracking and nutrition analysis
-- Enhanced exercise and activity monitoring
-- Comprehensive prescription management
-- Detailed lab test definitions and panels
+Let me know if you want to further customize the setup or need onboarding instructions for new developers!
 
-### 3. Healthcare Provider Integration
-- Provider profiles and credentials
-- Appointment scheduling
-- Secure messaging system
-- Document sharing capabilities
 
-### 4. E-commerce & Supplement Management
-- Product catalog with health-specific attributes
-- Order management
-- Subscription handling
-- Photo-based supplement verification
+## 🚀 Quick Start for New Developers
 
-### 5. AI & Analytics
-- Medical literature integration
-- Knowledge graph for medical terms and interactions
-- Causal inference tracking
-- Anomaly detection
-- Analytics snapshots
-- Model training and versioning
-- Semantic search capabilities
-- Hybrid vector search with pgvector and Qdrant
-
-### 6. Privacy & Compliance
-- Audit logging
-- Consent management
-- Data access tracking
-- HIPAA compliance features
-- Version control for critical documents
-
-## Schema Components
-
-### Core Tables
-- `users`: Extended user profiles with health-specific attributes
-- `medical_records`: Comprehensive medical history
-- `medications`: Medication tracking with interactions
-- `supplements`: Supplement management with verification
-- `healthcare_providers`: Provider profiles and credentials
-- `appointments`: Appointment scheduling and management
-- `food_items`: Detailed food database with nutritional information
-- `nutrition_log_items`: Granular food tracking and logging
-- `activity_types`: Exercise and activity definitions
-- `activity_routes`: GPS and route tracking for activities
-- `activity_metrics`: Detailed exercise metrics
-- `prescriptions`: Comprehensive prescription management
-- `lab_tests`: Standardized lab test definitions
-- `lab_test_panels`: Common test panel configurations
-
-### Medical Knowledge & AI
-- `medical_literature`: Medical research and clinical data
-- `medical_terms`: Standardized medical terminology
-- `interaction_graph`: Drug, supplement, and condition interactions
-- `causal_inferences`: AI-driven cause-effect relationships
-- `event_logs`: System event tracking for AI analysis
-- `training_datasets`: AI model training data
-- `model_versions`: AI model versioning
-- `model_predictions`: Model inference results
-
-### Lab & Biomarker Data
-- `lab_results`: Laboratory test results
-- `biomarkers`: Individual biomarker measurements
-- `genomic_markers`: Genetic marker definitions
-- `user_genomics`: User-specific genomic data
-
-### Multimodal Input
-- `voice_logs`: Voice input processing
-- `raw_input_data`: Various input type handling
-- `supplement_photos`: Image-based supplement verification
-
-### Analytics & Monitoring
-- `analytics_snapshots`: User health metrics
-- `anomaly_alerts`: Health anomaly detection
-- `event_timelines`: Chronological health events
-- `report_templates`: Standardized reporting
-
-### Privacy & Compliance
-- `audit_logs`: System access and changes
-- `consent_records`: User consent management
-- `clinician_annotations`: Provider notes and observations
-
-### Enhanced Reporting
-- `daily_health_summaries`: Daily health metrics and insights
-- `monthly_wellness_reports`: Monthly health trends and recommendations
-- `report_templates`: Customizable report templates
-- `user_feedback`: User feedback on recommendations and insights
-
-### Consent & Privacy
-- `consent_types`: Granular consent categories
-- `consent_records`: User consent tracking
-- `audit_logs`: Comprehensive audit trail
-- `clinician_annotations`: Provider notes and observations
-
-## Performance Optimizations
-
-### OLAP Analytics & Dashboarding
-- DuckDB integration for high-performance analytics:
-  - Daily health metrics aggregation
-  - Weekly health trends analysis
-  - Monthly health insights generation
-  - Efficient querying of large datasets
-- Analytics schema with optimized views:
-  - Materialized views for common queries
-  - Foreign tables for DuckDB integration
-  - Dashboard-ready metrics
-  - Automated data refresh
-
-### Analytics Features
-- Comprehensive health metrics:
-  - Vital signs trends
-  - Activity and sleep patterns
-  - Nutrition analysis
-  - Supplement and medication tracking
-  - Anomaly detection
-- Advanced analytics:
-  - Health scoring system
-  - Risk factor analysis
-  - Improvement tracking
-  - Compliance monitoring
-  - Wellness metrics
-
-### Data Warehouse Integration
-- DuckDB for BI queries:
-  - Columnar storage for analytics
-  - Efficient aggregation
-  - Fast query performance
-  - Parquet format support
-- ETL Process:
-  - Daily data refresh
-  - Automated aggregation
-  - Incremental updates
-  - Data validation
-
-### Time-Series Data Management
-- TimescaleDB integration for efficient time-series data handling
-- Hybrid streaming architecture:
-  - Kafka for high-frequency data ingestion
-  - Stream buffer for data queuing
-  - Batch processing for efficiency
-  - Error handling and retry logic
-- Data retention policies with tiered storage:
-  - Recent data (detailed):
-    - Device data: 1 year
-    - Event logs: 6 months
-    - Voice logs: 3 months
-    - Vital signs: 1 year
-  - Historical data (aggregated):
-    - Device data: 5 years
-    - Event logs: 2 years
-    - Voice logs: 1 year
-    - Vital signs: 5 years
-
-### Time-Series Optimizations
-- Hypertables for efficient partitioning:
-  - Daily chunks for high-resolution data
-  - Automatic chunk management
-  - Efficient query performance
-- Continuous aggregates:
-  - Hourly aggregations for device data
-  - Hourly aggregations for vital signs
-  - Automatic refresh policies
-- Automated data management:
-  - Daily cleanup of old data
-  - Automatic migration to aggregated tables
-  - Retention policy enforcement
-
-### AI & Search Optimizations
-- Vector indexes for semantic search:
-  - IVFFlat indexes on embedding columns
-  - Optimized for cosine similarity search
-  - Hybrid search architecture:
-    - pgvector for small collections (<10M vectors)
-    - Qdrant for large-scale collections (100M+ vectors)
-    - Automatic collection size detection
-    - Seamless query routing
-- Efficient model prediction tracking
-- Version control for AI models and datasets
-
-### Version Control
-- Support for document versioning:
-  - `report_templates`
-  - `consent_records`
-  - `medical_literature`
-- Tracks changes and maintains history
-
-## Security Features
-- Row Level Security (RLS) policies
-- Encrypted sensitive data
-- Audit logging
-- Consent management
-- Role-based access control
-
-## Data Privacy
-- HIPAA compliance measures
-- Data encryption
-- Access control
-- Audit trails
-- Consent management
-
-## Getting Started
-
-### Prerequisites
-- Supabase account
-- PostgreSQL 12+
-- Node.js 14+
-- pgvector extension
-- TimescaleDB extension
-- pg_cron extension
-- DuckDB extension
-- DuckDB Foreign Data Wrapper
-- Qdrant vector database
-- http extension for Qdrant API calls
-- Kafka cluster
-- pg_kafka extension
-
-### Installation
-1. Clone the repository
-2. Set up Supabase project
-3. Enable required extensions:
-   ```sql
-   CREATE EXTENSION IF NOT EXISTS "timescaledb";
-   CREATE EXTENSION IF NOT EXISTS "pgvector";
-   CREATE EXTENSION IF NOT EXISTS "pg_cron";
-   CREATE EXTENSION IF NOT EXISTS "duckdb_fdw";
-   CREATE EXTENSION IF NOT EXISTS "pg_kafka";
-   ```
-4. Configure DuckDB:
-   ```sql
-   CREATE SERVER duckdb_server
-   FOREIGN DATA WRAPPER duckdb_fdw
-   OPTIONS (database '/path/to/analytics.duckdb');
-   ```
-5. Run the schema.sql file
-6. Configure environment variables
-7. Initialize the application
-
-### Environment Variables
-```env
-SUPABASE_URL=your_supabase_url
-SUPABASE_ANON_KEY=your_anon_key
-SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
-QDRANT_URL=your_qdrant_url
-QDRANT_API_KEY=your_qdrant_api_key
-KAFKA_BROKERS=your_kafka_brokers
-KAFKA_TOPIC=your_kafka_topic
+### One-Command Setup (Recommended)
+```bash
+git clone <repository-url>
+cd PersonalHealthAssistant
+./setup.sh
 ```
 
-### Analytics Configuration
-The system implements a comprehensive analytics solution:
+### Alternative Setup Options
+- **Python Script**: `python scripts/setup_master.py`
+- **Manual Setup**: See [JUNIOR_DEV_SETUP.md](JUNIOR_DEV_SETUP.md)
+- **Detailed Guide**: See [scripts/README.md](scripts/README.md)
 
-1. **Data Aggregation**
-   - Daily metrics calculation
-   - Weekly trend analysis
-   - Monthly insight generation
-   - Automated data refresh
+## 📋 Prerequisites
 
-2. **Performance Optimization**
-   - Materialized views for common queries
-   - Efficient indexing strategy
-   - Partitioned data storage
-   - Optimized query patterns
+- Docker & Docker Compose
+- Python 3.9+
+- Git
 
-3. **Dashboard Integration**
-   - Pre-calculated metrics
-   - Real-time data updates
-   - Historical trend analysis
-   - Customizable views
+## 🏗️ Architecture
 
-4. **Data Refresh**
-   - Daily automated updates
-   - Incremental processing
-   - Data validation
-   - Error handling
+### Core Infrastructure
+- **Database Connection Management** - Connection pooling, health monitoring, async support
+- **Logging Infrastructure** - Structured logging with multiple handlers and request tracking
+- **Base Service Classes** - Generic CRUD operations with error handling and pagination
+- **Authentication Middleware** - JWT-based auth with role-based access control
+- **Error Handling Middleware** - Centralized error handling and consistent responses
 
-### Data Retention Configuration
-The system implements a tiered data retention strategy:
+### Core Services
+- **Database**: PostgreSQL with TimescaleDB for time-series data
+- **API**: PostgREST for RESTful database access
+- **Vector DB**: Qdrant for AI/ML features
+- **Message Queue**: Kafka for real-time processing
+- **Studio**: Supabase Studio for database management
 
-1. **Recent Data (Detailed)**
-   - Full resolution data for recent time periods
-   - Optimized for real-time queries and analysis
-   - Automatically partitioned by day
+### Application Modules
+- **AI Insights**: Machine learning and analytics
+- **Health Tracking**: Vital signs, activity, sleep monitoring
+- **Medical Records**: Image processing, lab results, reports
+- **Authentication**: User management and security
+- **E-commerce**: Product catalog and ordering
+- **Genomics**: Genetic data analysis
+- **Voice Input**: Speech-to-text processing
 
-2. **Historical Data (Aggregated)**
-   - Daily aggregations for older data
-   - Maintains statistical summaries
-   - Optimized for long-term trend analysis
+## 🔧 Development
 
-3. **Data Migration**
-   - Automatic daily migration of old data to aggregated tables
-   - Preserves important statistics while reducing storage
-   - Maintains data accessibility for historical analysis
+### Services Overview
+- **Database**: `localhost:54323`
+- **REST API**: `localhost:3000`
+- **Studio**: `localhost:3001`
+- **Vector DB**: `localhost:6333`
+- **Message Queue**: `localhost:9092`
 
-### Maintenance
-- Daily automated cleanup of old data
-- Automatic aggregation of historical data
-- Continuous aggregate refresh
-- Index maintenance
-- Storage optimization
+### Quick Commands
+```bash
+# Start all services
+docker-compose up -d
 
-### Vector Search Configuration
-The system implements a hybrid vector search architecture:
+# Check service status
+docker-compose ps
 
-1. **Collection Management**
-   - Automatic collection size detection
-   - Dynamic routing between pgvector and Qdrant
-   - Collection-specific configuration
-   - Metadata and payload support
+# View logs
+docker-compose logs [service-name]
 
-2. **Search Capabilities**
-   - Cosine similarity search
-   - Configurable distance metrics
-   - Threshold-based filtering
-   - Payload-based filtering
-   - Batch search support
+# Run tests
+python scripts/test_setup.py
 
-3. **Performance Optimization**
-   - Local caching for small collections
-   - Distributed search for large collections
-   - Automatic vector synchronization
-   - Efficient index management
+# Stop all services
+docker-compose down
+```
 
-4. **Data Synchronization**
-   - Automatic vector sync to Qdrant
-   - Incremental updates
-   - Error handling and retry logic
-   - Consistency checks
+## 📚 Documentation
 
-### Stream Processing Configuration
-The system implements a hybrid streaming architecture:
+- **[Junior Developer Setup](JUNIOR_DEV_SETUP.md)** - Complete setup guide for new developers
+- **[Core Infrastructure](docs/CORE_INFRASTRUCTURE.md)** - Detailed documentation of core components
+- **[Core Infrastructure Quick Reference](docs/CORE_INFRASTRUCTURE_QUICK_REFERENCE.md)** - Quick reference guide
+- **[Scripts Documentation](scripts/README.md)** - Detailed guide for all setup and maintenance scripts
+- **[API Documentation](http://localhost:3000)** - Interactive API docs (when running)
+- **[Database Studio](http://localhost:3001)** - Database management interface (when running)
 
-1. **Data Ingestion**
-   - Kafka for high-frequency data
-   - Stream buffer for data queuing
-   - Batch processing for efficiency
-   - Error handling and retry logic
+## 🛠️ Setup Scripts
 
-2. **Processing Pipeline**
-   - Configurable batch sizes
-   - Stream type-specific processing
-   - Error tracking and monitoring
-   - Automatic cleanup
+### Automated Setup
+- `setup.sh` - One-command complete setup
+- `scripts/setup_master.py` - Python-based setup with detailed logging
 
-3. **Performance Optimization**
-   - Partitioned buffer tables
-   - Efficient indexing
-   - Batch processing
-   - Automatic cleanup
+### Manual Setup
+- `scripts/setup_prerequisites.sh` - Install system dependencies
+- `scripts/setup/db_setup.py` - Database initialization
+- `scripts/test_setup.py` - Comprehensive testing
 
-4. **Monitoring & Maintenance**
-   - Processing status tracking
-   - Error logging and analysis
-   - Performance monitoring
-   - Automatic cleanup
+### Troubleshooting
+- `scripts/fix_supabase_connection.py` - Fix connection issues
+- `scripts/wake_up_supabase.py` - Service recovery
+- `scripts/maintenance/` - Backup and monitoring tools
 
-## API Endpoints
+## 🧪 Testing
 
-### Analytics Endpoints
-- GET /analytics/daily-metrics
-- GET /analytics/weekly-trends
-- GET /analytics/monthly-insights
-- GET /analytics/health-summary
-- GET /analytics/dashboard-metrics
+```bash
+# Run comprehensive tests
+python scripts/test_setup.py
 
-## Contributing
-Please read CONTRIBUTING.md for details on our code of conduct and the process for submitting pull requests.
+# Test specific components
+python scripts/setup/check_extensions.py
+```
 
-## License
-This project is licensed under the MIT License - see the LICENSE.md file for details.
+## 🚨 Troubleshooting
 
-## Support
-For support, please open an issue in the GitHub repository or contact the development team.
+### Common Issues
+1. **Port Conflicts**: Check `lsof -i :[port]` and kill conflicting processes
+2. **Docker Issues**: Restart Docker and run `docker system prune -a`
+3. **Database Issues**: Check logs with `docker-compose logs supabase-db`
+4. **Permission Issues**: Run `chmod +x setup.sh` and fix Docker permissions
 
-## Acknowledgments
-- Supabase team for the excellent platform
-- Healthcare professionals who provided domain expertise
-- Open source community for various tools and libraries
+### Reset Everything
+```bash
+docker-compose down -v
+docker-compose up -d --build
+```
 
-### Data Management
-- Tiered storage strategy
-- Automated cleanup
-- Data aggregation
-- Backup and recovery
-- Status tracking for all entities
-- Comprehensive error handling
+## 📊 Database Schema
 
-### Enhanced Features
-1. **Food Tracking**
-   - Detailed nutritional information
-   - Barcode scanning support
-   - Serving size management
-   - Allergen tracking
-   - Ingredient lists
+The database includes 45+ tables covering:
+- User management and authentication
+- Health metrics and vital signs
+- Medical records and imaging
+- Device integration and activity tracking
+- AI/ML features and analytics
+- E-commerce and inventory
+- Genomics and personalized medicine
 
-2. **Exercise Monitoring**
-   - GPS route tracking
-   - Elevation data
-   - Sport-specific metrics
-   - Intensity tracking
-   - Custom metrics support
+## 🔐 Security
 
-3. **Prescription Management**
-   - Refill tracking
-   - Pharmacy integration
-   - Provider linking
-   - Status monitoring
-   - Prescription history
+- Row Level Security (RLS) policies protect user data
+- All services run locally for development
+- Strong passwords and encryption
+- Audit logging for compliance
 
-4. **Lab Test Management**
-   - Standardized test definitions
-   - LOINC code integration
-   - Test panel support
-   - Reference ranges
-   - Preparation instructions
+## 🤝 Contributing
 
-5. **Health Reporting**
-   - Daily summaries
-   - Monthly wellness reports
-   - Customizable templates
-   - Trend analysis
-   - Achievement tracking
+1. Follow the setup guide in `JUNIOR_DEV_SETUP.md`
+2. Make changes in the `apps/` directory
+3. Test with `python scripts/test_setup.py`
+4. Follow the project's coding standards
+5. Submit pull requests with clear descriptions
 
-6. **User Feedback**
-   - Recommendation feedback
-   - Insight ratings
-   - Report feedback
-   - Improvement tracking
-   - User satisfaction metrics
+## 📞 Support
 
-7. **Consent Management**
-   - Granular consent types
-   - Data category tracking
-   - Retention periods
-   - Required consents
-   - Consent history 
+- **Setup Issues**: Check `JUNIOR_DEV_SETUP.md` and `scripts/README.md`
+- **Service Logs**: `docker-compose logs [service-name]`
+- **API Issues**: Check `http://localhost:3000` for documentation
+- **Database Issues**: Use `http://localhost:3001` for management
+
+## 📄 License
+
+[Add your license information here]
+
+---
+
+**Ready to start?** Run `./setup.sh` and begin developing!
