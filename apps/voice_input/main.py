@@ -12,23 +12,24 @@ import sys
 import os
 
 # Add the project root to the path
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
+sys.path.append(os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from common.config.settings import get_settings
-from common.middleware.auth import auth_middleware, get_current_user
+from common.middleware.auth import auth_middleware, get_current_user, AuthMiddleware
 from common.middleware.error_handling import setup_error_handlers
 from common.utils.logging import get_logger, setup_logging
 from common.database.connection import get_async_db
+from common.middleware.prometheus_metrics import setup_prometheus_metrics
 
 from apps.voice_input.api import (
-    voice_input_router, 
-    transcription_router, 
-    intent_recognition_router, 
-    multi_modal_router, 
+    voice_input_router,
+    transcription_router,
+    intent_recognition_router,
+    multi_modal_router,
     audio_enhancement_router,
     text_to_speech_router,
     vision_analysis_router,
-    medical_analysis_router
+    medical_analysis_router,
 )
 
 # Ensure logging is set up to write to file
@@ -40,8 +41,8 @@ logger = get_logger("voice_input.main")
 # Get settings
 settings = get_settings()
 
-# Debug: Print ALLOWED_HOSTS at startup
-print(f"[DEBUG] ALLOWED_HOSTS: {settings.ALLOWED_HOSTS}")
+# Log ALLOWED_HOSTS at startup
+logger.debug(f"ALLOWED_HOSTS: {settings.ALLOWED_HOSTS}")
 
 
 @asynccontextmanager
@@ -49,24 +50,26 @@ async def lifespan(app: FastAPI):
     """Application lifespan manager."""
     # Startup
     logger.info("🎤 Starting Voice Input Service...")
-    
+
     # Initialize services
     try:
         from apps.voice_input.services.service_manager import initialize_services
+
         await initialize_services()
     except Exception as e:
         logger.error(f"❌ Failed to initialize services: {e}")
-    
+
     logger.info("✅ Voice Input Service started successfully")
-    
+
     yield
-    
+
     # Shutdown
     logger.info("🛑 Shutting down Voice Input Service...")
-    
+
     # Cleanup services
     try:
         from apps.voice_input.services.service_manager import cleanup_services
+
         await cleanup_services()
     except Exception as e:
         logger.error(f"❌ Error cleaning up services: {e}")
@@ -79,7 +82,7 @@ app = FastAPI(
     version="1.0.0",
     docs_url="/docs",
     redoc_url="/redoc",
-    lifespan=lifespan
+    lifespan=lifespan,
 )
 
 # Add middleware
@@ -99,6 +102,20 @@ app.add_middleware(
 # Setup error handlers
 setup_error_handlers(app)
 
+# Add authentication middleware
+app.add_middleware(AuthMiddleware)
+
+# Setup Prometheus metrics
+setup_prometheus_metrics(app, service_name="voice-input-service")
+
+# Configure OpenTelemetry tracing
+try:
+    from common.utils.opentelemetry_config import configure_opentelemetry
+
+    configure_opentelemetry(app, "voice-input-service")
+except ImportError:
+    pass
+
 # Include routers
 app.include_router(voice_input_router, prefix="/api/v1/voice-input")
 app.include_router(transcription_router, prefix="/api/v1/voice-input")
@@ -112,9 +129,9 @@ app.include_router(medical_analysis_router, prefix="/api/v1/voice-input")
 
 @app.middleware("http")
 async def log_request_headers(request: Request, call_next):
-    print(f"[DEBUG] Incoming request: {request.method} {request.url}")
+    logger.debug(f"Incoming request: {request.method} {request.url}")
     for k, v in request.headers.items():
-        print(f"[DEBUG] Header: {k}: {v}")
+        logger.debug(f"Header: {k}: {v}")
     response = await call_next(request)
     return response
 
@@ -136,8 +153,8 @@ async def root():
             "Audio enhancement and noise reduction",
             "Vision-enabled voice analysis with image upload",
             "GROQ and OpenAI vision model integration",
-            "Complete vision-to-speech workflow"
-        ]
+            "Complete vision-to-speech workflow",
+        ],
     }
 
 
@@ -145,7 +162,7 @@ async def root():
 async def health_check(request: Request):
     # Log the Host header for debugging
     host_header = request.headers.get("host")
-    print(f"[DEBUG] /health Host header: {host_header}")
+    logger.debug(f"/health Host header: {host_header}")
     return {
         "service": "voice_input",
         "status": "healthy",
@@ -157,19 +174,15 @@ async def health_check(request: Request):
             "intent_recognition": "/api/v1/voice-input/intent",
             "multi_modal": "/api/v1/voice-input/multi-modal",
             "audio_enhancement": "/api/v1/voice-input/audio-enhancement",
-            "vision_analysis": "/api/v1/voice-input/vision-analysis"
-        }
+            "vision_analysis": "/api/v1/voice-input/vision-analysis",
+        },
     }
 
 
 @app.get("/ready")
 async def readiness_check():
     """Readiness check endpoint."""
-    return {
-        "service": "voice_input",
-        "status": "ready",
-        "version": "1.0.0"
-    }
+    return {"service": "voice_input", "status": "ready", "version": "1.0.0"}
 
 
 @app.get("/capabilities")
@@ -182,40 +195,79 @@ async def get_capabilities():
                 "supported_formats": [".wav", ".mp3", ".m4a", ".flac", ".ogg"],
                 "max_duration": "5 minutes",
                 "quality_analysis": True,
-                "noise_reduction": True
+                "noise_reduction": True,
             },
             "transcription": {
-                "languages": ["en", "es", "fr", "de", "it", "pt", "ru", "zh", "ja", "ko"],
+                "languages": [
+                    "en",
+                    "es",
+                    "fr",
+                    "de",
+                    "it",
+                    "pt",
+                    "ru",
+                    "zh",
+                    "ja",
+                    "ko",
+                ],
                 "speaker_diarization": False,
                 "enhancement": True,
-                "translation": True
+                "translation": True,
             },
             "text_to_speech": {
-                "languages": ["en-US", "en-GB", "es-ES", "fr-FR", "de-DE", "it-IT", "pt-BR", "ru-RU", "zh-CN", "ja-JP", "ko-KR"],
-                "voice_types": ["neural", "concatenative", "hmm", "dnn", "wavenet", "tacotron"],
-                "emotions": ["neutral", "happy", "sad", "angry", "excited", "calm", "concerned", "professional"],
+                "languages": [
+                    "en-US",
+                    "en-GB",
+                    "es-ES",
+                    "fr-FR",
+                    "de-DE",
+                    "it-IT",
+                    "pt-BR",
+                    "ru-RU",
+                    "zh-CN",
+                    "ja-JP",
+                    "ko-KR",
+                ],
+                "voice_types": [
+                    "neural",
+                    "concatenative",
+                    "hmm",
+                    "dnn",
+                    "wavenet",
+                    "tacotron",
+                ],
+                "emotions": [
+                    "neutral",
+                    "happy",
+                    "sad",
+                    "angry",
+                    "excited",
+                    "calm",
+                    "concerned",
+                    "professional",
+                ],
                 "ssml_support": True,
-                "prosody_control": True
+                "prosody_control": True,
             },
             "intent_recognition": {
                 "health_domain": True,
                 "entity_extraction": True,
                 "sentiment_analysis": True,
-                "urgency_detection": True
+                "urgency_detection": True,
             },
             "multi_modal": {
                 "voice": True,
                 "text": True,
                 "image": True,
                 "sensor_data": True,
-                "fusion_strategies": ["early", "late", "hybrid"]
+                "fusion_strategies": ["early", "late", "hybrid"],
             },
             "audio_enhancement": {
                 "normalization": True,
                 "noise_reduction": True,
                 "filtering": True,
                 "compression": True,
-                "format_conversion": True
+                "format_conversion": True,
             },
             "vision_analysis": {
                 "image_upload": True,
@@ -224,12 +276,12 @@ async def get_capabilities():
                 "vision_providers": ["groq", "openai"],
                 "vision_models": {
                     "groq": ["llava-3.1-8b-instant", "llava-3.1-8b", "llava-3.1-70b"],
-                    "openai": ["gpt-4-vision-preview", "gpt-4o", "gpt-4o-mini"]
+                    "openai": ["gpt-4-vision-preview", "gpt-4o", "gpt-4o-mini"],
                 },
                 "medical_focus": True,
-                "domain_validation": True
-            }
-        }
+                "domain_validation": True,
+            },
+        },
     }
 
 
@@ -240,5 +292,5 @@ if __name__ == "__main__":
         host=voice_settings.HOST,
         port=voice_settings.SERVICE_PORT,
         reload=settings.DEBUG,
-        log_level=settings.LOG_LEVEL.lower()
-    ) 
+        log_level=settings.LOG_LEVEL.lower(),
+    )

@@ -27,7 +27,6 @@ from common.config.settings import get_settings
 from common.middleware.error_handling import setup_error_handlers
 from common.middleware.security import setup_security
 from common.utils.logging import setup_logging
-from common.utils.opentelemetry_config import configure_opentelemetry
 from common.middleware.rate_limiter import setup_rate_limiting
 from common.models.registry import register_model
 
@@ -39,9 +38,15 @@ setup_logging()
 logger = structlog.get_logger(__name__)
 
 # Prometheus metrics
-if not hasattr(prometheus_client.REGISTRY, '_user_profile_metrics_registered'):
-    REQUEST_COUNT = Counter('user_profile_request_count', 'Total request count', ['app_name', 'endpoint'])
-    REQUEST_LATENCY = Histogram('user_profile_request_latency_seconds', 'Request latency', ['app_name', 'endpoint'])
+if not hasattr(prometheus_client.REGISTRY, "_user_profile_metrics_registered"):
+    REQUEST_COUNT = Counter(
+        "user_profile_request_count", "Total request count", ["app_name", "endpoint"]
+    )
+    REQUEST_LATENCY = Histogram(
+        "user_profile_request_latency_seconds",
+        "Request latency",
+        ["app_name", "endpoint"],
+    )
     prometheus_client.REGISTRY._user_profile_metrics_registered = True
 
 
@@ -51,35 +56,32 @@ async def lifespan(app: FastAPI):
     global logger
     logger = structlog.get_logger(__name__)
     logger.info("Starting User Profile Service...")
-    
+
     # Register models in the global registry
     try:
         from .models.health_attributes import HealthAttributes
+
         register_model("HealthAttributes", HealthAttributes)
         logger.info("HealthAttributes model registered in global registry")
     except Exception as e:
         logger.warning(f"Failed to register HealthAttributes model: {e}")
-    
+
     # Initialize services
     settings = get_settings()
     logger.info(f"Environment: {settings.ENVIRONMENT}")
     logger.info(f"Database URL: {settings.DATABASE_URL}")
-    
-    # Setup OpenTelemetry if enabled
-    if hasattr(settings, "TRACING_ENABLED") and settings.TRACING_ENABLED:
-        configure_opentelemetry(app, "user-profile-service")
-        logger.info("OpenTelemetry configured")
-    
+
     # Setup rate limiting
-    # Temporarily disabled to fix startup issue
-    # if settings.security.enable_rate_limiting:
-    #     setup_rate_limiting(app)
-    #     logger.info("Rate limiting configured")
-    
+    try:
+        setup_rate_limiting(app)
+        logger.info("Rate limiting configured")
+    except Exception as e:
+        logger.warning(f"Rate limiting setup failed (non-critical): {e}")
+
     logger.info("User Profile Service started successfully")
-    
+
     yield
-    
+
     # Shutdown
     logger.info("Shutting down User Profile Service...")
 
@@ -91,16 +93,19 @@ app = FastAPI(
     version="1.0.0",
     docs_url="/docs" if os.getenv("ENABLE_DOCS", "true").lower() == "true" else None,
     redoc_url="/redoc" if os.getenv("ENABLE_DOCS", "true").lower() == "true" else None,
-    lifespan=lifespan
+    lifespan=lifespan,
 )
 
 # Get settings
 settings = get_settings()
 
-# Setup OpenTelemetry if enabled
-if hasattr(settings, "TRACING_ENABLED") and settings.TRACING_ENABLED:
+# Configure OpenTelemetry tracing
+try:
+    from common.utils.opentelemetry_config import configure_opentelemetry
+
     configure_opentelemetry(app, "user-profile-service")
-    logger.info("OpenTelemetry configured")
+except ImportError:
+    pass
 
 # Add CORS middleware
 app.add_middleware(
@@ -112,19 +117,19 @@ app.add_middleware(
 )
 
 # Add trusted host middleware
-if hasattr(settings, 'ALLOWED_HOSTS') and settings.ALLOWED_HOSTS:
-    app.add_middleware(
-        TrustedHostMiddleware,
-        allowed_hosts=settings.ALLOWED_HOSTS
-    )
+if hasattr(settings, "ALLOWED_HOSTS") and settings.ALLOWED_HOSTS:
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.ALLOWED_HOSTS)
 
 # Add auth middleware first (will be executed last)
 from common.middleware.auth import auth_middleware
+
 app.middleware("http")(auth_middleware)
 
 # Add security middleware (will be executed before auth)
-# Temporarily disabled to debug auth issue
-# setup_security(app)
+try:
+    setup_security(app)
+except Exception as e:
+    logger.warning(f"Security middleware setup failed (non-critical): {e}")
 
 # Add error handling
 setup_error_handlers(app)
@@ -134,20 +139,18 @@ setup_error_handlers(app)
 async def metrics_middleware(request: Request, call_next):
     """Middleware for collecting metrics."""
     start_time = time.time()
-    
+
     response = await call_next(request)
-    
+
     process_time = time.time() - start_time
     REQUEST_LATENCY.labels(
-        app_name="user-profile-service",
-        endpoint=request.url.path
+        app_name="user-profile-service", endpoint=request.url.path
     ).observe(process_time)
-    
+
     REQUEST_COUNT.labels(
-        app_name="user-profile-service",
-        endpoint=request.url.path
+        app_name="user-profile-service", endpoint=request.url.path
     ).inc()
-    
+
     return response
 
 
@@ -155,16 +158,16 @@ async def metrics_middleware(request: Request, call_next):
 async def logging_middleware(request: Request, call_next):
     """Middleware for request logging."""
     start_time = time.time()
-    
+
     # Log request
     logger.info(f"Request: {request.method} {request.url.path}")
-    
+
     response = await call_next(request)
-    
+
     # Log response
     process_time = time.time() - start_time
     logger.info(f"Response: {response.status_code} - {process_time:.3f}s")
-    
+
     return response
 
 
@@ -181,7 +184,7 @@ async def root():
         "version": "1.0.0",
         "docs": "/docs" if os.getenv("ENABLE_DOCS", "true").lower() == "true" else None,
         "health": "/health",
-        "ready": "/ready"
+        "ready": "/ready",
     }
 
 
@@ -194,7 +197,7 @@ async def health_check():
         "service": "user-profile-service",
         "version": "1.0.0",
         "environment": settings.ENVIRONMENT,
-        "timestamp": time.time()
+        "timestamp": time.time(),
     }
 
 
@@ -209,7 +212,7 @@ async def readiness_check():
             "service": "user-profile-service",
             "version": "1.0.0",
             "environment": settings.ENVIRONMENT,
-            "timestamp": time.time()
+            "timestamp": time.time(),
         }
     except Exception as e:
         logger.error(f"Readiness check failed: {e}")
@@ -219,8 +222,8 @@ async def readiness_check():
                 "status": "not ready",
                 "service": "user-profile-service",
                 "error": str(e),
-                "timestamp": time.time()
-            }
+                "timestamp": time.time(),
+            },
         )
 
 
@@ -229,11 +232,8 @@ async def readiness_check():
 async def metrics():
     """Prometheus metrics endpoint."""
     from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
-    
-    return Response(
-        content=generate_latest(),
-        media_type=CONTENT_TYPE_LATEST
-    )
+
+    return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
 # Error handlers
@@ -245,8 +245,8 @@ async def not_found_handler(request: Request, exc):
         content={
             "error": "Not Found",
             "message": "The requested resource was not found",
-            "path": request.url.path
-        }
+            "path": request.url.path,
+        },
     )
 
 
@@ -259,18 +259,18 @@ async def internal_error_handler(request: Request, exc):
         content={
             "error": "Internal Server Error",
             "message": "An internal server error occurred",
-            "path": request.url.path
-        }
+            "path": request.url.path,
+        },
     )
 
 
 if __name__ == "__main__":
     import uvicorn
-    
+
     uvicorn.run(
         "main:app",
         host="0.0.0.0",
         port=8001,  # Different port from auth service
         reload=settings.development.environment == "development",
-        log_level="info"
-    ) 
+        log_level="info",
+    )

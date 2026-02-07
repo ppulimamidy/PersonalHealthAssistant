@@ -18,6 +18,7 @@ import uvicorn
 from common.utils.logging import get_logger, setup_logging
 from common.database.connection import get_db_manager
 from api.analytics import router as analytics_router
+from common.middleware.prometheus_metrics import setup_prometheus_metrics
 
 
 # Setup logging
@@ -33,7 +34,7 @@ async def lifespan(app: FastAPI):
     """Application lifespan manager."""
     # Startup
     logger.info("Starting Personal Health Assistant Analytics Service...")
-    
+
     # Start database health monitoring
     try:
         await db_manager.start_health_monitoring()
@@ -41,11 +42,12 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"Failed to start database health monitoring: {e}")
         raise
-    
+
     # Initialize analytics service
     try:
         from services.analytics_service import AnalyticsService
         from api.analytics import set_analytics_service
+
         global analytics_service
         analytics_service = AnalyticsService()
         await analytics_service.start()
@@ -54,14 +56,14 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"Failed to initialize analytics service: {e}")
         raise
-    
+
     logger.info("Analytics Service startup complete")
-    
+
     yield
-    
+
     # Shutdown
     logger.info("Shutting down Personal Health Assistant Analytics Service...")
-    
+
     # Stop analytics service
     try:
         if analytics_service:
@@ -69,7 +71,7 @@ async def lifespan(app: FastAPI):
             logger.info("Analytics service stopped")
     except Exception as e:
         logger.error(f"Error stopping analytics service: {e}")
-    
+
     # Stop database health monitoring and close connections
     try:
         await db_manager.stop_health_monitoring()
@@ -86,7 +88,7 @@ app = FastAPI(
     version="1.0.0",
     docs_url="/docs",
     redoc_url="/redoc",
-    lifespan=lifespan
+    lifespan=lifespan,
 )
 
 # Add middleware
@@ -99,10 +101,19 @@ app.add_middleware(
 )
 
 app.add_middleware(
-    TrustedHostMiddleware,
-    allowed_hosts=["*"]  # Configure appropriately for production
+    TrustedHostMiddleware, allowed_hosts=["*"]  # Configure appropriately for production
 )
 
+# Setup Prometheus metrics
+setup_prometheus_metrics(app, service_name="analytics-service")
+
+# Configure OpenTelemetry tracing
+try:
+    from common.utils.opentelemetry_config import configure_opentelemetry
+
+    configure_opentelemetry(app, "analytics-service")
+except ImportError:
+    pass
 
 
 # Add exception handlers
@@ -110,10 +121,7 @@ app.add_middleware(
 async def http_exception_handler(request: Request, exc: HTTPException):
     """Handle HTTP exceptions."""
     logger.warning(f"HTTP exception: {exc.status_code} - {exc.detail}")
-    return JSONResponse(
-        status_code=exc.status_code,
-        content={"detail": exc.detail}
-    )
+    return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
 
 
 @app.exception_handler(Exception)
@@ -125,8 +133,8 @@ async def general_exception_handler(request: Request, exc: Exception):
         content={
             "detail": "Internal server error",
             "status_code": 500,
-            "timestamp": datetime.utcnow().isoformat()
-        }
+            "timestamp": datetime.utcnow().isoformat(),
+        },
     )
 
 
@@ -137,18 +145,18 @@ async def health_check_endpoint():
     try:
         # Check database health
         health_status = await db_manager.health_check()
-        
+
         return {
             "status": "healthy",
             "service": "analytics-service",
             "timestamp": datetime.utcnow().isoformat(),
-            "version": "1.0.0"
+            "version": "1.0.0",
         }
     except Exception as e:
         logger.error(f"Health check failed: {e}")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Service unhealthy: {str(e)}"
+            detail=f"Service unhealthy: {str(e)}",
         )
 
 
@@ -158,17 +166,17 @@ async def readiness_check():
     try:
         # Check database readiness
         health_status = await db_manager.health_check()
-        
+
         return {
             "status": "ready",
             "service": "analytics-service",
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.utcnow().isoformat(),
         }
     except Exception as e:
         logger.error(f"Readiness check failed: {e}")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Service not ready: {str(e)}"
+            detail=f"Service not ready: {str(e)}",
         )
 
 
@@ -181,11 +189,7 @@ async def root():
         "version": "1.0.0",
         "status": "running",
         "timestamp": datetime.utcnow().isoformat(),
-        "endpoints": {
-            "health": "/health",
-            "ready": "/ready",
-            "docs": "/docs"
-        }
+        "endpoints": {"health": "/health", "ready": "/ready", "docs": "/docs"},
     }
 
 
@@ -201,15 +205,9 @@ async def test():
     """Test endpoint."""
     return {
         "message": "Analytics service is working!",
-        "timestamp": datetime.utcnow().isoformat()
+        "timestamp": datetime.utcnow().isoformat(),
     }
 
 
 if __name__ == "__main__":
-    uvicorn.run(
-        "main:app",
-        host="0.0.0.0",
-        port=8210,
-        reload=False,
-        log_level="info"
-    ) 
+    uvicorn.run("main:app", host="0.0.0.0", port=8210, reload=False, log_level="info")

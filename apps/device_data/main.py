@@ -10,7 +10,9 @@ import asyncio
 from datetime import datetime
 
 # Add the project root to the Python path
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+sys.path.append(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+)
 
 from fastapi import FastAPI, Request, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
@@ -20,16 +22,20 @@ import uvicorn
 
 from common.config.settings import get_settings
 from common.middleware.error_handling import setup_error_handlers
-# from common.middleware.security import setup_security  # Temporarily disabled for development
-from common.middleware.auth import auth_middleware
+from common.middleware.security import setup_security
+from common.middleware.auth import auth_middleware, AuthMiddleware
 from common.utils.logging import setup_logging, get_logger
-from common.utils.opentelemetry_config import configure_opentelemetry
 from common.middleware.rate_limiter import setup_rate_limiting
+from common.middleware.prometheus_metrics import setup_prometheus_metrics
 
 from apps.device_data.api import devices, data
 from apps.device_data.api import integrations
 from apps.device_data.agents.agent_orchestrator import get_device_agent_orchestrator
-from apps.device_data.services.event_consumer import get_event_consumer, start_event_consumer, stop_event_consumer
+from apps.device_data.services.event_consumer import (
+    get_event_consumer,
+    start_event_consumer,
+    stop_event_consumer,
+)
 from apps.device_data.services.event_producer import get_event_producer
 
 # Configure logging
@@ -45,29 +51,29 @@ async def lifespan(app: FastAPI):
     """Application lifespan manager"""
     # Startup
     logger.info("🚀 Device Data Service starting up...")
-    
+
     # Initialize agent orchestrator
     try:
         orchestrator = await get_device_agent_orchestrator()
         logger.info("✅ Device Data Agent Orchestrator initialized")
     except Exception as e:
         logger.error(f"❌ Failed to initialize agent orchestrator: {e}")
-    
+
     # Start Kafka event consumer
     try:
         app.state.consumer_task = asyncio.create_task(start_event_consumer())
         logger.info("✅ Kafka event consumer started")
     except Exception as e:
         logger.error(f"❌ Failed to start Kafka event consumer: {e}")
-    
+
     # Health check
     logger.info("✅ Device Data Service is healthy and ready to serve requests")
-    
+
     yield
-    
+
     # Shutdown
     logger.info("🛑 Device Data Service shutting down...")
-    
+
     # Cleanup agent orchestrator
     try:
         orchestrator = await get_device_agent_orchestrator()
@@ -75,7 +81,7 @@ async def lifespan(app: FastAPI):
         logger.info("✅ Device Data Agent Orchestrator cleaned up")
     except Exception as e:
         logger.error(f"❌ Failed to cleanup agent orchestrator: {e}")
-    
+
     # Stop Kafka event consumer
     try:
         await stop_event_consumer()
@@ -92,11 +98,16 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_url="/openapi.json",
-    lifespan=lifespan
+    lifespan=lifespan,
 )
 
-# Configure OpenTelemetry
-configure_opentelemetry(app, service_name="device-data-service")
+# Configure OpenTelemetry tracing
+try:
+    from common.utils.opentelemetry_config import configure_opentelemetry
+
+    configure_opentelemetry(app, "device-data-service")
+except ImportError:
+    pass
 
 # Add CORS middleware
 app.add_middleware(
@@ -108,20 +119,29 @@ app.add_middleware(
 )
 
 # Add trusted host middleware
-if hasattr(settings, 'ALLOWED_HOSTS') and settings.ALLOWED_HOSTS:
-    app.add_middleware(
-        TrustedHostMiddleware,
-        allowed_hosts=settings.ALLOWED_HOSTS
-    )
+if hasattr(settings, "ALLOWED_HOSTS") and settings.ALLOWED_HOSTS:
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.ALLOWED_HOSTS)
 
-# Add security middleware (temporarily disabled for development)
-# setup_security(app)
+# Add auth middleware
+app.add_middleware(AuthMiddleware)
+
+# Add security middleware
+try:
+    setup_security(app)
+except Exception as e:
+    logger.warning(f"Security middleware setup failed (non-critical): {e}")
 
 # Add error handling
 setup_error_handlers(app)
 
-# Add rate limiting (temporarily disabled for development)
-# setup_rate_limiting(app)
+# Setup Prometheus metrics
+setup_prometheus_metrics(app, service_name="device-data-service")
+
+# Add rate limiting
+try:
+    setup_rate_limiting(app)
+except Exception as e:
+    logger.warning(f"Rate limiting setup failed (non-critical): {e}")
 
 
 # Health check endpoint
@@ -133,7 +153,7 @@ async def health_check():
         "service": "device-data-service",
         "version": "1.0.0",
         "environment": "development",
-        "agents_enabled": True
+        "agents_enabled": True,
     }
 
 
@@ -155,8 +175,8 @@ async def root():
             "Data Quality Monitoring",
             "Anomaly Detection",
             "Calibration Monitoring",
-            "Sync Optimization"
-        ]
+            "Sync Optimization",
+        ],
     }
 
 
@@ -175,13 +195,11 @@ async def get_agents_health():
 
 @app.post("/api/v1/device-data/agents/analyze")
 async def run_comprehensive_analysis(
-    background_tasks: BackgroundTasks,
-    user_id: str,
-    device_id: str = None
+    background_tasks: BackgroundTasks, user_id: str, device_id: str = None
 ):
     """
     Run comprehensive device analysis using all agents.
-    
+
     Args:
         user_id: User ID to analyze
         device_id: Optional specific device ID
@@ -189,20 +207,20 @@ async def run_comprehensive_analysis(
     """
     try:
         orchestrator = await get_device_agent_orchestrator()
-        
+
         # Run analysis in background
         background_tasks.add_task(
             orchestrator.run_comprehensive_analysis,
             user_id,
             None,  # db session will be created in background task
-            device_id
+            device_id,
         )
-        
+
         return {
             "message": "Comprehensive analysis started",
             "user_id": user_id,
             "device_id": device_id,
-            "status": "running"
+            "status": "running",
         }
     except Exception as e:
         logger.error(f"Failed to start analysis: {e}")
@@ -210,14 +228,10 @@ async def run_comprehensive_analysis(
 
 
 @app.post("/api/v1/device-data/agents/{agent_name}/analyze")
-async def run_specific_agent(
-    agent_name: str,
-    user_id: str,
-    device_id: str = None
-):
+async def run_specific_agent(agent_name: str, user_id: str, device_id: str = None):
     """
     Run a specific agent for targeted analysis.
-    
+
     Args:
         agent_name: Name of the agent to run
         user_id: User ID to analyze
@@ -225,8 +239,10 @@ async def run_specific_agent(
     """
     try:
         orchestrator = await get_device_agent_orchestrator()
-        result = await orchestrator.run_specific_agent(agent_name, user_id, None, device_id)
-        
+        result = await orchestrator.run_specific_agent(
+            agent_name, user_id, None, device_id
+        )
+
         return {
             "agent_name": agent_name,
             "user_id": user_id,
@@ -239,8 +255,8 @@ async def run_specific_agent(
                 "recommendations": result.recommendations,
                 "confidence": result.confidence,
                 "processing_time": result.processing_time,
-                "error": result.error
-            }
+                "error": result.error,
+            },
         }
     except Exception as e:
         logger.error(f"Failed to run agent {agent_name}: {e}")
@@ -258,8 +274,8 @@ async def list_agents():
                 "capabilities": [
                     "Missing data detection",
                     "Inconsistent readings analysis",
-                    "Data quality distribution monitoring"
-                ]
+                    "Data quality distribution monitoring",
+                ],
             },
             {
                 "name": "device_anomaly",
@@ -268,8 +284,8 @@ async def list_agents():
                     "Connection stability monitoring",
                     "Battery behavior analysis",
                     "Data volume pattern detection",
-                    "Sync behavior analysis"
-                ]
+                    "Sync behavior analysis",
+                ],
             },
             {
                 "name": "calibration",
@@ -278,8 +294,8 @@ async def list_agents():
                     "Measurement drift detection",
                     "Consistency analysis",
                     "Accuracy assessment",
-                    "Calibration recommendations"
-                ]
+                    "Calibration recommendations",
+                ],
             },
             {
                 "name": "sync_monitor",
@@ -288,11 +304,11 @@ async def list_agents():
                     "Sync frequency optimization",
                     "Reliability monitoring",
                     "Data completeness checking",
-                    "Sync latency analysis"
-                ]
-            }
+                    "Sync latency analysis",
+                ],
+            },
         ],
-        "total_agents": 4
+        "total_agents": 4,
     }
 
 
@@ -304,6 +320,7 @@ app.include_router(integrations.router, prefix="/api/v1/device-data")
 # Include OAuth router
 try:
     from apps.device_data.api import oauth
+
     app.include_router(oauth.router, prefix="/api/v1/device-data")
     logger.info("✅ OAuth API router included")
 except ImportError as e:
@@ -312,6 +329,7 @@ except ImportError as e:
 # Import and include additional routers
 try:
     from apps.device_data.api import agents
+
     app.include_router(agents.router, prefix="/api/v1/device-data")
     logger.info("✅ Additional API router (agents) included")
 except ImportError as e:
@@ -319,7 +337,8 @@ except ImportError as e:
 
 try:
     from apps.device_data.api import apple_health
-    if hasattr(apple_health, 'router'):
+
+    if hasattr(apple_health, "router"):
         app.include_router(apple_health.router, prefix="/api/v1/device-data")
         logger.info("✅ Apple Health API router included")
     else:
@@ -333,14 +352,14 @@ except ImportError as e:
 async def global_exception_handler(request: Request, exc: Exception):
     """Global exception handler"""
     logger.error(f"Unhandled exception: {exc}", exc_info=True)
-    
+
     return JSONResponse(
         status_code=500,
         content={
             "error": "Internal server error",
             "message": "An unexpected error occurred",
-            "timestamp": "2024-01-01T00:00:00Z"
-        }
+            "timestamp": "2024-01-01T00:00:00Z",
+        },
     )
 
 
@@ -353,14 +372,14 @@ async def get_kafka_producer_status():
         return {
             "status": "success",
             "producer_metrics": metrics,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.utcnow().isoformat(),
         }
     except Exception as e:
         logger.error(f"Failed to get producer status: {e}")
         return {
             "status": "error",
             "error": str(e),
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.utcnow().isoformat(),
         }
 
 
@@ -373,14 +392,14 @@ async def get_kafka_consumer_status():
         return {
             "status": "success",
             "consumer_status": status,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.utcnow().isoformat(),
         }
     except Exception as e:
         logger.error(f"Failed to get consumer status: {e}")
         return {
             "status": "error",
             "error": str(e),
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.utcnow().isoformat(),
         }
 
 
@@ -388,35 +407,35 @@ async def get_kafka_consumer_status():
 async def test_kafka_event(
     event_type: str = "test",
     device_id: str = "test-device-001",
-    message: str = "Test event from device data service"
+    message: str = "Test event from device data service",
 ):
     """Test Kafka event publishing"""
     try:
         producer = await get_event_producer()
-        
+
         test_event = {
             "event_type": event_type,
             "timestamp": datetime.utcnow().isoformat(),
             "device_id": device_id,
             "message": message,
-            "test": True
+            "test": True,
         }
-        
+
         # Publish to test topic
         success = await producer.publish_batch_events([test_event], "device-data-raw")
-        
+
         return {
             "status": "success" if success else "failed",
             "event": test_event,
             "published": success,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.utcnow().isoformat(),
         }
     except Exception as e:
         logger.error(f"Failed to test Kafka event: {e}")
         return {
             "status": "error",
             "error": str(e),
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.utcnow().isoformat(),
         }
 
 
@@ -427,5 +446,5 @@ if __name__ == "__main__":
         host="0.0.0.0",
         port=8004,  # Device data service port
         reload=True,
-        log_level="info"
-    ) 
+        log_level="info",
+    )

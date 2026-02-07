@@ -15,19 +15,28 @@ import os
 from datetime import datetime
 
 # Add the project root to the path
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
+sys.path.append(os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from apps.knowledge_graph.api.knowledge import router as knowledge_router
 from common.middleware.auth import AuthMiddleware
-from common.middleware.error_handling import ErrorHandlingMiddleware, setup_error_handlers
+from common.middleware.error_handling import (
+    ErrorHandlingMiddleware,
+    setup_error_handlers,
+)
 from common.utils.logging import get_logger
 from common.models.registry import register_model
 from common.config.settings import get_settings
+from common.middleware.prometheus_metrics import setup_prometheus_metrics
 
 # Import all models that are referenced in relationships
 from .models.knowledge_models import (
-    MedicalEntityResponse, RelationshipResponse, KnowledgeGraphResponse,
-    MedicalRecommendation, OntologyImportResponse, KnowledgeGraphStats, HealthInsight
+    MedicalEntityResponse,
+    RelationshipResponse,
+    KnowledgeGraphResponse,
+    MedicalRecommendation,
+    OntologyImportResponse,
+    KnowledgeGraphStats,
+    HealthInsight,
 )
 
 # Global logger
@@ -41,10 +50,10 @@ knowledge_graph_service = None
 async def lifespan(app: FastAPI):
     """Application lifespan manager."""
     global knowledge_graph_service
-    
+
     # Startup
     logger.info("🚀 Starting Knowledge Graph Service...")
-    
+
     # Register models in the global registry
     try:
         register_model("MedicalEntityResponse", MedicalEntityResponse)
@@ -57,24 +66,25 @@ async def lifespan(app: FastAPI):
         logger.info("Knowledge Graph models registered in global registry")
     except Exception as e:
         logger.warning(f"Failed to register Knowledge Graph models: {e}")
-    
+
     # Initialize knowledge graph service
     try:
         from .services.knowledge_graph_service import KnowledgeGraphService
+
         knowledge_graph_service = KnowledgeGraphService()
         await knowledge_graph_service.initialize()
         logger.info("Knowledge Graph Service initialized successfully")
     except Exception as e:
         logger.error(f"Failed to initialize Knowledge Graph Service: {e}")
         # Don't raise here to allow the service to start with limited functionality
-    
+
     logger.info("✅ Knowledge Graph Service started successfully")
-    
+
     yield
-    
+
     # Shutdown
     logger.info("🛑 Shutting down Knowledge Graph Service...")
-    
+
     if knowledge_graph_service:
         try:
             await knowledge_graph_service.cleanup()
@@ -91,7 +101,7 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_url="/openapi.json",
-    lifespan=lifespan
+    lifespan=lifespan,
 )
 
 # Add middleware
@@ -105,14 +115,26 @@ app.add_middleware(
 
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=["*"])
 
+# Add authentication middleware
+app.add_middleware(AuthMiddleware)
+
 # Setup error handlers
 setup_error_handlers(app)
 
+# Setup Prometheus metrics
+setup_prometheus_metrics(app, service_name="knowledge-graph-service")
+
+# Configure OpenTelemetry tracing
+try:
+    from common.utils.opentelemetry_config import configure_opentelemetry
+
+    configure_opentelemetry(app, "knowledge-graph-service")
+except ImportError:
+    pass
+
 # Add routers
 app.include_router(
-    knowledge_router,
-    prefix="/api/v1/knowledge-graph",
-    tags=["Knowledge Graph"]
+    knowledge_router, prefix="/api/v1/knowledge-graph", tags=["Knowledge Graph"]
 )
 
 
@@ -125,7 +147,7 @@ async def root():
         "version": "1.0.0",
         "status": "running",
         "timestamp": datetime.utcnow().isoformat(),
-        "description": "Medical Knowledge Graph Service for Personal Health Assistant"
+        "description": "Medical Knowledge Graph Service for Personal Health Assistant",
     }
 
 
@@ -142,7 +164,7 @@ async def health_check():
                 "service": "knowledge-graph-service",
                 "status": "initializing",
                 "timestamp": datetime.utcnow().isoformat(),
-                "version": "1.0.0"
+                "version": "1.0.0",
             }
     except Exception as e:
         logger.error(f"Health check failed: {e}")
@@ -151,7 +173,7 @@ async def health_check():
             "status": "unhealthy",
             "error": str(e),
             "timestamp": datetime.utcnow().isoformat(),
-            "version": "1.0.0"
+            "version": "1.0.0",
         }
 
 
@@ -166,20 +188,20 @@ async def readiness_check():
                 return {
                     "status": "ready",
                     "service": "knowledge-graph-service",
-                    "timestamp": datetime.utcnow().isoformat()
+                    "timestamp": datetime.utcnow().isoformat(),
                 }
             else:
                 return {
                     "status": "not_ready",
                     "service": "knowledge-graph-service",
-                    "timestamp": datetime.utcnow().isoformat()
+                    "timestamp": datetime.utcnow().isoformat(),
                 }
         else:
             return {
                 "status": "not_ready",
                 "service": "knowledge-graph-service",
                 "reason": "Service not initialized",
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": datetime.utcnow().isoformat(),
             }
     except Exception as e:
         logger.error(f"Readiness check failed: {e}")
@@ -187,7 +209,7 @@ async def readiness_check():
             "status": "not_ready",
             "service": "knowledge-graph-service",
             "error": str(e),
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.utcnow().isoformat(),
         }
 
 
@@ -207,12 +229,9 @@ async def service_info():
             "Recommendations",
             "Statistics and analytics",
             "Ontology integration",
-            "Health insights"
+            "Health insights",
         ],
-        "databases": [
-            "Neo4j (Graph Database)",
-            "Qdrant (Vector Database)"
-        ],
+        "databases": ["Neo4j (Graph Database)", "Qdrant (Vector Database)"],
         "ontologies": [
             "SNOMED CT",
             "ICD-10",
@@ -223,17 +242,11 @@ async def service_info():
             "MESH",
             "DOID",
             "HP (Human Phenotype Ontology)",
-            "CHEBI"
+            "CHEBI",
         ],
-        "timestamp": datetime.utcnow().isoformat()
+        "timestamp": datetime.utcnow().isoformat(),
     }
 
 
 if __name__ == "__main__":
-    uvicorn.run(
-        "main:app",
-        host="0.0.0.0",
-        port=8010,
-        reload=True,
-        log_level="info"
-    ) 
+    uvicorn.run("main:app", host="0.0.0.0", port=8010, reload=True, log_level="info")

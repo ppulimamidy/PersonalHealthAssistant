@@ -14,7 +14,12 @@ from typing import Optional, Dict, Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Response, Header
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials, HTTPBasic, HTTPBasicCredentials
+from fastapi.security import (
+    HTTPBearer,
+    HTTPAuthorizationCredentials,
+    HTTPBasic,
+    HTTPBasicCredentials,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.responses import JSONResponse
 
@@ -23,7 +28,17 @@ from common.middleware.rate_limiter import rate_limit
 from common.middleware.security import security_headers
 from common.utils.logging import get_logger
 
-from ..models.user import User, UserCreate, UserResponse, UserStatus, MFAStatus, PasswordResetRequest, PasswordResetConfirm, EmailVerificationRequest, EmailVerificationConfirm
+from ..models.user import (
+    User,
+    UserCreate,
+    UserResponse,
+    UserStatus,
+    MFAStatus,
+    PasswordResetRequest,
+    PasswordResetConfirm,
+    EmailVerificationRequest,
+    EmailVerificationConfirm,
+)
 from ..models.session import SessionResponse
 from ..models.mfa import MFAVerificationRequest, MFASetupRequest, MFASetupResponse
 from ..services.auth_service import AuthService, get_auth_service
@@ -38,7 +53,7 @@ basic_auth = HTTPBasic()
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security),
     db: AsyncSession = Depends(get_async_db),
-    auth_service: AuthService = Depends(get_auth_service)
+    auth_service: AuthService = Depends(get_auth_service),
 ) -> User:
     try:
         logger.warning(f"[DEBUG] get_current_user: credentials={credentials}")
@@ -48,24 +63,35 @@ async def get_current_user(
         logger.warning(f"[DEBUG] get_current_user: payload={payload}")
         if not payload:
             logger.error("[DEBUG] get_current_user: Invalid token (no payload)")
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token"
+            )
         user_id = payload.get("sub")
         if not user_id:
             logger.error("[DEBUG] get_current_user: Invalid token payload (no sub)")
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token payload")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token payload"
+            )
         user = await auth_service._get_user_by_id(UUID(user_id))
         if not user:
             logger.error("[DEBUG] get_current_user: User not found")
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found"
+            )
         if not user.is_active:
             logger.error("[DEBUG] get_current_user: User inactive")
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User account is inactive")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="User account is inactive",
+            )
         return user
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"[DEBUG] get_current_user: Exception: {e}")
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication failed")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication failed"
+        )
 
 
 @router.post("/login", response_model=dict)
@@ -76,44 +102,46 @@ async def login(
     response: Response,
     credentials: HTTPBasicCredentials = Depends(basic_auth),
     db: AsyncSession = Depends(get_async_db),
-    auth_service: AuthService = Depends(get_auth_service)
+    auth_service: AuthService = Depends(get_auth_service),
 ):
     """
     Authenticate user with email and password.
-    
+
     This endpoint supports both local authentication and OAuth providers.
     """
     try:
         email = credentials.username
         password = credentials.password
-        
+
         logger.info(f"Login attempt for email: {email}")
-        
+
         # Get client information
         ip_address = request.client.host
         user_agent = request.headers.get("user-agent")
-        
+
         # Authenticate user
-        user = await auth_service.authenticate_user(email, password, ip_address, user_agent)
+        user = await auth_service.authenticate_user(
+            email, password, ip_address, user_agent
+        )
         if not user:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid credentials",
                 headers={"WWW-Authenticate": "Basic"},
             )
-        
+
         # Check if MFA is required
         if user.mfa_status != "disabled":
             return {
                 "message": "MFA verification required",
                 "mfa_required": True,
                 "user_id": str(user.id),
-                "mfa_status": user.mfa_status
+                "mfa_status": user.mfa_status,
             }
-        
+
         # Create session
         session = await auth_service.create_session(user, ip_address, user_agent)
-        
+
         # Set secure cookies - use secure=False for local development
         response.set_cookie(
             key="access_token",
@@ -121,7 +149,7 @@ async def login(
             httponly=True,
             secure=False,  # Set to False for local development over HTTP
             samesite="strict",
-            max_age=900
+            max_age=900,
         )
         response.set_cookie(
             key="refresh_token",
@@ -129,21 +157,21 @@ async def login(
             httponly=True,
             secure=False,  # Set to False for local development over HTTP
             samesite="strict",
-            max_age=604800
+            max_age=604800,
         )
-        
+
         return {
             "message": "Login successful",
             "user": UserResponse.from_orm(user),
             "session": SessionResponse.from_orm(session),
-            "mfa_required": False
+            "mfa_required": False,
         }
-        
+
     except Exception as e:
         logger.error(f"Login error: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Authentication failed"
+            detail="Authentication failed",
         )
 
 
@@ -155,7 +183,7 @@ async def login_with_supabase(
     response: Response,
     supabase_token: str,
     db: AsyncSession = Depends(get_async_db),
-    auth_service: AuthService = Depends(get_auth_service)
+    auth_service: AuthService = Depends(get_auth_service),
 ):
     """
     Authenticate user with Supabase token.
@@ -164,17 +192,19 @@ async def login_with_supabase(
         logger.info("Supabase login attempt")
         ip_address = request.client.host
         user_agent = request.headers.get("user-agent")
-        
-        user = await auth_service.authenticate_with_supabase(supabase_token, ip_address, user_agent)
+
+        user = await auth_service.authenticate_with_supabase(
+            supabase_token, ip_address, user_agent
+        )
         if not user:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid Supabase token"
+                detail="Invalid Supabase token",
             )
-        
+
         # Create session
         session = await auth_service.create_session(user, ip_address, user_agent)
-        
+
         # Set secure cookies
         response.set_cookie(
             key="access_token",
@@ -182,7 +212,7 @@ async def login_with_supabase(
             httponly=True,
             secure=True,
             samesite="strict",
-            max_age=900
+            max_age=900,
         )
         response.set_cookie(
             key="refresh_token",
@@ -190,20 +220,20 @@ async def login_with_supabase(
             httponly=True,
             secure=True,
             samesite="strict",
-            max_age=604800
+            max_age=604800,
         )
-        
+
         return {
             "message": "Supabase login successful",
             "user": UserResponse.from_orm(user),
-            "session": SessionResponse.from_orm(session)
+            "session": SessionResponse.from_orm(session),
         }
-        
+
     except Exception as e:
         logger.error(f"Supabase login error: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Supabase authentication failed"
+            detail="Supabase authentication failed",
         )
 
 
@@ -215,7 +245,7 @@ async def login_with_auth0(
     response: Response,
     auth0_token: str,
     db: AsyncSession = Depends(get_async_db),
-    auth_service: AuthService = Depends(get_auth_service)
+    auth_service: AuthService = Depends(get_auth_service),
 ):
     """
     Authenticate user with Auth0 token.
@@ -224,17 +254,18 @@ async def login_with_auth0(
         logger.info("Auth0 login attempt")
         ip_address = request.client.host
         user_agent = request.headers.get("user-agent")
-        
-        user = await auth_service.authenticate_with_auth0(auth0_token, ip_address, user_agent)
+
+        user = await auth_service.authenticate_with_auth0(
+            auth0_token, ip_address, user_agent
+        )
         if not user:
             raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid Auth0 token"
+                status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid Auth0 token"
             )
-        
+
         # Create session
         session = await auth_service.create_session(user, ip_address, user_agent)
-        
+
         # Set secure cookies - use secure=False for local development
         response.set_cookie(
             key="access_token",
@@ -242,7 +273,7 @@ async def login_with_auth0(
             httponly=True,
             secure=False,  # Set to False for local development over HTTP
             samesite="strict",
-            max_age=900
+            max_age=900,
         )
         response.set_cookie(
             key="refresh_token",
@@ -250,20 +281,20 @@ async def login_with_auth0(
             httponly=True,
             secure=False,  # Set to False for local development over HTTP
             samesite="strict",
-            max_age=604800
+            max_age=604800,
         )
-        
+
         return {
             "message": "Auth0 login successful",
             "user": UserResponse.from_orm(user),
-            "session": SessionResponse.from_orm(session)
+            "session": SessionResponse.from_orm(session),
         }
-        
+
     except Exception as e:
         logger.error(f"Auth0 login error: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Auth0 authentication failed"
+            detail="Auth0 authentication failed",
         )
 
 
@@ -274,7 +305,7 @@ async def register(
     request: Request,
     user_data: UserCreate,
     db: AsyncSession = Depends(get_async_db),
-    auth_service: AuthService = Depends(get_auth_service)
+    auth_service: AuthService = Depends(get_auth_service),
 ):
     """
     Register a new user account.
@@ -284,21 +315,21 @@ async def register(
         # Check if user already exists
         from sqlalchemy import select
         from ..models.user import User
-        
+
         query = select(User).where(User.email == user_data.email)
         result = await db.execute(query)
         existing_user = result.scalar_one_or_none()
-        
+
         if existing_user:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail="User with this email already exists"
+                detail="User with this email already exists",
             )
-        
+
         # Create new user
         import uuid
         from ..models.user import UserStatus, MFAStatus
-        
+
         user = User(
             supabase_user_id=str(uuid.uuid4()),  # Generate a unique supabase_user_id
             email=user_data.email,
@@ -313,18 +344,18 @@ async def register(
             email_verified=False,
             phone_verified=False,
             mfa_status=MFAStatus.DISABLED,
-            hipaa_consent_given=False
+            hipaa_consent_given=False,
         )
-        
+
         db.add(user)
         await db.commit()
         await db.refresh(user)
-        
+
         # Create user profile in user profile service
         # try:
         #     from ..services.user_profile_integration import get_user_profile_integration_service
         #     profile_service = get_user_profile_integration_service()
-        #     
+        #
         #     profile_result = await profile_service.create_user_profile(
         #         user_id=str(user.id),
         #         email=user.email,
@@ -335,17 +366,17 @@ async def register(
         #         date_of_birth=user.date_of_birth,
         #         gender=user.gender
         #     )
-        #     
+        #
         #     if "error" in profile_result:
         #         logger.warning(f"User profile creation failed for user {user.id}: {profile_result['error']}")
         #     else:
         #         logger.info(f"User profile created successfully for user {user.id}")
-        #         
+        #
         # except Exception as profile_error:
         #     logger.error(f"Failed to create user profile for user {user.id}: {profile_error}")
         #     # Don't fail the registration if profile creation fails
         #     # The user can create their profile later
-        
+
         # Log user creation
         # await auth_service.audit_service.log_event(
         #     user_id=user.id,
@@ -354,19 +385,16 @@ async def register(
         #     ip_address=request.client.host,
         #     user_agent=request.headers.get("user-agent")
         # )
-        
-        return {
-            "message": "User registration successful",
-            "user_id": str(user.id)
-        }
-        
+
+        return {"message": "User registration successful", "user_id": str(user.id)}
+
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Registration error: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Registration failed"
+            detail="Registration failed",
         )
 
 
@@ -377,31 +405,98 @@ async def logout(
     response: Response,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_db),
-    auth_service: AuthService = Depends(get_auth_service)
+    auth_service: AuthService = Depends(get_auth_service),
 ):
     """
     Logout user and revoke session.
+
+    Steps:
+    1. Extract the current access token (from header or cookie).
+    2. Blacklist the token in Redis so it cannot be reused.
+    3. Find and revoke the matching DB session record.
+    4. Clear auth cookies.
     """
     try:
         logger.info(f"Logout attempt for user: {current_user.email}")
-        # Get session from cookies
-        session_token = request.cookies.get("access_token")
-        if session_token:
-            # Revoke session
-            # TODO: Implement session revocation logic
-            pass
-        
-        # Clear cookies
+
+        # --- 1. Resolve the access token ---
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            access_token = auth_header.split(" ", 1)[1]
+        else:
+            access_token = request.cookies.get("access_token")
+
+        if access_token:
+            # --- 2. Blacklist the token in Redis ---
+            try:
+                from common.config.settings import get_settings
+                import redis.asyncio as aioredis
+
+                settings = get_settings()
+                redis_client = aioredis.from_url(
+                    settings.REDIS_URL, decode_responses=True
+                )
+                # Decode token to get remaining TTL
+                payload = auth_service.verify_token(access_token)
+                if payload and "exp" in payload:
+                    from datetime import datetime
+
+                    remaining_ttl = int(payload["exp"] - datetime.utcnow().timestamp())
+                    if remaining_ttl > 0:
+                        await redis_client.setex(
+                            f"token_blacklist:{access_token}",
+                            remaining_ttl,
+                            "revoked",
+                        )
+                        logger.info(
+                            f"Token blacklisted in Redis (TTL={remaining_ttl}s) "
+                            f"for user {current_user.email}"
+                        )
+                await redis_client.aclose()
+            except Exception as redis_err:
+                # Redis being unavailable should not block logout
+                logger.warning(f"Redis blacklist failed (non-fatal): {redis_err}")
+
+            # --- 3. Revoke the matching DB session ---
+            try:
+                from sqlalchemy import select, and_
+                from ..models.session import Session, SessionStatus
+
+                query = select(Session).where(
+                    and_(
+                        Session.session_token == access_token,
+                        Session.user_id == current_user.id,
+                        Session.status == SessionStatus.ACTIVE,
+                    )
+                )
+                result = await db.execute(query)
+                session = result.scalar_one_or_none()
+
+                if session:
+                    session.revoke("manual_logout")
+                    await db.commit()
+                    logger.info(
+                        f"Session {session.id} revoked for user "
+                        f"{current_user.email}"
+                    )
+                else:
+                    logger.info(
+                        f"No active DB session found for token; "
+                        f"cookie-only logout for {current_user.email}"
+                    )
+            except Exception as db_err:
+                logger.warning(f"DB session revocation failed (non-fatal): {db_err}")
+
+        # --- 4. Clear auth cookies ---
         response.delete_cookie("access_token")
         response.delete_cookie("refresh_token")
-        
+
         return {"message": "Logout successful"}
-        
+
     except Exception as e:
         logger.error(f"Logout error: {e}")
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Logout failed"
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Logout failed"
         )
 
 
@@ -412,7 +507,7 @@ async def refresh_token(
     request: Request,
     response: Response,
     db: AsyncSession = Depends(get_async_db),
-    auth_service: AuthService = Depends(get_auth_service)
+    auth_service: AuthService = Depends(get_auth_service),
 ):
     """
     Refresh access token using refresh token.
@@ -423,19 +518,20 @@ async def refresh_token(
         if not refresh_token:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Refresh token not found"
+                detail="Refresh token not found",
             )
-        
+
         ip_address = request.client.host
         user_agent = request.headers.get("user-agent")
-        
-        session = await auth_service.refresh_session(refresh_token, ip_address, user_agent)
+
+        session = await auth_service.refresh_session(
+            refresh_token, ip_address, user_agent
+        )
         if not session:
             raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid refresh token"
+                status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token"
             )
-        
+
         # Update cookies
         response.set_cookie(
             key="access_token",
@@ -443,7 +539,7 @@ async def refresh_token(
             httponly=True,
             secure=True,
             samesite="strict",
-            max_age=900
+            max_age=900,
         )
         response.set_cookie(
             key="refresh_token",
@@ -451,19 +547,19 @@ async def refresh_token(
             httponly=True,
             secure=True,
             samesite="strict",
-            max_age=604800
+            max_age=604800,
         )
-        
+
         return {
             "message": "Token refreshed successfully",
-            "session": SessionResponse.from_orm(session)
+            "session": SessionResponse.from_orm(session),
         }
-        
+
     except Exception as e:
         logger.error(f"Token refresh error: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Token refresh failed"
+            detail="Token refresh failed",
         )
 
 
@@ -475,7 +571,7 @@ async def verify_mfa(
     response: Response,
     mfa_request: MFAVerificationRequest,
     db: AsyncSession = Depends(get_async_db),
-    auth_service: AuthService = Depends(get_auth_service)
+    auth_service: AuthService = Depends(get_auth_service),
 ):
     """
     Verify MFA code for user authentication.
@@ -483,27 +579,29 @@ async def verify_mfa(
     try:
         logger.info(f"MFA verification attempt for user_id: {mfa_request.user_id}")
         # Get user from session or request
-        user_id = mfa_request.user_id  # This should come from session in real implementation
+        user_id = (
+            mfa_request.user_id
+        )  # This should come from session in real implementation
         user = await auth_service._get_user_by_id(user_id)
         if not user:
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="User not found"
+                status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
             )
-        
+
         # Verify MFA code
-        is_valid = await auth_service.verify_mfa(user, mfa_request.code, mfa_request.device_id)
+        is_valid = await auth_service.verify_mfa(
+            user, mfa_request.code, mfa_request.device_id
+        )
         if not is_valid:
             raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid MFA code"
+                status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid MFA code"
             )
-        
+
         # Create session if MFA verification successful
         ip_address = request.client.host
         user_agent = request.headers.get("user-agent")
         session = await auth_service.create_session(user, ip_address, user_agent)
-        
+
         # Set secure cookies
         response.set_cookie(
             key="access_token",
@@ -511,7 +609,7 @@ async def verify_mfa(
             httponly=True,
             secure=True,
             samesite="strict",
-            max_age=900
+            max_age=900,
         )
         response.set_cookie(
             key="refresh_token",
@@ -519,20 +617,20 @@ async def verify_mfa(
             httponly=True,
             secure=True,
             samesite="strict",
-            max_age=604800
+            max_age=604800,
         )
-        
+
         return {
             "message": "MFA verification successful",
             "user": UserResponse.from_orm(user),
-            "session": SessionResponse.from_orm(session)
+            "session": SessionResponse.from_orm(session),
         }
-        
+
     except Exception as e:
         logger.error(f"MFA verification error: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="MFA verification failed"
+            detail="MFA verification failed",
         )
 
 
@@ -541,7 +639,7 @@ async def verify_mfa(
 async def setup_mfa(
     mfa_request: MFASetupRequest,
     current_user: User = Depends(get_current_user),
-    auth_service: AuthService = Depends(get_auth_service)
+    auth_service: AuthService = Depends(get_auth_service),
 ):
     """
     Setup MFA for user account.
@@ -550,20 +648,18 @@ async def setup_mfa(
         logger.info(f"MFA setup attempt for user: {current_user.email}")
         result = await auth_service.setup_mfa(current_user, mfa_request.device_name)
         return MFASetupResponse(**result)
-        
+
     except Exception as e:
         logger.error(f"MFA setup error: {e}")
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="MFA setup failed"
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="MFA setup failed"
         )
 
 
 @router.get("/me", response_model=UserResponse)
 @security_headers
 async def get_current_user_info(
-    current_user: User = Depends(get_current_user),
-    authorization: str = Header(None)
+    current_user: User = Depends(get_current_user), authorization: str = Header(None)
 ):
     logger.warning(f"[DEBUG] /me endpoint: Authorization header: {authorization}")
     return UserResponse.from_orm(current_user)
@@ -573,7 +669,7 @@ async def get_current_user_info(
 async def validate_token(
     request: Request,
     db: AsyncSession = Depends(get_async_db),
-    auth_service: AuthService = Depends(get_auth_service)
+    auth_service: AuthService = Depends(get_auth_service),
 ) -> Dict[str, Any]:
     """
     Forward authentication endpoint for Traefik.
@@ -589,16 +685,16 @@ async def validate_token(
                     "X-User-Id": "",
                     "X-User-Roles": "",
                     "X-User-Email": "",
-                    "X-Auth-Status": "unauthenticated"
-                }
+                    "X-Auth-Status": "unauthenticated",
+                },
             )
-        
+
         token = auth_header.split(" ")[1]
-        
+
         # Validate token
         try:
             user = await auth_service.validate_token(token, db)
-            
+
             # Return success with user headers for Traefik
             return JSONResponse(
                 status_code=200,
@@ -607,10 +703,10 @@ async def validate_token(
                     "X-User-Id": str(user.id),
                     "X-User-Roles": ",".join(user.roles) if user.roles else "user",
                     "X-User-Email": user.email,
-                    "X-Auth-Status": "authenticated"
-                }
+                    "X-Auth-Status": "authenticated",
+                },
             )
-            
+
         except HTTPException as e:
             return JSONResponse(
                 status_code=e.status_code,
@@ -619,10 +715,10 @@ async def validate_token(
                     "X-User-Id": "",
                     "X-User-Roles": "",
                     "X-User-Email": "",
-                    "X-Auth-Status": "invalid_token"
-                }
+                    "X-Auth-Status": "invalid_token",
+                },
             )
-            
+
     except Exception as e:
         logger.error(f"Forward auth validation error: {e}")
         return JSONResponse(
@@ -632,8 +728,8 @@ async def validate_token(
                 "X-User-Id": "",
                 "X-User-Roles": "",
                 "X-User-Email": "",
-                "X-Auth-Status": "error"
-            }
+                "X-Auth-Status": "error",
+            },
         )
 
 
@@ -644,43 +740,41 @@ async def request_password_reset(
     request: Request,
     reset_request: PasswordResetRequest,
     db: AsyncSession = Depends(get_async_db),
-    auth_service: AuthService = Depends(get_auth_service)
+    auth_service: AuthService = Depends(get_auth_service),
 ):
     """
     Request a password reset for the specified email.
-    
+
     This endpoint sends a password reset email with a secure token.
     """
     try:
         logger.info(f"Password reset request for email: {reset_request.email}")
-        
+
         ip_address = request.client.host
         user_agent = request.headers.get("user-agent")
-        
+
         # Request password reset
         success = await auth_service.request_password_reset(
-            reset_request.email, 
-            ip_address, 
-            user_agent
+            reset_request.email, ip_address, user_agent
         )
-        
+
         if success:
             return {
                 "message": "Password reset email sent successfully",
-                "email": reset_request.email
+                "email": reset_request.email,
             }
         else:
             # Don't reveal if email exists or not for security
             return {
                 "message": "If the email exists, a password reset link has been sent",
-                "email": reset_request.email
+                "email": reset_request.email,
             }
-            
+
     except Exception as e:
         logger.error(f"Password reset request error: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to process password reset request"
+            detail="Failed to process password reset request",
         )
 
 
@@ -691,44 +785,44 @@ async def confirm_password_reset(
     request: Request,
     reset_confirm: PasswordResetConfirm,
     db: AsyncSession = Depends(get_async_db),
-    auth_service: AuthService = Depends(get_auth_service)
+    auth_service: AuthService = Depends(get_auth_service),
 ):
     """
     Confirm password reset with token and set new password.
     """
     try:
         logger.info(f"Password reset confirmation for email: {reset_confirm.email}")
-        
+
         ip_address = request.client.host
         user_agent = request.headers.get("user-agent")
-        
+
         # Confirm password reset
         success = await auth_service.confirm_password_reset(
             reset_confirm.email,
             reset_confirm.token,
             reset_confirm.new_password,
             ip_address,
-            user_agent
+            user_agent,
         )
-        
+
         if success:
             return {
                 "message": "Password reset successfully",
-                "email": reset_confirm.email
+                "email": reset_confirm.email,
             }
         else:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid or expired reset token"
+                detail="Invalid or expired reset token",
             )
-            
+
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Password reset confirmation error: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to reset password"
+            detail="Failed to reset password",
         )
 
 
@@ -739,43 +833,43 @@ async def request_email_verification(
     request: Request,
     verification_request: EmailVerificationRequest,
     db: AsyncSession = Depends(get_async_db),
-    auth_service: AuthService = Depends(get_auth_service)
+    auth_service: AuthService = Depends(get_auth_service),
 ):
     """
     Request email verification for the specified email.
-    
+
     This endpoint sends a verification email with a secure token.
     """
     try:
-        logger.info(f"Email verification request for email: {verification_request.email}")
-        
+        logger.info(
+            f"Email verification request for email: {verification_request.email}"
+        )
+
         ip_address = request.client.host
         user_agent = request.headers.get("user-agent")
-        
+
         # Request email verification
         success = await auth_service.request_email_verification(
-            verification_request.email,
-            ip_address,
-            user_agent
+            verification_request.email, ip_address, user_agent
         )
-        
+
         if success:
             return {
                 "message": "Email verification link sent successfully",
-                "email": verification_request.email
+                "email": verification_request.email,
             }
         else:
             # Don't reveal if email exists or not for security
             return {
                 "message": "If the email exists, a verification link has been sent",
-                "email": verification_request.email
+                "email": verification_request.email,
             }
-            
+
     except Exception as e:
         logger.error(f"Email verification request error: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to process email verification request"
+            detail="Failed to process email verification request",
         )
 
 
@@ -786,43 +880,45 @@ async def confirm_email_verification(
     request: Request,
     verification_confirm: EmailVerificationConfirm,
     db: AsyncSession = Depends(get_async_db),
-    auth_service: AuthService = Depends(get_auth_service)
+    auth_service: AuthService = Depends(get_auth_service),
 ):
     """
     Confirm email verification with token.
     """
     try:
-        logger.info(f"Email verification confirmation for email: {verification_confirm.email}")
-        
+        logger.info(
+            f"Email verification confirmation for email: {verification_confirm.email}"
+        )
+
         ip_address = request.client.host
         user_agent = request.headers.get("user-agent")
-        
+
         # Confirm email verification
         success = await auth_service.confirm_email_verification(
             verification_confirm.email,
             verification_confirm.token,
             ip_address,
-            user_agent
+            user_agent,
         )
-        
+
         if success:
             return {
                 "message": "Email verified successfully",
-                "email": verification_confirm.email
+                "email": verification_confirm.email,
             }
         else:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid or expired verification token"
+                detail="Invalid or expired verification token",
             )
-            
+
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Email verification confirmation error: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to verify email"
+            detail="Failed to verify email",
         )
 
 
@@ -834,7 +930,7 @@ async def health_check():
     return {
         "status": "healthy",
         "service": "auth-service",
-        "timestamp": "2024-01-01T00:00:00Z"
+        "timestamp": "2024-01-01T00:00:00Z",
     }
 
 
@@ -846,5 +942,5 @@ async def readiness_check():
     return {
         "status": "ready",
         "service": "auth-service",
-        "timestamp": "2024-01-01T00:00:00Z"
-    } 
+        "timestamp": "2024-01-01T00:00:00Z",
+    }

@@ -30,8 +30,8 @@ from common.middleware.auth import auth_middleware
 from common.middleware.error_handling import setup_error_handlers
 from common.middleware.security import setup_security
 from common.utils.logging import setup_logging
-from common.utils.opentelemetry_config import configure_opentelemetry
 from common.models.registry import register_model
+from common.middleware.prometheus_metrics import setup_prometheus_metrics
 
 from apps.nutrition.api.nutrition import nutrition_router
 from apps.nutrition.api.food_recognition import food_recognition_router
@@ -54,9 +54,15 @@ LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 PROMETHEUS_ENABLED = os.getenv("PROMETHEUS_ENABLED", "true").lower() == "true"
 
 # External service URLs
-HEALTH_TRACKING_SERVICE_URL = os.getenv("HEALTH_TRACKING_SERVICE_URL", "http://health-tracking-service:8002")
-MEDICAL_ANALYSIS_SERVICE_URL = os.getenv("MEDICAL_ANALYSIS_SERVICE_URL", "http://medical-analysis-service:8006")
-USER_PROFILE_SERVICE_URL = os.getenv("USER_PROFILE_SERVICE_URL", "http://user-profile-service:8001")
+HEALTH_TRACKING_SERVICE_URL = os.getenv(
+    "HEALTH_TRACKING_SERVICE_URL", "http://health-tracking-service:8002"
+)
+MEDICAL_ANALYSIS_SERVICE_URL = os.getenv(
+    "MEDICAL_ANALYSIS_SERVICE_URL", "http://medical-analysis-service:8006"
+)
+USER_PROFILE_SERVICE_URL = os.getenv(
+    "USER_PROFILE_SERVICE_URL", "http://user-profile-service:8001"
+)
 AUTH_SERVICE_URL = os.getenv("AUTH_SERVICE_URL", "http://auth-service:8000")
 
 # API Keys for external services
@@ -73,22 +79,27 @@ async def lifespan(app: FastAPI):
     """Application lifespan manager."""
     # Startup
     logger.info("Starting Nutrition Service...")
-    
+
     # Register models in the global registry
     try:
-        from apps.nutrition.models.database_models import FoodRecognitionResult, MealLog, NutritionGoal
+        from apps.nutrition.models.database_models import (
+            FoodRecognitionResult,
+            MealLog,
+            NutritionGoal,
+        )
+
         register_model("FoodRecognitionResult", FoodRecognitionResult)
         register_model("MealLog", MealLog)
         register_model("NutritionGoal", NutritionGoal)
         logger.info("Nutrition models registered in global registry")
     except Exception as e:
         logger.warning(f"Failed to register nutrition models: {e}")
-    
+
     # Initialize services
     app.state.nutrition_service = NutritionService()
     app.state.food_recognition_service = FoodRecognitionService()
     app.state.recommendations_service = RecommendationsService()
-    
+
     # Test database connection
     try:
         db_manager = get_db_manager()
@@ -99,16 +110,11 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"Failed to connect to database: {e}")
         raise
-    
-    # Setup OpenTelemetry if enabled
-    if hasattr(settings, "TRACING_ENABLED") and settings.TRACING_ENABLED:
-        configure_opentelemetry(app, "nutrition-service")
-        logger.info("OpenTelemetry configured")
-    
+
     logger.info("Nutrition Service started successfully")
-    
+
     yield
-    
+
     # Shutdown
     logger.info("Shutting down Nutrition Service...")
     # No explicit disconnect needed for SQLAlchemy async engine
@@ -121,8 +127,19 @@ app = FastAPI(
     version="1.0.0",
     docs_url="/docs" if ENVIRONMENT == "development" else None,
     redoc_url="/redoc" if ENVIRONMENT == "development" else None,
-    lifespan=lifespan
+    lifespan=lifespan,
 )
+
+# Setup Prometheus metrics
+setup_prometheus_metrics(app, service_name="nutrition-service")
+
+# Configure OpenTelemetry tracing
+try:
+    from common.utils.opentelemetry_config import configure_opentelemetry
+
+    configure_opentelemetry(app, "nutrition-service")
+except ImportError:
+    pass
 
 # Add CORS middleware
 app.add_middleware(
@@ -134,11 +151,8 @@ app.add_middleware(
 )
 
 # Add trusted host middleware
-if hasattr(settings, 'ALLOWED_HOSTS') and settings.ALLOWED_HOSTS:
-    app.add_middleware(
-        TrustedHostMiddleware,
-        allowed_hosts=settings.ALLOWED_HOSTS
-    )
+if hasattr(settings, "ALLOWED_HOSTS") and settings.ALLOWED_HOSTS:
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.ALLOWED_HOSTS)
 
 # Add auth middleware first (will be executed last)
 app.middleware("http")(auth_middleware)
@@ -151,8 +165,14 @@ setup_error_handlers(app)
 
 # Include routers
 app.include_router(nutrition_router, prefix="/api/v1/nutrition", tags=["nutrition"])
-app.include_router(food_recognition_router, prefix="/api/v1/food-recognition", tags=["food-recognition"])
-app.include_router(recommendations_router, prefix="/api/v1/recommendations", tags=["recommendations"])
+app.include_router(
+    food_recognition_router,
+    prefix="/api/v1/food-recognition",
+    tags=["food-recognition"],
+)
+app.include_router(
+    recommendations_router, prefix="/api/v1/recommendations", tags=["recommendations"]
+)
 app.include_router(goals_router, prefix="/api/v1/goals", tags=["goals"])
 
 
@@ -164,7 +184,7 @@ async def root() -> Dict[str, Any]:
         "version": "1.0.0",
         "docs": "/docs" if ENVIRONMENT == "development" else None,
         "health": "/health",
-        "ready": "/ready"
+        "ready": "/ready",
     }
 
 
@@ -177,27 +197,26 @@ async def health_check() -> Dict[str, Any]:
         async_session_factory = db_manager.get_async_session_factory()
         async with async_session_factory() as session:
             await session.execute(text("SELECT 1"))
-        
+
         # Check external services
         services_status = {
             "database": "healthy",
             "food_recognition": "healthy",
             "nutrition_analysis": "healthy",
-            "recommendations": "healthy"
+            "recommendations": "healthy",
         }
-        
+
         return {
             "service": "nutrition",
             "status": "healthy",
             "version": "1.0.0",
             "environment": ENVIRONMENT,
-            "services": services_status
+            "services": services_status,
         }
     except Exception as e:
         logger.error(f"Health check failed: {e}")
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Service unhealthy"
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Service unhealthy"
         )
 
 
@@ -210,47 +229,27 @@ async def readiness_check() -> Dict[str, Any]:
         async_session_factory = db_manager.get_async_session_factory()
         async with async_session_factory() as session:
             await session.execute(text("SELECT 1"))
-        
+
         # Check if all required services are available
         required_services = [
             "nutrition_service",
-            "food_recognition_service", 
-            "recommendations_service"
+            "food_recognition_service",
+            "recommendations_service",
         ]
-        
+
         for service_name in required_services:
             if not hasattr(app.state, service_name):
                 raise HTTPException(
                     status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    detail=f"Service {service_name} not initialized"
+                    detail=f"Service {service_name} not initialized",
                 )
-        
-        return {
-            "service": "nutrition",
-            "status": "ready",
-            "version": "1.0.0"
-        }
+
+        return {"service": "nutrition", "status": "ready", "version": "1.0.0"}
     except Exception as e:
         logger.error(f"Readiness check failed: {e}")
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Service not ready"
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Service not ready"
         )
-
-
-@app.get("/metrics", tags=["monitoring"])
-async def metrics() -> Dict[str, Any]:
-    """Prometheus metrics endpoint."""
-    if not PROMETHEUS_ENABLED:
-        raise HTTPException(status_code=404, detail="Metrics not enabled")
-    
-    # Basic metrics for now - can be enhanced with Prometheus client
-    return {
-        "service": "nutrition",
-        "requests_total": 0,
-        "requests_failed": 0,
-        "processing_time_avg": 0.0
-    }
 
 
 if __name__ == "__main__":
@@ -259,5 +258,5 @@ if __name__ == "__main__":
         host="0.0.0.0",
         port=8007,
         reload=ENVIRONMENT == "development",
-        log_level=LOG_LEVEL.lower()
-    ) 
+        log_level=LOG_LEVEL.lower(),
+    )
