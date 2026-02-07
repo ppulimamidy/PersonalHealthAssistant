@@ -1,0 +1,53 @@
+# AI Reasoning Orchestrator Service Requirements
+# Core dependencies for AI-powered health reasoning and orchestration
+
+# FastAPI and web framework
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+python-multipart==0.0.6
+
+# HTTP client for service communication
+httpx==0.25.2
+
+# Data validation and serialization
+pydantic==2.5.0
+pydantic-settings==2.1.0
+
+# Caching and session management
+redis==5.0.1
+
+# Date and time handling
+python-dateutil==2.8.2
+pytz==2023.3
+
+# Logging and monitoring
+structlog==23.2.0
+prometheus-client==0.19.0
+
+# Environment and configuration
+python-dotenv==1.0.0
+
+# Error handling and resilience
+tenacity==8.2.3
+
+# CORS and middleware
+starlette==0.27.0
+
+# JWT and authentication
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+
+# AI and ML dependencies
+openai>=1.6.1
+langchain==0.0.350
+langchain-openai==0.0.2
+
+# Medical knowledge integration
+requests==2.31.0
+
+# Data processing
+pandas>=2.0.0
+numpy>=1.20.0
+
+# Async support
+asyncio-mqtt==0.13.0
