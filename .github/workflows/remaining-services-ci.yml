@@ -125,12 +125,14 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Set lowercase image name
+        run: echo "REPO_LC=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
       - uses: docker/build-push-action@v5
         with:
           context: .
           file: apps/medical_analysis/Dockerfile
           push: true
-          tags: ghcr.io/${{ github.repository }}/medical-analysis-service:${{ github.sha }}
+          tags: ghcr.io/${{ env.REPO_LC }}/medical-analysis-service:${{ github.sha }}
 
   build-health-analysis:
     name: Build Health Analysis
@@ -145,12 +147,14 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Set lowercase image name
+        run: echo "REPO_LC=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
       - uses: docker/build-push-action@v5
         with:
           context: .
           file: apps/health_analysis/Dockerfile
           push: true
-          tags: ghcr.io/${{ github.repository }}/health-analysis-service:${{ github.sha }}
+          tags: ghcr.io/${{ env.REPO_LC }}/health-analysis-service:${{ github.sha }}
 
   build-doctor-collaboration:
     name: Build Doctor Collaboration
@@ -165,12 +169,14 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Set lowercase image name
+        run: echo "REPO_LC=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
       - uses: docker/build-push-action@v5
         with:
           context: .
           file: apps/doctor_collaboration/Dockerfile
           push: true
-          tags: ghcr.io/${{ github.repository }}/doctor-collaboration-service:${{ github.sha }}
+          tags: ghcr.io/${{ env.REPO_LC }}/doctor-collaboration-service:${{ github.sha }}
 
   build-consent-audit:
     name: Build Consent Audit
@@ -185,12 +191,14 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Set lowercase image name
+        run: echo "REPO_LC=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
       - uses: docker/build-push-action@v5
         with:
           context: .
           file: apps/consent_audit/Dockerfile
           push: true
-          tags: ghcr.io/${{ github.repository }}/consent-audit-service:${{ github.sha }}
+          tags: ghcr.io/${{ env.REPO_LC }}/consent-audit-service:${{ github.sha }}
 
   build-analytics:
     name: Build Analytics
@@ -205,12 +213,14 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Set lowercase image name
+        run: echo "REPO_LC=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
       - uses: docker/build-push-action@v5
         with:
           context: .
           file: apps/analytics/Dockerfile
           push: true
-          tags: ghcr.io/${{ github.repository }}/analytics-service:${{ github.sha }}
+          tags: ghcr.io/${{ env.REPO_LC }}/analytics-service:${{ github.sha }}
 
   build-graphql-bff:
     name: Build GraphQL BFF
@@ -225,12 +235,14 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Set lowercase image name
+        run: echo "REPO_LC=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
       - uses: docker/build-push-action@v5
         with:
           context: .
           file: apps/graphql_bff/Dockerfile
           push: true
-          tags: ghcr.io/${{ github.repository }}/graphql-bff:${{ github.sha }}
+          tags: ghcr.io/${{ env.REPO_LC }}/graphql-bff:${{ github.sha }}
 
   build-ai-reasoning:
     name: Build AI Reasoning Orchestrator
@@ -245,9 +257,11 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Set lowercase image name
+        run: echo "REPO_LC=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
       - uses: docker/build-push-action@v5
         with:
           context: .
           file: apps/ai_reasoning_orchestrator/Dockerfile
           push: true
-          tags: ghcr.io/${{ github.repository }}/ai-reasoning-orchestrator:${{ github.sha }}
+          tags: ghcr.io/${{ env.REPO_LC }}/ai-reasoning-orchestrator:${{ github.sha }}
