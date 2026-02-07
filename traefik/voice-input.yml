@@ -1,0 +1,76 @@
+# Voice Input Service Traefik Configuration
+
+http:
+  routers:
+    voice-input:
+      rule: "Host(`voice-input.localhost`)"
+      service: voice-input-service
+      entryPoints:
+        - web
+      middlewares:
+        - voice-input-cors
+        - voice-input-stripprefix
+      tls: {}
+
+  services:
+    voice-input-service:
+      loadBalancer:
+        servers:
+          - url: "http://voice-input-service:8003"
+        healthCheck:
+          path: "/health"
+          interval: "30s"
+          timeout: "10s"
+
+  middlewares:
+    voice-input-cors:
+      headers:
+        accessControlAllowMethods:
+          - GET
+          - POST
+          - PUT
+          - DELETE
+          - OPTIONS
+        accessControlAllowOriginList:
+          - "http://localhost:3000"
+          - "http://localhost:8080"
+          - "http://voice-input.localhost"
+        accessControlAllowHeaders:
+          - "*"
+        accessControlAllowCredentials: true
+        accessControlMaxAge: 86400
+
+    voice-input-stripprefix:
+      stripPrefix:
+        prefixes:
+          - "/voice"
+
+    voice-input-rate-limit:
+      rateLimit:
+        burst: 100
+        average: 50
+
+    voice-input-compress:
+      compress:
+        excludedContentTypes:
+          - "audio/*"
+          - "video/*"
+          - "application/octet-stream"
+
+# TCP Configuration (if needed for WebSocket support)
+tcp:
+  routers:
+    voice-input-ws:
+      rule: "Host(`voice-input.localhost`)"
+      service: voice-input-service
+      entryPoints:
+        - web
+      tls: {}
+
+# UDP Configuration (if needed for real-time audio streaming)
+udp:
+  routers:
+    voice-input-rtp:
+      service: voice-input-service
+      entryPoints:
+        - web 

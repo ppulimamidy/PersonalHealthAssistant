@@ -1,0 +1,87 @@
+# Knowledge Graph Service Traefik Configuration
+
+http:
+  routers:
+    knowledge-graph:
+      rule: "Host(`knowledge-graph.localhost`)"
+      service: knowledge-graph-service
+      entryPoints:
+        - web
+      middlewares:
+        - knowledge-graph-cors
+        - knowledge-graph-auth-forward
+        - knowledge-graph-rate-limit
+        - knowledge-graph-security-headers
+
+    knowledge-graph-public:
+      rule: "Host(`knowledge-graph.localhost`) && (PathPrefix(`/health`) || PathPrefix(`/ready`) || PathPrefix(`/info`))"
+      service: knowledge-graph-service
+      entryPoints:
+        - web
+      middlewares:
+        - knowledge-graph-cors
+        - knowledge-graph-security-headers
+      priority: 100
+
+  services:
+    knowledge-graph-service:
+      loadBalancer:
+        servers:
+          - url: "http://knowledge-graph-service:8010"
+        healthCheck:
+          path: "/health"
+          interval: "30s"
+          timeout: "10s"
+
+  middlewares:
+    knowledge-graph-cors:
+      headers:
+        accessControlAllowMethods:
+          - GET
+          - POST
+          - PUT
+          - DELETE
+          - OPTIONS
+        accessControlAllowOriginList:
+          - "http://localhost:3000"
+          - "http://localhost:8080"
+          - "http://localhost:5173"
+        accessControlAllowHeaders:
+          - "*"
+        accessControlAllowCredentials: true
+
+    knowledge-graph-auth-forward:
+      forwardAuth:
+        address: "http://auth-service:8000/auth/validate"
+        trustForwardHeader: true
+        authResponseHeaders:
+          - "X-User-Id"
+          - "X-User-Roles"
+          - "X-User-Email"
+          - "X-Auth-Status"
+
+    knowledge-graph-rate-limit:
+      rateLimit:
+        burst: 100
+        average: 50
+        period: "1s"
+
+    knowledge-graph-security-headers:
+      headers:
+        frameDeny: true
+        sslRedirect: false
+        browserXssFilter: true
+        contentTypeNosniff: true
+        forceSTSHeader: false
+        stsIncludeSubdomains: false
+        stsPreload: false
+        customRequestHeaders:
+          X-Forwarded-Proto: "http"
+        customResponseHeaders:
+          X-Robots-Tag: "none,noarchive,nosnippet,notranslate,noimageindex"
+          X-Content-Type-Options: "nosniff"
+          X-Frame-Options: "DENY"
+          X-XSS-Protection: "1; mode=block"
+          Referrer-Policy: "strict-origin-when-cross-origin"
+          Permissions-Policy: "camera=(), microphone=(), geolocation=()"
+          X-Request-ID: "request-id" 

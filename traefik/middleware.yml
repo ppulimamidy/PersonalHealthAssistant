@@ -1,0 +1,172 @@
+# Enhanced Middleware Configuration for Personal Health Assistant
+# Global middlewares for security, authentication, and performance
+
+http:
+  middlewares:
+    # Forward Authentication Middleware
+    auth-forward:
+      forwardAuth:
+        address: "http://auth-service:8000/api/v1/auth/validate"
+        trustForwardHeader: true
+        authResponseHeaders:
+          - "X-User-Id"
+          - "X-User-Roles"
+          - "X-User-Email"
+          - "X-Auth-Status"
+        authResponseHeadersSet: true
+        authResponseHeadersRemove: true
+
+    # Global Rate Limiting
+    rate-limit-global:
+      rateLimit:
+        burst: 200
+        average: 100
+        period: "1s"
+        sourceCriterion:
+          ipStrategy:
+            depth: 1
+            excludedIPs:
+              - "127.0.0.1"
+              - "::1"
+
+    # Per-User Rate Limiting (requires authentication)
+    rate-limit-user:
+      rateLimit:
+        burst: 50
+        average: 25
+        period: "1s"
+        sourceCriterion:
+          requestHeaderName: "X-User-Id"
+
+    # Circuit Breaker for Service Protection
+    circuit-breaker:
+      circuitBreaker:
+        expression: "NetworkErrorRatio() > 0.5 || LatencyAtQuantileMS(50.0) > 1000"
+        fallbackDuration: "10s"
+        recoveryDuration: "30s"
+
+    # Security Headers
+    security-headers:
+      headers:
+        customRequestHeaders:
+          X-Forwarded-Proto: "http"
+          X-Real-IP: "127.0.0.1"
+        customResponseHeaders:
+          X-Frame-Options: "DENY"
+          X-Content-Type-Options: "nosniff"
+          X-XSS-Protection: "1; mode=block"
+          Referrer-Policy: "strict-origin-when-cross-origin"
+          Content-Security-Policy: "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https:; frame-ancestors 'none';"
+          Strict-Transport-Security: "max-age=31536000; includeSubDomains; preload"
+          Permissions-Policy: "geolocation=(), microphone=(), camera=()"
+        sslRedirect: true
+        forceSTSHeader: true
+        stsIncludeSubdomains: true
+        stsPreload: true
+        stsSeconds: 31536000
+
+    # CORS Configuration
+    cors-global:
+      headers:
+        accessControlAllowMethods:
+          - GET
+          - POST
+          - PUT
+          - DELETE
+          - PATCH
+          - OPTIONS
+        accessControlAllowOriginList:
+          - "http://localhost:3000"
+          - "http://localhost:8080"
+          - "http://localhost:5173"
+          - "https://personalhealthassistant.com"
+          - "https://*.personalhealthassistant.com"
+        accessControlAllowHeaders:
+          - "*"
+        accessControlAllowCredentials: true
+        accessControlMaxAge: 86400
+        addVaryHeader: true
+
+    # Request ID Generation
+    request-id:
+      headers:
+        customRequestHeaders:
+          X-Request-ID: "request-id"
+        customResponseHeaders:
+          X-Request-ID: "request-id"
+
+    # Compression
+    compress:
+      compress:
+        excludedContentTypes:
+          - "audio/*"
+          - "video/*"
+          - "application/octet-stream"
+          - "application/zip"
+          - "application/gzip"
+          - "image/*"
+
+    # Strip Prefix for API Versioning
+    strip-api-prefix:
+      stripPrefix:
+        prefixes:
+          - "/api/v1"
+
+    # Add Prefix for Service Routing
+    add-service-prefix:
+      addPrefix:
+        prefix: "/api/v1"
+
+    # IP Whitelist (for admin endpoints)
+    ip-whitelist:
+      ipWhiteList:
+        sourceRange:
+          - "127.0.0.1/32"
+          - "::1/128"
+          - "10.0.0.0/8"
+          - "172.16.0.0/12"
+          - "192.168.0.0/16"
+
+    # Basic Authentication (for monitoring endpoints)
+    basic-auth:
+      basicAuth:
+        users:
+          - "admin:$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi"  # password
+        usersFile: "/etc/traefik/.htpasswd"
+        removeHeader: true
+
+    # Retry Configuration
+    retry:
+      retry:
+        attempts: 3
+        initialInterval: "100ms"
+
+    # Timeout Configuration
+    timeout:
+      headers:
+        customRequestHeaders:
+          X-Timeout: "30s"
+
+    # Cache Control
+    cache-control:
+      headers:
+        customResponseHeaders:
+          Cache-Control: "no-cache, no-store, must-revalidate"
+          Pragma: "no-cache"
+          Expires: "0"
+
+    # Health Check Bypass
+    health-bypass:
+      headers:
+        customRequestHeaders:
+          X-Health-Check: "true"
+
+    # Service Mesh Headers
+    service-mesh:
+      headers:
+        customRequestHeaders:
+          X-Service-Mesh: "traefik"
+          X-Service-Version: "2.10"
+        customResponseHeaders:
+          X-Service-Mesh: "traefik"
+          X-Service-Version: "2.10" 

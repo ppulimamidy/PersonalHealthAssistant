@@ -1,0 +1,169 @@
+{
+  "timestamp": "2025-08-04T23:13:38.368384",
+  "service_overview": {
+    "name": "Knowledge Graph Service",
+    "version": "1.0.0",
+    "description": "Advanced medical knowledge management system for the Personal Health Assistant platform",
+    "architecture": "Microservices-based with Neo4j graph database and Qdrant vector database",
+    "technologies": [
+      "FastAPI",
+      "Neo4j",
+      "Qdrant",
+      "Python",
+      "Docker",
+      "Traefik"
+    ],
+    "status": "Production Ready"
+  },
+  "integrations": {
+    "medical_records": {
+      "service": "Medical Records Service",
+      "integration_type": "Entity Enrichment & Validation",
+      "endpoints": [
+        "POST /api/v1/medical-records/lab-results/{id}/enrich-with-knowledge-graph",
+        "POST /api/v1/medical-records/lab-results/validate-medical-codes"
+      ],
+      "capabilities": [
+        "Enrich lab results with medical entities",
+        "Validate medical codes against ontologies",
+        "Generate treatment recommendations",
+        "Check drug interactions"
+      ],
+      "benefits": [
+        "Improved data quality and accuracy",
+        "Enhanced medical insights",
+        "Standardized medical terminology",
+        "Evidence-based recommendations"
+      ]
+    },
+    "ai_insights": {
+      "service": "AI Insights Service",
+      "integration_type": "Intelligent Analysis & Recommendations",
+      "endpoints": [
+        "POST /api/v1/ai-insights/insights/enrich-with-knowledge-graph",
+        "POST /api/v1/ai-insights/insights/generate-evidence-based-recommendations",
+        "POST /api/v1/ai-insights/insights/validate-medical-entities",
+        "GET /api/v1/ai-insights/insights/knowledge-graph-stats",
+        "POST /api/v1/ai-insights/insights/search-medical-entities"
+      ],
+      "capabilities": [
+        "Enrich AI-generated insights with medical context",
+        "Generate evidence-based recommendations",
+        "Validate medical entities in insights",
+        "Access knowledge graph statistics",
+        "Search for medical entities"
+      ],
+      "benefits": [
+        "More accurate AI insights",
+        "Evidence-based recommendations",
+        "Improved medical entity recognition",
+        "Enhanced decision support"
+      ]
+    },
+    "health_tracking": {
+      "service": "Health Tracking Service",
+      "integration_type": "Health Analytics Enhancement",
+      "endpoints": [
+        "POST /api/v1/health-tracking/analytics/enrich-metrics",
+        "POST /api/v1/health-tracking/analytics/evidence-based-recommendations",
+        "POST /api/v1/health-tracking/analytics/validate-health-entities"
+      ],
+      "capabilities": [
+        "Enrich health metrics with medical context",
+        "Generate evidence-based health recommendations",
+        "Validate health-related entities",
+        "Correlate symptoms with conditions"
+      ],
+      "benefits": [
+        "Enhanced health analytics",
+        "Personalized health recommendations",
+        "Improved health monitoring",
+        "Better health insights"
+      ]
+    }
+  },
+  "capabilities": {
+    "core_functionality": [
+      "Medical Entity Management",
+      "Relationship Management",
+      "Semantic Search",
+      "Graph Analytics",
+      "Ontology Integration"
+    ],
+    "advanced_features": [
+      "Evidence-based Recommendations",
+      "Drug Interaction Checking",
+      "Medical Code Validation",
+      "Path Finding Between Entities",
+      "Confidence Scoring",
+      "Evidence Level Assessment"
+    ],
+    "integration_features": [
+      "RESTful API",
+      "Async Client Libraries",
+      "Circuit Breaker Patterns",
+      "Error Handling",
+      "Rate Limiting",
+      "Authentication & Authorization"
+    ]
+  },
+  "statistics": {
+    "total_entities": 218,
+    "total_relationships": 115,
+    "entities_by_type": {
+      "condition": 32,
+      "symptom": 32,
+      "medication": 20,
+      "treatment": 28,
+      "procedure": 20,
+      "lab_test": 28,
+      "vital_sign": 28,
+      "risk_factor": 30
+    },
+    "relationships_by_type": {
+      "manifests_as": 30,
+      "treated_by": 25,
+      "risk_factor_for": 31,
+      "interacts_with": 5,
+      "complicates": 8,
+      "monitored_by": 16
+    },
+    "ontology_coverage": {},
+    "last_updated": "2025-08-04T23:13:38.433977",
+    "graph_density": 0.0024309812708747307,
+    "average_degree": 1.055045871559633
+  },
+  "endpoints": {
+    "core_endpoints": [
+      "GET /health - Health check",
+      "GET /api/v1/knowledge-graph/statistics - Get statistics",
+      "GET /api/v1/knowledge-graph/entities - List entities",
+      "POST /api/v1/knowledge-graph/entities - Create entity",
+      "GET /api/v1/knowledge-graph/entities/{id} - Get entity",
+      "PUT /api/v1/knowledge-graph/entities/{id} - Update entity",
+      "DELETE /api/v1/knowledge-graph/entities/{id} - Delete entity"
+    ],
+    "search_endpoints": [
+      "GET /api/v1/knowledge-graph/search/quick - Quick search",
+      "POST /api/v1/knowledge-graph/search/semantic - Semantic search",
+      "POST /api/v1/knowledge-graph/search/paths - Find paths"
+    ],
+    "relationship_endpoints": [
+      "GET /api/v1/knowledge-graph/relationships - List relationships",
+      "POST /api/v1/knowledge-graph/relationships - Create relationship"
+    ],
+    "recommendation_endpoints": [
+      "GET /api/v1/knowledge-graph/recommendations/patient/{id} - Get recommendations"
+    ]
+  },
+  "recommendations": [
+    "Continue expanding medical ontologies and knowledge bases",
+    "Implement advanced graph analytics and machine learning",
+    "Add real-time streaming capabilities for live data updates",
+    "Enhance semantic search with more sophisticated algorithms",
+    "Implement caching strategies for improved performance",
+    "Add more comprehensive drug interaction databases",
+    "Integrate with external medical knowledge sources",
+    "Implement advanced security and privacy features"
+  ]
+}

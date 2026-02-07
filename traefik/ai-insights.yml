@@ -1,0 +1,31 @@
+http:
+  routers:
+    ai-insights:
+      rule: "Host(`ai-insights.localhost`)"
+      service: ai-insights
+      entryPoints:
+        - web
+      middlewares:
+        - ai-insights-cors
+
+  services:
+    ai-insights:
+      loadBalancer:
+        servers:
+          - url: "http://host.docker.internal:8200"
+
+  middlewares:
+    ai-insights-cors:
+      headers:
+        accessControlAllowMethods:
+          - GET
+          - POST
+          - PUT
+          - DELETE
+          - OPTIONS
+        accessControlAllowOriginList:
+          - "http://localhost:3000"
+          - "http://localhost:8080"
+        accessControlAllowHeaders:
+          - "*"
+        accessControlAllowCredentials: true 

@@ -1,0 +1,119 @@
+# Enhanced Analytics Service Traefik Configuration
+# Includes forward authentication, security headers, and rate limiting
+
+http:
+  routers:
+    analytics-service:
+      rule: "Host(`analytics.localhost`) || Host(`analytics.personalhealthassistant.com`)"
+      service: analytics-service
+      entryPoints:
+        - web
+      middlewares:
+        - auth-forward
+        - analytics-security-headers
+        - analytics-rate-limit
+        - analytics-cors
+        - request-id
+        - compress
+        - circuit-breaker
+        - retry
+      priority: 100
+
+    # Public analytics endpoints (no forward auth)
+    analytics-public:
+      rule: "Host(`analytics.localhost`) && (PathPrefix(`/health`) || PathPrefix(`/ready`) || PathPrefix(`/capabilities`))"
+      service: analytics-service
+      entryPoints:
+        - web
+      middlewares:
+        - analytics-security-headers
+        - analytics-rate-limit
+        - analytics-cors
+        - request-id
+        - compress
+      priority: 200
+
+  services:
+    analytics-service:
+      loadBalancer:
+        servers:
+          - url: "http://analytics-service:8210"
+        healthCheck:
+          path: "/health"
+          interval: "30s"
+          timeout: "10s"
+          headers:
+            X-Health-Check: "true"
+        passHostHeader: true
+
+  middlewares:
+    analytics-security-headers:
+      headers:
+        customRequestHeaders:
+          X-Service: "analytics-service"
+          X-Forwarded-Proto: "http"
+        customResponseHeaders:
+          X-Service: "analytics-service"
+          X-Frame-Options: "DENY"
+          X-Content-Type-Options: "nosniff"
+          X-XSS-Protection: "1; mode=block"
+          Referrer-Policy: "strict-origin-when-cross-origin"
+          Content-Security-Policy: "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self'; frame-ancestors 'none';"
+        # Remove SSL redirect for development
+        # sslRedirect: true
+        # forceSTSHeader: true
+        # stsIncludeSubdomains: true
+        # stsPreload: true
+        # stsSeconds: 31536000
+
+    analytics-rate-limit:
+      rateLimit:
+        burst: 50
+        average: 25
+        period: "1s"
+        sourceCriterion:
+          requestHeaderName: "X-User-Id"
+
+    analytics-cors:
+      headers:
+        accessControlAllowMethods:
+          - GET
+          - POST
+          - PUT
+          - DELETE
+          - OPTIONS
+        accessControlAllowOriginList:
+          - "http://localhost:3000"
+          - "http://localhost:8080"
+          - "http://localhost:5173"
+          - "https://personalhealthassistant.com"
+          - "https://*.personalhealthassistant.com"
+        accessControlAllowHeaders:
+          - "*"
+        accessControlAllowCredentials: true
+        accessControlMaxAge: 86400
+        addVaryHeader: true
+
+    request-id:
+      headers:
+        customRequestHeaders:
+          X-Request-ID: "request-id"
+        customResponseHeaders:
+          X-Request-ID: "request-id"
+
+    compress:
+      compress:
+        excludedContentTypes:
+          - "application/json"
+          - "text/plain"
+
+    circuit-breaker:
+      circuitBreaker:
+        expression: "NetworkErrorRatio() > 0.3 || LatencyAtQuantileMS(50.0) > 2000"
+        fallbackDuration: "10s"
+        recoveryDuration: "30s"
+
+    retry:
+      retry:
+        attempts: 3
+        initialInterval: "100ms" 

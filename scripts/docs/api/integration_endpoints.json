@@ -1,0 +1,429 @@
+{
+  "knowledge_graph": {
+    "base_url": "http://knowledge-graph.localhost",
+    "endpoints": [
+      {
+        "path": "/health",
+        "method": "GET",
+        "description": "Health check endpoint",
+        "category": "health"
+      },
+      {
+        "path": "/api/v1/knowledge-graph/statistics",
+        "method": "GET",
+        "description": "Get knowledge graph statistics",
+        "category": "analytics"
+      },
+      {
+        "path": "/api/v1/knowledge-graph/entities",
+        "method": "GET",
+        "description": "List medical entities with optional filtering",
+        "category": "entities",
+        "parameters": [
+          {
+            "name": "entity_type",
+            "type": "string",
+            "required": false,
+            "description": "Filter by entity type"
+          },
+          {
+            "name": "source",
+            "type": "string",
+            "required": false,
+            "description": "Filter by ontology source"
+          },
+          {
+            "name": "limit",
+            "type": "integer",
+            "required": false,
+            "description": "Maximum number of results",
+            "default": 50
+          },
+          {
+            "name": "offset",
+            "type": "integer",
+            "required": false,
+            "description": "Number of results to skip",
+            "default": 0
+          }
+        ]
+      },
+      {
+        "path": "/api/v1/knowledge-graph/entities/{entity_id}",
+        "method": "GET",
+        "description": "Get a specific medical entity by ID",
+        "category": "entities",
+        "parameters": [
+          {
+            "name": "entity_id",
+            "type": "UUID",
+            "required": true,
+            "description": "Entity ID"
+          }
+        ]
+      },
+      {
+        "path": "/api/v1/knowledge-graph/entities",
+        "method": "POST",
+        "description": "Create a new medical entity",
+        "category": "entities",
+        "request_body": {
+          "name": "string",
+          "display_name": "string",
+          "entity_type": "string",
+          "description": "string",
+          "synonyms": [
+            "string"
+          ],
+          "ontology_ids": {
+            "string": "string"
+          },
+          "confidence": "string",
+          "evidence_level": "string",
+          "source": "string",
+          "metadata": {
+            "string": "any"
+          }
+        }
+      },
+      {
+        "path": "/api/v1/knowledge-graph/entities/{entity_id}",
+        "method": "PUT",
+        "description": "Update a medical entity",
+        "category": "entities",
+        "parameters": [
+          {
+            "name": "entity_id",
+            "type": "UUID",
+            "required": true,
+            "description": "Entity ID"
+          }
+        ]
+      },
+      {
+        "path": "/api/v1/knowledge-graph/entities/{entity_id}",
+        "method": "DELETE",
+        "description": "Delete a medical entity",
+        "category": "entities",
+        "parameters": [
+          {
+            "name": "entity_id",
+            "type": "UUID",
+            "required": true,
+            "description": "Entity ID"
+          }
+        ]
+      },
+      {
+        "path": "/api/v1/knowledge-graph/search/quick",
+        "method": "GET",
+        "description": "Quick search for medical entities",
+        "category": "search",
+        "parameters": [
+          {
+            "name": "q",
+            "type": "string",
+            "required": true,
+            "description": "Search query"
+          },
+          {
+            "name": "entity_type",
+            "type": "string",
+            "required": false,
+            "description": "Filter by entity type"
+          },
+          {
+            "name": "limit",
+            "type": "integer",
+            "required": false,
+            "description": "Maximum number of results",
+            "default": 10
+          }
+        ]
+      },
+      {
+        "path": "/api/v1/knowledge-graph/search/semantic",
+        "method": "POST",
+        "description": "Semantic search for medical entities",
+        "category": "search",
+        "request_body": {
+          "query_type": "string",
+          "query_text": "string",
+          "limit": "integer"
+        }
+      },
+      {
+        "path": "/api/v1/knowledge-graph/search/paths",
+        "method": "POST",
+        "description": "Find paths between entities",
+        "category": "search",
+        "request_body": {
+          "source_entity_id": "UUID",
+          "target_entity_id": "UUID",
+          "max_paths": "integer"
+        }
+      },
+      {
+        "path": "/api/v1/knowledge-graph/relationships",
+        "method": "GET",
+        "description": "List relationships with optional filtering",
+        "category": "relationships",
+        "parameters": [
+          {
+            "name": "relationship_type",
+            "type": "string",
+            "required": false,
+            "description": "Filter by relationship type"
+          },
+          {
+            "name": "source_entity_id",
+            "type": "UUID",
+            "required": false,
+            "description": "Filter by source entity"
+          },
+          {
+            "name": "target_entity_id",
+            "type": "UUID",
+            "required": false,
+            "description": "Filter by target entity"
+          },
+          {
+            "name": "limit",
+            "type": "integer",
+            "required": false,
+            "description": "Maximum number of results",
+            "default": 50
+          }
+        ]
+      },
+      {
+        "path": "/api/v1/knowledge-graph/relationships",
+        "method": "POST",
+        "description": "Create a new relationship",
+        "category": "relationships",
+        "request_body": {
+          "source_entity_id": "UUID",
+          "target_entity_id": "UUID",
+          "relationship_type": "string",
+          "confidence": "float",
+          "evidence_level": "string",
+          "metadata": {
+            "string": "any"
+          }
+        }
+      },
+      {
+        "path": "/api/v1/knowledge-graph/recommendations/patient/{patient_id}",
+        "method": "GET",
+        "description": "Get personalized recommendations for a patient",
+        "category": "recommendations",
+        "parameters": [
+          {
+            "name": "patient_id",
+            "type": "UUID",
+            "required": true,
+            "description": "Patient ID"
+          },
+          {
+            "name": "recommendation_type",
+            "type": "string",
+            "required": false,
+            "description": "Filter by recommendation type"
+          },
+          {
+            "name": "limit",
+            "type": "integer",
+            "required": false,
+            "description": "Maximum number of results",
+            "default": 10
+          }
+        ]
+      }
+    ],
+    "models": {
+      "MedicalEntity": {
+        "id": "UUID",
+        "name": "string",
+        "display_name": "string",
+        "entity_type": "string",
+        "description": "string",
+        "synonyms": [
+          "string"
+        ],
+        "ontology_ids": {
+          "string": "string"
+        },
+        "confidence": "string",
+        "evidence_level": "string",
+        "source": "string",
+        "metadata": {
+          "string": "any"
+        },
+        "created_at": "datetime",
+        "updated_at": "datetime",
+        "relationship_count": "integer"
+      },
+      "Relationship": {
+        "id": "UUID",
+        "source_entity_id": "UUID",
+        "target_entity_id": "UUID",
+        "relationship_type": "string",
+        "confidence": "float",
+        "evidence_level": "string",
+        "metadata": {
+          "string": "any"
+        },
+        "created_at": "datetime"
+      },
+      "SearchResult": {
+        "results": [
+          "MedicalEntity"
+        ],
+        "total_count": "integer",
+        "query": "string",
+        "search_time": "float"
+      }
+    },
+    "examples": {
+      "create_entity": {
+        "request": {
+          "name": "DIABETES_MELLITUS_TYPE_2",
+          "display_name": "Diabetes Mellitus Type 2",
+          "entity_type": "condition",
+          "description": "A chronic metabolic disorder characterized by high blood sugar",
+          "synonyms": [
+            "Type 2 Diabetes",
+            "T2DM"
+          ],
+          "ontology_ids": {
+            "icd_10": "E11",
+            "snomed_ct": "44054006"
+          },
+          "confidence": "high",
+          "evidence_level": "level_a",
+          "source": "icd_10"
+        },
+        "response": {
+          "id": "e8f2ef83-2828-4d89-baac-cd452c088b55",
+          "name": "DIABETES_MELLITUS_TYPE_2",
+          "display_name": "Diabetes Mellitus Type 2",
+          "entity_type": "condition",
+          "description": "A chronic metabolic disorder characterized by high blood sugar",
+          "synonyms": [
+            "Type 2 Diabetes",
+            "T2DM"
+          ],
+          "ontology_ids": {
+            "icd_10": "E11",
+            "snomed_ct": "44054006"
+          },
+          "confidence": "high",
+          "evidence_level": "level_a",
+          "source": "icd_10",
+          "created_at": "2025-08-04T20:48:37.123456",
+          "updated_at": "2025-08-04T20:48:37.123456",
+          "relationship_count": 0
+        }
+      },
+      "search_entities": {
+        "request": {
+          "q": "diabetes",
+          "entity_type": "condition",
+          "limit": 5
+        },
+        "response": {
+          "results": [
+            {
+              "id": "e8f2ef83-2828-4d89-baac-cd452c088b55",
+              "name": "DIABETES_MELLITUS_TYPE_2",
+              "display_name": "Diabetes Mellitus Type 2",
+              "entity_type": "condition",
+              "similarity_score": 0.95
+            }
+          ],
+          "total_count": 1,
+          "query": "diabetes",
+          "search_time": 0.023
+        }
+      }
+    }
+  },
+  "integrations": {
+    "medical_records": {
+      "base_url": "http://medical-records.localhost",
+      "endpoints": [
+        {
+          "path": "/api/v1/medical-records/lab-results/{lab_result_id}/enrich-with-knowledge-graph",
+          "method": "POST",
+          "description": "Enrich lab result with knowledge graph entities and medical recommendations",
+          "category": "enrichment"
+        },
+        {
+          "path": "/api/v1/medical-records/lab-results/validate-medical-codes",
+          "method": "POST",
+          "description": "Validate medical codes against the knowledge graph",
+          "category": "validation"
+        }
+      ]
+    },
+    "ai_insights": {
+      "base_url": "http://ai-insights.localhost",
+      "endpoints": [
+        {
+          "path": "/api/v1/ai-insights/insights/enrich-with-knowledge-graph",
+          "method": "POST",
+          "description": "Enrich insight text with knowledge graph entities and medical context",
+          "category": "enrichment"
+        },
+        {
+          "path": "/api/v1/ai-insights/insights/generate-evidence-based-recommendations",
+          "method": "POST",
+          "description": "Generate evidence-based recommendations using knowledge graph",
+          "category": "recommendations"
+        },
+        {
+          "path": "/api/v1/ai-insights/insights/validate-medical-entities",
+          "method": "POST",
+          "description": "Validate medical entities against the knowledge graph",
+          "category": "validation"
+        },
+        {
+          "path": "/api/v1/ai-insights/insights/knowledge-graph-stats",
+          "method": "GET",
+          "description": "Get knowledge graph statistics for insights generation",
+          "category": "analytics"
+        },
+        {
+          "path": "/api/v1/ai-insights/insights/search-medical-entities",
+          "method": "POST",
+          "description": "Search for medical entities in the knowledge graph",
+          "category": "search"
+        }
+      ]
+    },
+    "health_tracking": {
+      "base_url": "http://health-tracking.localhost",
+      "endpoints": [
+        {
+          "path": "/api/v1/health-tracking/analytics/enrich-metrics",
+          "method": "POST",
+          "description": "Enrich health metrics with knowledge graph entities",
+          "category": "enrichment"
+        },
+        {
+          "path": "/api/v1/health-tracking/analytics/evidence-based-recommendations",
+          "method": "POST",
+          "description": "Generate evidence-based health recommendations",
+          "category": "recommendations"
+        },
+        {
+          "path": "/api/v1/health-tracking/analytics/validate-health-entities",
+          "method": "POST",
+          "description": "Validate health-related entities against the knowledge graph",
+          "category": "validation"
+        }
+      ]
+    }
+  },
+  "generation_timestamp": "2025-08-04T23:12:34.726955"
+}

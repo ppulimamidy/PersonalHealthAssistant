@@ -1,0 +1,55 @@
+# Monitoring Configuration
+# Prometheus metrics and health checks
+
+http:
+  routers:
+    prometheus:
+      rule: "Host(`monitoring.localhost`) && PathPrefix(`/metrics`)"
+      service: prometheus
+      entryPoints:
+        - websecure
+      middlewares:
+        - basic-auth
+        - ip-whitelist
+      tls:
+        certResolver: letsencrypt
+      priority: 100
+
+    grafana:
+      rule: "Host(`monitoring.localhost`) && PathPrefix(`/grafana`)"
+      service: grafana
+      entryPoints:
+        - websecure
+      middlewares:
+        - basic-auth
+        - ip-whitelist
+      tls:
+        certResolver: letsencrypt
+      priority: 100
+
+  services:
+    prometheus:
+      loadBalancer:
+        servers:
+          - url: "http://prometheus:9090"
+
+    grafana:
+      loadBalancer:
+        servers:
+          - url: "http://grafana:3000"
+
+  middlewares:
+    basic-auth:
+      basicAuth:
+        users:
+          - "admin:$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi"
+        removeHeader: true
+
+    ip-whitelist:
+      ipWhiteList:
+        sourceRange:
+          - "127.0.0.1/32"
+          - "::1/128"
+          - "10.0.0.0/8"
+          - "172.16.0.0/12"
+          - "192.168.0.0/16"

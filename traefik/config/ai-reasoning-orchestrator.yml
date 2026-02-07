@@ -1,0 +1,38 @@
+http:
+  routers:
+    ai-reasoning-orchestrator:
+      rule: "Host(`ai-reasoning.localhost`)"
+      service: ai-reasoning-orchestrator
+      entryPoints:
+        - web
+      middlewares:
+        - ai-reasoning-cors
+        - ai-reasoning-stripprefix
+
+  services:
+    ai-reasoning-orchestrator:
+      loadBalancer:
+        servers:
+          - url: "http://ai-reasoning-orchestrator:8300"
+
+  middlewares:
+    ai-reasoning-cors:
+      headers:
+        accessControlAllowMethods:
+          - GET
+          - POST
+          - PUT
+          - DELETE
+          - OPTIONS
+        accessControlAllowOriginList:
+          - "http://localhost:3000"
+          - "http://localhost:8080"
+          - "http://localhost:5173"
+        accessControlAllowHeaders:
+          - "*"
+        accessControlAllowCredentials: true
+
+    ai-reasoning-stripprefix:
+      stripPrefix:
+        prefixes:
+          - "/ai-reasoning"

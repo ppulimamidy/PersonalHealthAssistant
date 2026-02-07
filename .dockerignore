@@ -1,0 +1,100 @@
+# Git
+.git
+.gitignore
+
+# Documentation
+*.md
+docs/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log
+
+# Database
+*.db
+*.sqlite
+
+# Docker
+Dockerfile*
+docker-compose*
+.dockerignore
+
+# Requirements (exclude main requirements.txt for voice input service only)
+# Note: This exclusion is handled in the voice input Dockerfile specifically
+
+# Kubernetes
+*.yaml
+*.yml
+kubernetes/
+
+# Terraform
+*.tf
+*.tfstate
+*.tfvars
+
+# Scripts
+scripts/
+*.sh
+
+# Tests
+tests/
+test_*
+*_test.py
+
+# Other apps (only need user_profile, common, voice_input, and genomics)
+apps/ecommerce/
+apps/explainability/
+
+# Infrastructure
+infrastructure/
+
+# Monitoring
+monitoring/
+
+# Data
+data/
+
+# Temporary files
+*.tmp
+*.temp 
+
+Tuesday, July 8, 2025
+9:30 PM
+
