@@ -20,6 +20,10 @@ wheels/
 .installed.cfg
 *.egg
 
+# Frontend uses `src/lib/` for shared modules (do not ignore)
+!frontend/src/lib/
+!frontend/src/lib/**
+
 # Virtual environments
 venv/
 venv-*/
