@@ -6,8 +6,7 @@ services:
   - type: web
     name: health-assistant-api
     env: docker
-    dockerfilePath: ./apps/mvp_api/Dockerfile
-    dockerContext: .
+    dockerfilePath: ./Dockerfile.render
     region: oregon
     plan: free
     branch: master

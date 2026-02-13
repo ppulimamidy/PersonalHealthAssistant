@@ -107,3 +107,37 @@ coverage.xml
 .deployment-secrets.txt
 *-secrets.txt
 deployment-keys.txt
+
+# Local scratch scripts / one-off tests (repo root only)
+/test_*.py
+/comprehensive_*.py
+/debug_*.py
+/demo_*.py
+/final_demo.py
+/generate_*.py
+/simple_test.py
+/health_tracking_integration_test.py
+/health_tracking_integration_test*.py
+/verify_supabase_keys.py
+
+# Local artifacts / outputs (repo root)
+/jwt-test-output.txt
+/health_analysis_comprehensive_test_*.json
+/test_lab_report.json
+/test_lab_report.txt
+/test_document.txt
+/test_image.png
+/epic-fhir-callback.html
+/test_epic_redirect.html
+/medical-records-*.txt
+/medical-records-*.cmd
+/one
+/letsencrypt/
+/logs/*.pid
+/epic_fhir_fix_report.txt
+/create_health_tracking_tables.py
+/create_user_profile_tables.py
+
+# References / examples that may contain secrets (keep local)
+/github-secrets-reference.json
+/GET_SUPABASE_KEYS.md

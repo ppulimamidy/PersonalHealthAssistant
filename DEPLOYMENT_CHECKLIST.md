@@ -8,7 +8,7 @@ Use this checklist to track your deployment progress.
 
 **JWT Secret Key** (for backend authentication):
 ```
-fe636c9b7f9e9bf08643e0d8fa3f2026602b5e7705867966c3fb4ff660e7c66d
+<generate-with: openssl rand -hex 32>
 ```
 
 ### 📝 Required Information
@@ -16,8 +16,8 @@ fe636c9b7f9e9bf08643e0d8fa3f2026602b5e7705867966c3fb4ff660e7c66d
 You'll need these values from your existing Supabase project:
 
 - [ ] Supabase Project URL: `https://yadfzphehujeaiimzvoe.supabase.co`
-- [ ] Supabase Anon Key: `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlhZGZ6cGhlaHVqZWFpaW16dm9lIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA3NTk3MjEsImV4cCI6MjA4NjMzNTcyMX0.E8VSPfTBKvYz8zEnXpUWS1A_8q81LfsubCGyhaFUBAo` (Get from: Supabase Dashboard → Settings → API)
-- [ ] Supabase Service Key: `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlhZGZ6cGhlaHVqZWFpaW16dm9lIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MDc1OTcyMSwiZXhwIjoyMDg2MzM1NzIxfQ.ysc0sx6Vmy7d2-EiP0-VxM3OoFr-z9Lj5VnDEHmrVhI` (Get from: Supabase Dashboard → Settings → API)
+- [ ] Supabase Anon Key: `<your-supabase-anon-key>` (Get from: Supabase Dashboard → Settings → API)
+- [ ] Supabase Service Key: `<your-supabase-service-role-key>` (Get from: Supabase Dashboard → Settings → API)
 
 ---
 
@@ -57,13 +57,13 @@ Click "Advanced" → "Add Environment Variable" and add these:
 **Supabase Configuration:**
 ```
 SUPABASE_URL = https://yadfzphehujeaiimzvoe.supabase.co
-SUPABASE_SERVICE_KEY = eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlhZGZ6cGhlaHVqZWFpaW16dm9lIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MDc1OTcyMSwiZXhwIjoyMDg2MzM1NzIxfQ.ysc0sx6Vmy7d2-EiP0-VxM3OoFr-z9Lj5VnDEHmrVhI
-SUPABASE_ANON_KEY = eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlhZGZ6cGhlaHVqZWFpaW16dm9lIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA3NTk3MjEsImV4cCI6MjA4NjMzNTcyMX0.E8VSPfTBKvYz8zEnXpUWS1A_8q81LfsubCGyhaFUBAo
+SUPABASE_SERVICE_KEY = <your-supabase-service-role-key>
+SUPABASE_ANON_KEY = <your-supabase-anon-key>
 ```
 
 **JWT Configuration:**
 ```
-JWT_SECRET_KEY = fe636c9b7f9e9bf08643e0d8fa3f2026602b5e7705867966c3fb4ff660e7c66d
+JWT_SECRET_KEY = <generate-with: openssl rand -hex 32>
 JWT_ALGORITHM = HS256
 JWT_EXPIRATION_MINUTES = 10080
 ```
