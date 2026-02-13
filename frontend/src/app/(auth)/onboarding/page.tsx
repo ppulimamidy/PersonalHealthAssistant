@@ -31,7 +31,12 @@ export default function OnboardingPage() {
       if (response.sandbox_mode) {
         // In sandbox mode, automatically connect without OAuth
         toast.success('Connected to Oura (Sandbox Mode)');
-        setOuraConnection({ isConnected: true, isSandbox: true });
+        setOuraConnection({
+          id: 'sandbox',
+          user_id: 'sandbox',
+          is_active: true,
+          is_sandbox: true,
+        });
 
         // Redirect to timeline after a short delay
         setTimeout(() => {

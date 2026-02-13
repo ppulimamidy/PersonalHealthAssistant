@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { ouraService } from '@/services/oura';
 import { insightsService } from '@/services/insights';
@@ -11,14 +12,20 @@ export function useHealthData() {
   const timelineQuery = useQuery({
     queryKey: ['timeline', selectedTimeRange],
     queryFn: () => ouraService.getTimeline(selectedTimeRange),
-    onSuccess: (data) => setTimeline(data),
   });
 
   const insightsQuery = useQuery({
     queryKey: ['insights'],
     queryFn: insightsService.getInsights,
-    onSuccess: (data) => setInsights(data),
   });
+
+  useEffect(() => {
+    if (timelineQuery.data) setTimeline(timelineQuery.data);
+  }, [timelineQuery.data, setTimeline]);
+
+  useEffect(() => {
+    if (insightsQuery.data) setInsights(insightsQuery.data);
+  }, [insightsQuery.data, setInsights]);
 
   return {
     timeline: timelineQuery.data,
