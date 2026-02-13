@@ -72,11 +72,3 @@ services:
 
     # Scaling
     numInstances: 1
-
-    # Health check configuration
-    healthCheck:
-      path: /health
-      interval: 30
-      timeout: 10
-      unhealthyThreshold: 3
-      healthyThreshold: 2
