@@ -102,3 +102,8 @@ coverage.xml
 # JWT/tokens (never commit)
 *.jwt
 *token*.txt
+
+# Deployment secrets (never commit)
+.deployment-secrets.txt
+*-secrets.txt
+deployment-keys.txt

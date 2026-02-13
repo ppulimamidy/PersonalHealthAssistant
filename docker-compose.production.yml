@@ -1,0 +1,110 @@
+version: '3.8'
+
+services:
+  # MVP API Service
+  mvp-api:
+    build:
+      context: .
+      dockerfile: apps/mvp_api/Dockerfile
+    container_name: health-assistant-mvp-api
+    ports:
+      - "8080:8080"
+    environment:
+      # Supabase Configuration
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY}
+      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+
+      # JWT Configuration
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+      - JWT_ALGORITHM=${JWT_ALGORITHM:-HS256}
+      - JWT_EXPIRATION_MINUTES=${JWT_EXPIRATION_MINUTES:-10080}
+
+      # API Configuration
+      - API_VERSION=${API_VERSION:-v1}
+      - ENVIRONMENT=production
+      - DEBUG=false
+
+      # CORS Configuration
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS}
+
+      # Oura Ring Configuration
+      - USE_SANDBOX=${USE_SANDBOX:-false}
+      - OURA_USE_SANDBOX=${OURA_USE_SANDBOX:-false}
+      - OURA_CLIENT_ID=${OURA_CLIENT_ID}
+      - OURA_CLIENT_SECRET=${OURA_CLIENT_SECRET}
+      - OURA_REDIRECT_URI=${OURA_REDIRECT_URI}
+      - OURA_ACCESS_TOKEN=${OURA_ACCESS_TOKEN}
+
+      # Rate Limiting
+      - RATE_LIMIT_ENABLED=${RATE_LIMIT_ENABLED:-true}
+      - RATE_LIMIT_PER_MINUTE=${RATE_LIMIT_PER_MINUTE:-60}
+
+      # Logging
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - LOG_FORMAT=${LOG_FORMAT:-json}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+    networks:
+      - health-assistant-network
+
+  # Frontend (Next.js)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+        - NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
+        - NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+        - NEXT_PUBLIC_ENABLE_DARK_MODE=${NEXT_PUBLIC_ENABLE_DARK_MODE:-true}
+        - NEXT_PUBLIC_ENABLE_OURA=${NEXT_PUBLIC_ENABLE_OURA:-true}
+        - NEXT_PUBLIC_ENABLE_INSIGHTS=${NEXT_PUBLIC_ENABLE_INSIGHTS:-true}
+        - NEXT_PUBLIC_ENABLE_DOCTOR_PREP=${NEXT_PUBLIC_ENABLE_DOCTOR_PREP:-true}
+        - NEXT_PUBLIC_ENVIRONMENT=production
+        - NEXT_PUBLIC_APP_VERSION=${NEXT_PUBLIC_APP_VERSION:-1.0.0}
+    container_name: health-assistant-frontend
+    ports:
+      - "3000:3000"
+    depends_on:
+      - mvp-api
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+    networks:
+      - health-assistant-network
+
+  # Optional: Nginx reverse proxy for production
+  nginx:
+    image: nginx:alpine
+    container_name: health-assistant-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - mvp-api
+      - frontend
+    restart: unless-stopped
+    networks:
+      - health-assistant-network
+    profiles:
+      - with-nginx
+
+networks:
+  health-assistant-network:
+    driver: bridge
+
+volumes:
+  app-data:

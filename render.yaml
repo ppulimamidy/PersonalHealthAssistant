@@ -1,0 +1,82 @@
+# Render Blueprint for Personal Health Assistant MVP API
+# Deploy with: render deploy
+
+services:
+  # MVP API Backend
+  - type: web
+    name: health-assistant-api
+    env: docker
+    dockerfilePath: ./apps/mvp_api/Dockerfile
+    dockerContext: .
+    region: oregon
+    plan: starter # or free for testing
+    branch: master
+    healthCheckPath: /health
+    envVars:
+      # Supabase Configuration
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+
+      # JWT Configuration
+      - key: JWT_SECRET_KEY
+        generateValue: true
+      - key: JWT_ALGORITHM
+        value: HS256
+      - key: JWT_EXPIRATION_MINUTES
+        value: 10080
+
+      # API Configuration
+      - key: API_VERSION
+        value: v1
+      - key: ENVIRONMENT
+        value: production
+      - key: DEBUG
+        value: false
+
+      # CORS Configuration
+      - key: ALLOWED_ORIGINS
+        sync: false
+
+      # Oura Ring Configuration
+      - key: USE_SANDBOX
+        value: true
+      - key: OURA_USE_SANDBOX
+        value: true
+      - key: OURA_CLIENT_ID
+        sync: false
+      - key: OURA_CLIENT_SECRET
+        sync: false
+      - key: OURA_REDIRECT_URI
+        sync: false
+      - key: OURA_ACCESS_TOKEN
+        sync: false
+
+      # Rate Limiting
+      - key: RATE_LIMIT_ENABLED
+        value: true
+      - key: RATE_LIMIT_PER_MINUTE
+        value: 60
+
+      # Logging
+      - key: LOG_LEVEL
+        value: INFO
+      - key: LOG_FORMAT
+        value: json
+
+    # Auto-deploy on push
+    autoDeploy: true
+
+    # Scaling
+    numInstances: 1
+
+    # Health check configuration
+    healthCheck:
+      path: /health
+      interval: 30
+      timeout: 10
+      unhealthyThreshold: 3
+      healthyThreshold: 2
