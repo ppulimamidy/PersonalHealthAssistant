@@ -9,7 +9,7 @@ services:
     dockerfilePath: ./apps/mvp_api/Dockerfile
     dockerContext: .
     region: oregon
-    plan: starter # or free for testing
+    plan: free
     branch: master
     healthCheckPath: /health
     envVars:
