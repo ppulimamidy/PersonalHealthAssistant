@@ -3,21 +3,26 @@ Health Timeline API
 Endpoints for viewing combined health data over time.
 """
 
-from fastapi import APIRouter, Depends, Query, Request, HTTPException
-from pydantic import BaseModel
-from typing import List, Optional
-from datetime import datetime, timedelta
 import os
+from datetime import datetime, timedelta
+from typing import List, Optional
 
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from pydantic import BaseModel
+
+from apps.device_data.services.oura_client import OuraAPIClient
 from common.middleware.auth import get_current_user
 from common.utils.logging import get_logger
+
+# Pydantic models are intentionally simple containers.
+# pylint: disable=too-few-public-methods,too-many-locals,broad-except,no-member
 
 logger = get_logger(__name__)
 
 router = APIRouter()
 
 # Sandbox mode - uses mock data, no real API calls
-USE_SANDBOX = os.getenv("USE_SANDBOX", "true").lower() in ("true", "1", "yes")
+USE_SANDBOX = os.environ.get("USE_SANDBOX", "true").lower() in ("true", "1", "yes")
 
 
 # Helper function for optional auth in sandbox mode
@@ -31,7 +36,7 @@ async def get_user_optional(request: Request) -> dict:
             return {
                 "id": "sandbox-user-123",
                 "email": "sandbox@example.com",
-                "user_type": "sandbox"
+                "user_type": "sandbox",
             }
     else:
         # In production, require authentication
@@ -39,8 +44,11 @@ async def get_user_optional(request: Request) -> dict:
 
 
 class SleepData(BaseModel):
+    """Sleep metrics for a given day (durations in seconds)."""
+
     id: str
     date: str
+    # Durations are in SECONDS (matches Oura API + frontend formatDuration())
     total_sleep_duration: int
     deep_sleep_duration: int
     rem_sleep_duration: int
@@ -52,6 +60,8 @@ class SleepData(BaseModel):
 
 
 class ActivityData(BaseModel):
+    """Activity metrics for a given day."""
+
     id: str
     date: str
     steps: int
@@ -65,6 +75,8 @@ class ActivityData(BaseModel):
 
 
 class ReadinessData(BaseModel):
+    """Readiness metrics for a given day."""
+
     id: str
     date: str
     readiness_score: int
@@ -75,6 +87,8 @@ class ReadinessData(BaseModel):
 
 
 class TimelineEntry(BaseModel):
+    """Combined daily metrics across sleep/activity/readiness."""
+
     date: str
     sleep: Optional[SleepData] = None
     activity: Optional[ActivityData] = None
@@ -84,15 +98,13 @@ class TimelineEntry(BaseModel):
 @router.get("/timeline", response_model=List[TimelineEntry])
 async def get_timeline(
     days: int = Query(default=7, ge=1, le=90, description="Number of days to include"),
-    current_user: dict = Depends(get_user_optional)
+    current_user: dict = Depends(get_user_optional),
 ):
     """
     Get combined health timeline data.
     Returns sleep, activity, and readiness data for each day.
     """
-    from apps.device_data.services.oura_client import OuraAPIClient
-
-    access_token = os.getenv("OURA_ACCESS_TOKEN", "")
+    access_token = os.environ.get("OURA_ACCESS_TOKEN", "")
     end_date = datetime.utcnow()
     start_date = end_date - timedelta(days=days)
 
@@ -100,7 +112,7 @@ async def get_timeline(
         async with OuraAPIClient(
             access_token=access_token if not USE_SANDBOX else None,
             use_sandbox=USE_SANDBOX or not access_token,
-            user_id=current_user['id']
+            user_id=current_user["id"],
         ) as client:
             # Fetch all data types
             all_data = await client.get_all_data(start_date, end_date)
@@ -115,15 +127,18 @@ async def get_timeline(
                     timeline[date] = {"date": date}
 
                 # Extract nested sleep data
-                sleep = sleep_entry.get("sleep", sleep_entry)  # Support both nested and flat structures
+                sleep = sleep_entry.get(
+                    "sleep", sleep_entry
+                )  # Support both nested and flat structures
 
                 timeline[date]["sleep"] = SleepData(
                     id=sleep_entry.get("id", f"sleep_{date}"),
                     date=date,
-                    total_sleep_duration=int(sleep.get("total_sleep_duration", 0) / 60),  # Convert seconds to minutes
-                    deep_sleep_duration=int(sleep.get("deep_sleep_duration", 0) / 60),
-                    rem_sleep_duration=int(sleep.get("rem_sleep_duration", 0) / 60),
-                    light_sleep_duration=int(sleep.get("light_sleep_duration", 0) / 60),
+                    # Oura provides sleep durations in seconds; keep seconds throughout.
+                    total_sleep_duration=int(sleep.get("total_sleep_duration", 0)),
+                    deep_sleep_duration=int(sleep.get("deep_sleep_duration", 0)),
+                    rem_sleep_duration=int(sleep.get("rem_sleep_duration", 0)),
+                    light_sleep_duration=int(sleep.get("light_sleep_duration", 0)),
                     sleep_efficiency=int(sleep.get("sleep_efficiency", 0)),
                     sleep_score=int(sleep.get("sleep_score", 0)),
                     bedtime_start=sleep.get("bedtime_start"),
@@ -137,19 +152,45 @@ async def get_timeline(
                     timeline[date] = {"date": date}
 
                 # Extract nested activity data
-                activity = activity_entry.get("activity", activity_entry)  # Support both nested and flat structures
+                activity = activity_entry.get(
+                    "activity", activity_entry
+                )  # Support both nested and flat structures
 
                 timeline[date]["activity"] = ActivityData(
                     id=activity_entry.get("id", f"activity_{date}"),
                     date=date,
                     steps=int(activity.get("steps", 0)),
-                    active_calories=int(activity.get("active_calories", activity.get("calories_active", 0))),
-                    total_calories=int(activity.get("total_calories", activity.get("calories_total", 0))),
+                    active_calories=int(
+                        activity.get(
+                            "active_calories", activity.get("calories_active", 0)
+                        )
+                    ),
+                    total_calories=int(
+                        activity.get(
+                            "total_calories", activity.get("calories_total", 0)
+                        )
+                    ),
                     activity_score=int(activity.get("score", 0)),
-                    high_activity_time=int(activity.get("high_activity_time", activity.get("met_min_high", 0))),
-                    medium_activity_time=int(activity.get("medium_activity_time", activity.get("met_min_medium", 0))),
-                    low_activity_time=int(activity.get("low_activity_time", activity.get("met_min_low", 0))),
-                    sedentary_time=int(activity.get("sedentary_time", activity.get("met_min_inactive", 0))),
+                    high_activity_time=int(
+                        activity.get(
+                            "high_activity_time", activity.get("met_min_high", 0)
+                        )
+                    ),
+                    medium_activity_time=int(
+                        activity.get(
+                            "medium_activity_time", activity.get("met_min_medium", 0)
+                        )
+                    ),
+                    low_activity_time=int(
+                        activity.get(
+                            "low_activity_time", activity.get("met_min_low", 0)
+                        )
+                    ),
+                    sedentary_time=int(
+                        activity.get(
+                            "sedentary_time", activity.get("met_min_inactive", 0)
+                        )
+                    ),
                 )
 
             # Process readiness data
@@ -159,13 +200,17 @@ async def get_timeline(
                     timeline[date] = {"date": date}
 
                 # Extract nested readiness data
-                readiness = readiness_entry.get("readiness", readiness_entry)  # Support both nested and flat structures
+                readiness = readiness_entry.get(
+                    "readiness", readiness_entry
+                )  # Support both nested and flat structures
 
                 timeline[date]["readiness"] = ReadinessData(
                     id=readiness_entry.get("id", f"readiness_{date}"),
                     date=date,
                     readiness_score=int(readiness.get("score", 0)),
-                    temperature_deviation=float(readiness.get("temperature_deviation", 0.0)),
+                    temperature_deviation=float(
+                        readiness.get("temperature_deviation", 0.0)
+                    ),
                     hrv_balance=int(readiness.get("hrv_balance", 0)),
                     recovery_index=int(readiness.get("score_recovery_index", 0)),
                     resting_heart_rate=int(readiness.get("resting_hr", 0)),
@@ -175,13 +220,13 @@ async def get_timeline(
             sorted_entries = sorted(
                 [TimelineEntry(**entry) for entry in timeline.values()],
                 key=lambda x: x.date,
-                reverse=True
+                reverse=True,
             )
 
             return sorted_entries
 
-    except Exception as e:
-        logger.error(f"Failed to fetch timeline: {e}")
+    except Exception as exc:
+        logger.error(f"Failed to fetch timeline: {exc}")
         # Return empty timeline on error
         return []
 
@@ -189,7 +234,7 @@ async def get_timeline(
 @router.get("/summary")
 async def get_health_summary(
     days: int = Query(default=7, ge=1, le=90),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
 ):
     """
     Get a summary of health metrics over a period.
@@ -214,13 +259,30 @@ async def get_health_summary(
         "entries_count": len(timeline),
         "averages": {
             "sleep_score": sum(sleep_scores) / len(sleep_scores) if sleep_scores else 0,
-            "activity_score": sum(activity_scores) / len(activity_scores) if activity_scores else 0,
-            "readiness_score": sum(readiness_scores) / len(readiness_scores) if readiness_scores else 0,
+            "activity_score": sum(activity_scores) / len(activity_scores)
+            if activity_scores
+            else 0,
+            "readiness_score": sum(readiness_scores) / len(readiness_scores)
+            if readiness_scores
+            else 0,
             "daily_steps": sum(steps) / len(steps) if steps else 0,
         },
         "best_day": {
-            "sleep": max(timeline, key=lambda x: x.sleep.sleep_score if x.sleep else 0).date if sleep_scores else None,
-            "activity": max(timeline, key=lambda x: x.activity.activity_score if x.activity else 0).date if activity_scores else None,
-            "readiness": max(timeline, key=lambda x: x.readiness.readiness_score if x.readiness else 0).date if readiness_scores else None,
-        }
+            "sleep": max(
+                timeline, key=lambda x: x.sleep.sleep_score if x.sleep else 0
+            ).date
+            if sleep_scores
+            else None,
+            "activity": max(
+                timeline, key=lambda x: x.activity.activity_score if x.activity else 0
+            ).date
+            if activity_scores
+            else None,
+            "readiness": max(
+                timeline,
+                key=lambda x: x.readiness.readiness_score if x.readiness else 0,
+            ).date
+            if readiness_scores
+            else None,
+        },
     }

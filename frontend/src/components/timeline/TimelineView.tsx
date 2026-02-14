@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
@@ -222,6 +223,9 @@ export function TimelineView() {
           >
             {showBaseline ? 'Hide' : 'Show'} Baseline
           </Button>
+          <Link href="/doctor-prep?autogenerate=1&days=30">
+            <Button>Generate Doctor Prep</Button>
+          </Link>
           <Button onClick={() => refetch()} variant="outline">
             Sync Data
           </Button>

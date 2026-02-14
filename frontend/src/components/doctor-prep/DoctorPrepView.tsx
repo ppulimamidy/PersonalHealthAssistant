@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -333,10 +334,14 @@ function ReportView({ report }: { report: DoctorPrepReport }) {
 
 export function DoctorPrepView() {
   const [selectedDays, setSelectedDays] = useState<7 | 30 | 90>(30);
+  const [generatedReport, setGeneratedReport] = useState<DoctorPrepReport | null>(null);
+  const searchParams = useSearchParams();
+  const autoTriggeredRef = useRef(false);
 
   const generateMutation = useMutation({
-    mutationFn: () => doctorPrepService.generateReport(selectedDays),
-    onSuccess: () => {
+    mutationFn: (days: 7 | 30 | 90) => doctorPrepService.generateReport(days),
+    onSuccess: (data) => {
+      setGeneratedReport(data);
       toast.success('Report generated successfully');
     },
     onError: () => {
@@ -344,12 +349,26 @@ export function DoctorPrepView() {
     },
   });
 
-  const { data: reports, isLoading } = useQuery({
+  const reportsQuery = useQuery({
     queryKey: ['doctor-prep-reports'],
     queryFn: doctorPrepService.getReports,
   });
 
-  const latestReport = reports?.[0];
+  const latestReport = reportsQuery.data?.[0];
+
+  useEffect(() => {
+    if (autoTriggeredRef.current) return;
+
+    const auto = searchParams.get('autogenerate');
+    if (auto !== '1') return;
+
+    const daysParam = Number(searchParams.get('days') ?? '30');
+    const days: 7 | 30 | 90 = daysParam === 7 ? 7 : daysParam === 90 ? 90 : 30;
+
+    autoTriggeredRef.current = true;
+    setSelectedDays(days);
+    generateMutation.mutate(days);
+  }, [searchParams, generateMutation]);
 
   return (
     <div>
@@ -388,7 +407,7 @@ export function DoctorPrepView() {
               <option value={90}>Last 90 days</option>
             </select>
             <Button
-              onClick={() => generateMutation.mutate()}
+              onClick={() => generateMutation.mutate(selectedDays)}
               isLoading={generateMutation.isPending}
             >
               <Calendar className="w-4 h-4 mr-2" />
@@ -399,14 +418,24 @@ export function DoctorPrepView() {
       </Card>
 
       {/* Report Display */}
-      {isLoading ? (
-        <div className="flex items-center justify-center h-64">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600" />
-        </div>
+      {generatedReport ? (
+        <ReportView report={generatedReport} />
       ) : generateMutation.data ? (
         <ReportView report={generateMutation.data} />
       ) : latestReport ? (
         <ReportView report={latestReport} />
+      ) : reportsQuery.isLoading ? (
+        <div className="flex items-center justify-center h-64">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600" />
+        </div>
+      ) : generateMutation.isError ? (
+        <Card className="text-center py-12">
+          <FileText className="w-12 h-12 text-slate-300 dark:text-slate-600 mx-auto mb-4" />
+          <p className="text-slate-700 dark:text-slate-200 font-medium">Couldn’t generate the report.</p>
+          <p className="text-sm text-slate-400 dark:text-slate-500 mt-2">
+            Try again, or check that your backend is reachable and CORS is configured.
+          </p>
+        </Card>
       ) : (
         <Card className="text-center py-12">
           <FileText className="w-12 h-12 text-slate-300 dark:text-slate-600 mx-auto mb-4" />

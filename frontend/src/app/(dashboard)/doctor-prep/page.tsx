@@ -1,5 +1,10 @@
 import { DoctorPrepView } from '@/components/doctor-prep/DoctorPrepView';
+import { Suspense } from 'react';
 
 export default function DoctorPrepPage() {
-  return <DoctorPrepView />;
+  return (
+    <Suspense fallback={null}>
+      <DoctorPrepView />
+    </Suspense>
+  );
 }
