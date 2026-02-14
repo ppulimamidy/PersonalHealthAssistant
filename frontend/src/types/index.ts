@@ -7,6 +7,15 @@ export interface User {
   created_at: string;
 }
 
+export type Gender = 'male' | 'female' | 'other' | 'prefer_not_to_say';
+
+export interface UserProfile {
+  age?: number;
+  gender?: Gender;
+  weight_kg?: number;
+  profile_completed?: boolean;
+}
+
 // Oura data types
 export interface OuraConnection {
   id: string;

@@ -20,7 +20,7 @@ import {
 import toast from 'react-hot-toast';
 
 export default function SettingsPage() {
-  const { user, ouraConnection, setOuraConnection, logout } = useAuthStore();
+  const { user, profile, ouraConnection, setOuraConnection, logout } = useAuthStore();
   const [isSyncing, setIsSyncing] = useState(false);
 
   const { data: connectionStatus, refetch } = useQuery({
@@ -101,6 +101,28 @@ export default function SettingsPage() {
                   Email
                 </label>
                 <p className="text-slate-900 dark:text-slate-100">{user?.email}</p>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+                    Age
+                  </label>
+                  <p className="text-slate-900 dark:text-slate-100">{profile?.age ?? 'Not set'}</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+                    Gender
+                  </label>
+                  <p className="text-slate-900 dark:text-slate-100">{profile?.gender ?? 'Not set'}</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+                    Weight
+                  </label>
+                  <p className="text-slate-900 dark:text-slate-100">
+                    {profile?.weight_kg != null ? `${profile.weight_kg} kg` : 'Not set'}
+                  </p>
+                </div>
               </div>
             </div>
           </CardContent>
