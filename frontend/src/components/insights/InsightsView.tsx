@@ -104,6 +104,16 @@ export function InsightsView() {
     queryFn: insightsService.getInsights,
   });
 
+  const topInsights = (insights ?? [])
+    .slice()
+    .sort((a, b) => {
+      const typeWeight = (t: AIInsight['type']) => (t === 'alert' ? 3 : t === 'trend' ? 2 : 1);
+      const w = typeWeight(b.type) - typeWeight(a.type);
+      if (w !== 0) return w;
+      return (b.confidence ?? 0) - (a.confidence ?? 0);
+    })
+    .slice(0, 3);
+
   const handleRefresh = async () => {
     await insightsService.refreshInsights();
     refetch();
@@ -149,9 +159,9 @@ export function InsightsView() {
         <div className="flex items-center justify-center h-64">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600" />
         </div>
-      ) : insights && insights.length > 0 ? (
+      ) : topInsights && topInsights.length > 0 ? (
         <div className="space-y-4">
-          {insights.map((insight) => (
+          {topInsights.map((insight) => (
             <InsightCard key={insight.id} insight={insight} />
           ))}
         </div>
