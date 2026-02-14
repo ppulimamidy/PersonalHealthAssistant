@@ -96,7 +96,7 @@ export const ouraService = {
   },
 
   // Get combined timeline data
-  getTimeline: async (days: 7 | 30 = 7): Promise<TimelineEntry[]> => {
+  getTimeline: async (days: 14 | 30 = 14): Promise<TimelineEntry[]> => {
     const response = await api.get('/api/v1/health/timeline', {
       params: { days },
     });

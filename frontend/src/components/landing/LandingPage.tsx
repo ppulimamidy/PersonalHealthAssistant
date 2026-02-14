@@ -37,10 +37,10 @@ const features = [
 
 const benefits = [
   'Connect your Oura Ring in seconds',
-  'View 7 or 30 days of health data',
-  'Understand your health trends with AI',
-  'Export reports for doctor visits',
-  'HIPAA-compliant data security',
+  'See baseline vs recent changes (14 days vs 30-day baseline)',
+  'Get 3 high-signal insights (not a wall of charts)',
+  'Export a doctor-friendly summary in one click',
+  'Privacy-first by design',
 ];
 
 export function LandingPage() {
@@ -68,28 +68,27 @@ export function LandingPage() {
       <section className="pt-32 pb-20 px-6">
         <div className="max-w-4xl mx-auto text-center">
           <h1 className="text-5xl md:text-6xl font-bold text-slate-900 leading-tight">
-            Your Health Data,{' '}
-            <span className="text-primary-600">Finally Understood</span>
+            Understand your health trends —{' '}
+            <span className="text-primary-600">before they become problems</span>
           </h1>
           <p className="mt-6 text-xl text-slate-600 max-w-2xl mx-auto">
-            Connect your Oura Ring and get AI-powered insights that actually make sense.
-            Prepare for doctor visits with one click.
+            For Oura users: turn sleep, readiness, and resting heart rate into clear trend insights you can bring to your doctor.
           </p>
           <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4">
             <Link href="/signup">
               <Button size="lg" className="w-full sm:w-auto">
-                Start Free Trial
+                Join the private beta
                 <ArrowRight className="w-5 h-5 ml-2" />
               </Button>
             </Link>
             <Link href="#demo">
               <Button size="lg" variant="outline" className="w-full sm:w-auto">
-                Watch Demo
+                See the 3‑minute demo flow
               </Button>
             </Link>
           </div>
           <p className="mt-4 text-sm text-slate-500">
-            No credit card required. Free for the first 30 days.
+            Not medical advice. Designed to support better clinician conversations.
           </p>
         </div>
       </section>
@@ -193,8 +192,8 @@ export function LandingPage() {
                   View Your Health Timeline
                 </h3>
                 <p className="text-slate-600">
-                  See your sleep, activity, and readiness data in a simple,
-                  scrollable timeline. Toggle between 7 and 30 day views.
+                  See your sleep + readiness trends in a simple timeline.
+                  Compare the last 14 days to your 30-day baseline.
                 </p>
               </div>
             </div>
@@ -207,8 +206,8 @@ export function LandingPage() {
                   Get Insights & Prep for Visits
                 </h3>
                 <p className="text-slate-600">
-                  AI analyzes your trends and explains them in plain language.
-                  Export a summary for your next doctor appointment.
+                  We generate 3 high-signal insights: what changed, why it might matter,
+                  and what questions to ask your doctor.
                 </p>
               </div>
             </div>

@@ -22,6 +22,32 @@ import type { DoctorPrepReport, KeyMetric, TrendSummary } from '@/types';
 import toast from 'react-hot-toast';
 import jsPDF from 'jspdf';
 
+function buildDoctorQuestions(report: DoctorPrepReport): string[] {
+  const questions: string[] = [];
+
+  // Prefer the report's own "areas to discuss" as clinician-facing questions.
+  for (const c of report.summary.concerns ?? []) {
+    if (questions.length >= 3) break;
+    questions.push(c.endsWith('?') ? c : `${c}?`);
+  }
+
+  // Fallback: turn top AI insight titles into questions.
+  if (questions.length < 3) {
+    for (const i of report.ai_insights ?? []) {
+      if (questions.length >= 3) break;
+      const q = `Could you help me interpret: ${i.title}?`;
+      if (!questions.includes(q)) questions.push(q);
+    }
+  }
+
+  // Final fallback.
+  if (questions.length < 3) {
+    questions.push('Are these recent changes something I should monitor more closely?');
+  }
+
+  return questions.slice(0, 3);
+}
+
 function MetricCard({ metric }: { metric: KeyMetric }) {
   const statusColors = {
     excellent: 'border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-900/20',
@@ -84,6 +110,8 @@ function TrendItem({ trend }: { trend: TrendSummary }) {
 }
 
 function ReportView({ report }: { report: DoctorPrepReport }) {
+  const doctorQuestions = buildDoctorQuestions(report);
+
   const handleExportPDF = async () => {
     const doc = new jsPDF();
     let yPos = 20;
@@ -156,7 +184,18 @@ function ReportView({ report }: { report: DoctorPrepReport }) {
         doc.text(`• ${improvement}`, 25, yPos);
         yPos += 7;
       });
+      yPos += 10;
     }
+
+    // Questions for clinician
+    doc.setFontSize(14);
+    doc.text('Questions to ask your clinician:', 20, yPos);
+    yPos += 10;
+    doc.setFontSize(11);
+    doctorQuestions.forEach((q) => {
+      doc.text(`• ${q}`, 25, yPos);
+      yPos += 7;
+    });
 
     doc.save(`health-report-${report.date_range.end}.pdf`);
     toast.success('PDF exported successfully');
@@ -223,6 +262,28 @@ function ReportView({ report }: { report: DoctorPrepReport }) {
         </Card>
 
         <div className="space-y-6">
+          {/* Questions */}
+          <Card className="border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <FileText className="w-5 h-5 text-primary-600 dark:text-primary-400" />
+                Questions to ask your clinician
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ul className="space-y-2">
+                {doctorQuestions.map((q, idx) => (
+                  <li key={idx} className="text-sm text-slate-700 dark:text-slate-300">
+                    • {q}
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
+                This report is for discussion support only and is not medical advice.
+              </p>
+            </CardContent>
+          </Card>
+
           {/* Concerns */}
           {report.summary.concerns.length > 0 && (
             <Card className="border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20">
