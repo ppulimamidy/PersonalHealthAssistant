@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -129,14 +130,18 @@ export function InsightsView() {
             Personalized health insights based on your data
           </p>
         </div>
-        <Button
-          onClick={handleRefresh}
-          variant="outline"
-          isLoading={isRefetching}
-        >
-          <RefreshCw className="w-4 h-4 mr-2" />
-          Refresh Insights
-        </Button>
+        <div className="flex items-center gap-3">
+          <Link href="/doctor-prep?autogenerate=1&days=30">
+            <Button>
+              Prepare Doctor Visit (30 days)
+              <ChevronRight className="w-4 h-4 ml-2" />
+            </Button>
+          </Link>
+          <Button onClick={handleRefresh} variant="outline" isLoading={isRefetching}>
+            <RefreshCw className="w-4 h-4 mr-2" />
+            Refresh Insights
+          </Button>
+        </div>
       </div>
 
       {/* Info Banner */}
