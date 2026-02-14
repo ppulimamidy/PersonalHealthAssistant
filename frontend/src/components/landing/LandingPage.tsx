@@ -68,11 +68,10 @@ export function LandingPage() {
       <section className="pt-32 pb-20 px-6">
         <div className="max-w-4xl mx-auto text-center">
           <h1 className="text-5xl md:text-6xl font-bold text-slate-900 leading-tight">
-            Understand your health trends —{' '}
-            <span className="text-primary-600">before they become problems</span>
+            Understand your health trends — before they become problems.
           </h1>
           <p className="mt-6 text-xl text-slate-600 max-w-2xl mx-auto">
-            For Oura users: turn sleep, readiness, and resting heart rate into clear trend insights you can bring to your doctor.
+            A personal health assistant that turns wearable data into clear insights you can actually use — and bring to your doctor.
           </p>
           <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4">
             <Link href="/signup">
@@ -87,6 +86,7 @@ export function LandingPage() {
               </Button>
             </Link>
           </div>
+          <p className="mt-3 text-sm text-slate-500">Limited early access</p>
           <p className="mt-4 text-sm text-slate-500">
             Not medical advice. Designed to support better clinician conversations.
           </p>
