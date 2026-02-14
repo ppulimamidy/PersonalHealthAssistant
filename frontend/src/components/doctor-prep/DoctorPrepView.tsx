@@ -22,6 +22,7 @@ import { formatDate } from '@/lib/utils';
 import type { DoctorPrepReport, KeyMetric, TrendSummary } from '@/types';
 import toast from 'react-hot-toast';
 import jsPDF from 'jspdf';
+import { useAuthStore } from '@/stores/authStore';
 
 function buildDoctorQuestions(report: DoctorPrepReport): string[] {
   const questions: string[] = [];
@@ -111,6 +112,7 @@ function TrendItem({ trend }: { trend: TrendSummary }) {
 }
 
 function ReportView({ report }: { report: DoctorPrepReport }) {
+  const { user, profile } = useAuthStore();
   const doctorQuestions = buildDoctorQuestions(report);
 
   const handleExportPDF = async () => {
@@ -130,6 +132,26 @@ function ReportView({ report }: { report: DoctorPrepReport }) {
       yPos
     );
     yPos += 20;
+
+    // Patient profile (if available)
+    if (user || profile) {
+      doc.setFontSize(12);
+      const lines: string[] = [];
+      if (user?.name) lines.push(`Name: ${user.name}`);
+      if (profile?.age != null) lines.push(`Age: ${profile.age}`);
+      if (profile?.gender) lines.push(`Gender: ${profile.gender}`);
+      if (profile?.weight_kg != null) lines.push(`Weight: ${profile.weight_kg} kg`);
+      if (lines.length > 0) {
+        doc.text('Patient profile:', 20, yPos);
+        yPos += 8;
+        doc.setFontSize(11);
+        lines.forEach((l) => {
+          doc.text(`• ${l}`, 25, yPos);
+          yPos += 7;
+        });
+        yPos += 10;
+      }
+    }
 
     // Overall Score
     doc.setFontSize(16);
@@ -227,6 +249,37 @@ function ReportView({ report }: { report: DoctorPrepReport }) {
           </Button>
         </div>
       </div>
+
+      {/* Patient profile */}
+      {(user || profile) && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Patient profile</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-sm">
+              <div>
+                <div className="text-slate-500 dark:text-slate-400">Name</div>
+                <div className="font-medium text-slate-900 dark:text-slate-100">{user?.name ?? '—'}</div>
+              </div>
+              <div>
+                <div className="text-slate-500 dark:text-slate-400">Age</div>
+                <div className="font-medium text-slate-900 dark:text-slate-100">{profile?.age ?? '—'}</div>
+              </div>
+              <div>
+                <div className="text-slate-500 dark:text-slate-400">Gender</div>
+                <div className="font-medium text-slate-900 dark:text-slate-100">{profile?.gender ?? '—'}</div>
+              </div>
+              <div>
+                <div className="text-slate-500 dark:text-slate-400">Weight</div>
+                <div className="font-medium text-slate-900 dark:text-slate-100">
+                  {profile?.weight_kg != null ? `${profile.weight_kg} kg` : '—'}
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Overall Score */}
       <Card>
