@@ -14,6 +14,7 @@ import os
 
 from common.middleware.auth import get_current_user
 from common.utils.logging import get_logger
+from ..dependencies.usage_gate import UsageGate
 
 logger = get_logger(__name__)
 
@@ -34,7 +35,7 @@ async def get_user_optional(request: Request) -> dict:
             return {
                 "id": "sandbox-user-123",
                 "email": "sandbox@example.com",
-                "user_type": "sandbox"
+                "user_type": "sandbox",
             }
     else:
         # In production, require authentication
@@ -110,7 +111,7 @@ class GenerateReportRequest(BaseModel):
 @router.post("/generate", response_model=DoctorPrepReport)
 async def generate_report(
     request: GenerateReportRequest,
-    current_user: dict = Depends(get_user_optional)
+    current_user: dict = Depends(UsageGate("doctor_prep")),
 ):
     """
     Generate a comprehensive health summary report for doctor visits.
@@ -129,13 +130,17 @@ async def generate_report(
         raise HTTPException(status_code=500, detail="Failed to generate report")
 
     if not timeline:
-        raise HTTPException(status_code=400, detail="Insufficient data to generate report")
+        raise HTTPException(
+            status_code=400, detail="Insufficient data to generate report"
+        )
 
     # Calculate sleep metrics
     sleep_entries = [e for e in timeline if e.sleep]
     if sleep_entries:
         sleep_scores = [e.sleep.sleep_score for e in sleep_entries]
-        sleep_durations = [e.sleep.total_sleep_duration / 3600 for e in sleep_entries]  # hours
+        sleep_durations = [
+            e.sleep.total_sleep_duration / 3600 for e in sleep_entries
+        ]  # hours
         sleep_efficiencies = [e.sleep.sleep_efficiency for e in sleep_entries]
 
         sleep_summary = SleepSummary(
@@ -180,8 +185,12 @@ async def generate_report(
             average_score=sum(readiness_scores) / len(readiness_scores),
             average_hrv=sum(hrvs) / len(hrvs),
             average_resting_hr=sum(resting_hrs) / len(resting_hrs),
-            highest_readiness_day=max(readiness_entries, key=lambda x: x.readiness.readiness_score).date,
-            lowest_readiness_day=min(readiness_entries, key=lambda x: x.readiness.readiness_score).date,
+            highest_readiness_day=max(
+                readiness_entries, key=lambda x: x.readiness.readiness_score
+            ).date,
+            lowest_readiness_day=min(
+                readiness_entries, key=lambda x: x.readiness.readiness_score
+            ).date,
         )
     else:
         readiness_summary = ReadinessSummary(
@@ -212,45 +221,57 @@ async def generate_report(
         return "poor"
 
     if sleep_entries:
-        key_metrics.append(KeyMetric(
-            name="Sleep Score",
-            value=round(sleep_summary.average_score, 1),
-            unit="",
-            status=get_status(sleep_summary.average_score),
-            comparison_to_average=0
-        ))
-        key_metrics.append(KeyMetric(
-            name="Sleep Duration",
-            value=round(sleep_summary.average_duration, 1),
-            unit="hours",
-            status="good" if sleep_summary.average_duration >= 7 else "moderate",
-            comparison_to_average=0
-        ))
+        key_metrics.append(
+            KeyMetric(
+                name="Sleep Score",
+                value=round(sleep_summary.average_score, 1),
+                unit="",
+                status=get_status(sleep_summary.average_score),
+                comparison_to_average=0,
+            )
+        )
+        key_metrics.append(
+            KeyMetric(
+                name="Sleep Duration",
+                value=round(sleep_summary.average_duration, 1),
+                unit="hours",
+                status="good" if sleep_summary.average_duration >= 7 else "moderate",
+                comparison_to_average=0,
+            )
+        )
 
     if activity_entries:
-        key_metrics.append(KeyMetric(
-            name="Daily Steps",
-            value=round(activity_summary.average_steps),
-            unit="steps",
-            status="good" if activity_summary.average_steps >= 7500 else "moderate",
-            comparison_to_average=0
-        ))
-        key_metrics.append(KeyMetric(
-            name="Activity Score",
-            value=round(activity_summary.average_score, 1),
-            unit="",
-            status=get_status(activity_summary.average_score),
-            comparison_to_average=0
-        ))
+        key_metrics.append(
+            KeyMetric(
+                name="Daily Steps",
+                value=round(activity_summary.average_steps),
+                unit="steps",
+                status="good" if activity_summary.average_steps >= 7500 else "moderate",
+                comparison_to_average=0,
+            )
+        )
+        key_metrics.append(
+            KeyMetric(
+                name="Activity Score",
+                value=round(activity_summary.average_score, 1),
+                unit="",
+                status=get_status(activity_summary.average_score),
+                comparison_to_average=0,
+            )
+        )
 
     if readiness_entries:
-        key_metrics.append(KeyMetric(
-            name="Resting Heart Rate",
-            value=round(readiness_summary.average_resting_hr),
-            unit="bpm",
-            status="good" if readiness_summary.average_resting_hr < 70 else "moderate",
-            comparison_to_average=0
-        ))
+        key_metrics.append(
+            KeyMetric(
+                name="Resting Heart Rate",
+                value=round(readiness_summary.average_resting_hr),
+                unit="bpm",
+                status=(
+                    "good" if readiness_summary.average_resting_hr < 70 else "moderate"
+                ),
+                comparison_to_average=0,
+            )
+        )
 
     # Calculate trends
     trends = []
@@ -273,27 +294,31 @@ async def generate_report(
         half = len(sleep_entries) // 2
         direction, change = calculate_trend(
             [e.sleep.sleep_score for e in sleep_entries[:half]],
-            [e.sleep.sleep_score for e in sleep_entries[half:]]
+            [e.sleep.sleep_score for e in sleep_entries[half:]],
         )
-        trends.append(TrendSummary(
-            metric="Sleep Quality",
-            direction=direction,
-            percentage_change=change,
-            period=f"Last {days} days"
-        ))
+        trends.append(
+            TrendSummary(
+                metric="Sleep Quality",
+                direction=direction,
+                percentage_change=change,
+                period=f"Last {days} days",
+            )
+        )
 
     if len(activity_entries) >= 7:
         half = len(activity_entries) // 2
         direction, change = calculate_trend(
             [e.activity.steps for e in activity_entries[:half]],
-            [e.activity.steps for e in activity_entries[half:]]
+            [e.activity.steps for e in activity_entries[half:]],
         )
-        trends.append(TrendSummary(
-            metric="Activity Level",
-            direction=direction,
-            percentage_change=change,
-            period=f"Last {days} days"
-        ))
+        trends.append(
+            TrendSummary(
+                metric="Activity Level",
+                direction=direction,
+                percentage_change=change,
+                period=f"Last {days} days",
+            )
+        )
 
     # Identify concerns and improvements
     concerns = []
@@ -315,31 +340,33 @@ async def generate_report(
         improvements.append("Excellent daily activity levels")
 
     if readiness_summary.average_resting_hr > 75:
-        concerns.append("Resting heart rate is elevated - consider discussing with doctor")
+        concerns.append(
+            "Resting heart rate is elevated - consider discussing with doctor"
+        )
     elif readiness_summary.average_resting_hr < 60:
-        improvements.append("Excellent cardiovascular fitness indicated by low resting HR")
+        improvements.append(
+            "Excellent cardiovascular fitness indicated by low resting HR"
+        )
 
     # Build report
     report = DoctorPrepReport(
         id=str(uuid.uuid4()),
-        user_id=current_user['id'],
+        user_id=current_user["id"],
         generated_at=datetime.utcnow(),
         date_range={
             "start": start_date.strftime("%Y-%m-%d"),
-            "end": end_date.strftime("%Y-%m-%d")
+            "end": end_date.strftime("%Y-%m-%d"),
         },
         summary=ReportSummary(
             overall_health_score=round(overall_score, 1),
             key_metrics=key_metrics,
             trends=trends,
             concerns=concerns,
-            improvements=improvements
+            improvements=improvements,
         ),
         detailed_data=DetailedData(
-            sleep=sleep_summary,
-            activity=activity_summary,
-            readiness=readiness_summary
-        )
+            sleep=sleep_summary, activity=activity_summary, readiness=readiness_summary
+        ),
     )
 
     logger.info(f"Generated doctor prep report for user {current_user['id']}")
@@ -357,10 +384,7 @@ async def get_reports(current_user: dict = Depends(get_user_optional)):
 
 
 @router.get("/reports/{report_id}", response_model=DoctorPrepReport)
-async def get_report(
-    report_id: str,
-    current_user: dict = Depends(get_user_optional)
-):
+async def get_report(report_id: str, current_user: dict = Depends(get_user_optional)):
     """
     Get a specific report by ID.
     """
@@ -370,16 +394,14 @@ async def get_report(
 
 @router.get("/reports/{report_id}/pdf")
 async def export_pdf(
-    report_id: str,
-    current_user: dict = Depends(get_user_optional)
+    report_id: str, current_user: dict = Depends(UsageGate("pdf_export"))
 ):
     """
     Export a report as PDF.
     """
     # Generate fresh report for MVP
     report = await generate_report(
-        GenerateReportRequest(days=30),
-        current_user=current_user
+        GenerateReportRequest(days=30), current_user=current_user
     )
 
     # Create simple PDF content
@@ -396,13 +418,19 @@ async def export_pdf(
     c.drawString(1 * inch, height - 1 * inch, "Health Summary Report")
 
     c.setFont("Helvetica", 12)
-    c.drawString(1 * inch, height - 1.5 * inch,
-                 f"Period: {report.date_range['start']} to {report.date_range['end']}")
+    c.drawString(
+        1 * inch,
+        height - 1.5 * inch,
+        f"Period: {report.date_range['start']} to {report.date_range['end']}",
+    )
 
     # Overall Score
     c.setFont("Helvetica-Bold", 14)
-    c.drawString(1 * inch, height - 2.2 * inch,
-                 f"Overall Health Score: {report.summary.overall_health_score}")
+    c.drawString(
+        1 * inch,
+        height - 2.2 * inch,
+        f"Overall Health Score: {report.summary.overall_health_score}",
+    )
 
     # Key Metrics
     y = height - 3 * inch
@@ -412,7 +440,11 @@ async def export_pdf(
 
     c.setFont("Helvetica", 11)
     for metric in report.summary.key_metrics:
-        c.drawString(1.2 * inch, y, f"• {metric.name}: {metric.value} {metric.unit} ({metric.status})")
+        c.drawString(
+            1.2 * inch,
+            y,
+            f"• {metric.name}: {metric.value} {metric.unit} ({metric.status})",
+        )
         y -= 0.25 * inch
 
     # Trends
@@ -423,7 +455,11 @@ async def export_pdf(
 
     c.setFont("Helvetica", 11)
     for trend in report.summary.trends:
-        c.drawString(1.2 * inch, y, f"• {trend.metric}: {trend.direction} ({trend.percentage_change}%)")
+        c.drawString(
+            1.2 * inch,
+            y,
+            f"• {trend.metric}: {trend.direction} ({trend.percentage_change}%)",
+        )
         y -= 0.25 * inch
 
     # Concerns
@@ -452,8 +488,14 @@ async def export_pdf(
 
     # Footer
     c.setFont("Helvetica", 9)
-    c.drawString(1 * inch, 0.5 * inch, f"Generated: {report.generated_at.strftime('%Y-%m-%d %H:%M UTC')}")
-    c.drawString(1 * inch, 0.35 * inch, "This report is for informational purposes only.")
+    c.drawString(
+        1 * inch,
+        0.5 * inch,
+        f"Generated: {report.generated_at.strftime('%Y-%m-%d %H:%M UTC')}",
+    )
+    c.drawString(
+        1 * inch, 0.35 * inch, "This report is for informational purposes only."
+    )
 
     c.save()
     buffer.seek(0)
@@ -463,5 +505,5 @@ async def export_pdf(
         media_type="application/pdf",
         headers={
             "Content-Disposition": f"attachment; filename=health-report-{report.date_range['end']}.pdf"
-        }
+        },
     )

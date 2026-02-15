@@ -289,6 +289,54 @@ export interface ReadinessSummary {
   lowest_readiness_day: string;
 }
 
+// Subscription & Billing types
+export type SubscriptionTier = 'free' | 'pro' | 'pro_plus';
+export type SubscriptionStatus = 'active' | 'past_due' | 'canceled' | 'trialing' | 'incomplete';
+
+export interface UsageInfo {
+  used: number;
+  limit: number; // -1 means unlimited
+  period: 'week';
+}
+
+export interface SubscriptionData {
+  tier: SubscriptionTier;
+  status: SubscriptionStatus;
+  current_period_end: string | null;
+  cancel_at_period_end: boolean;
+  usage: {
+    ai_insights: UsageInfo;
+    nutrition_scans: UsageInfo;
+    doctor_prep: UsageInfo;
+    pdf_export: UsageInfo;
+  };
+}
+
+// Health Score types
+export interface HealthScoreBreakdown {
+  score: number;
+  weight: number;
+  weighted: number;
+}
+
+export interface DailyHealthScore {
+  score: number | null;
+  breakdown: {
+    sleep?: HealthScoreBreakdown;
+    readiness?: HealthScoreBreakdown;
+    activity?: HealthScoreBreakdown;
+  };
+  trend: 'up' | 'down' | 'stable';
+  change_from_yesterday: number;
+  date: string | null;
+}
+
+// Beta signup
+export interface BetaSignupResponse {
+  success: boolean;
+  message: string;
+}
+
 // API response types
 export interface ApiResponse<T> {
   data: T;

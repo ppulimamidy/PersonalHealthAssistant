@@ -13,8 +13,10 @@ import {
   LogOut,
 } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
+import { useSubscriptionStore } from '@/stores/subscriptionStore';
 import { supabase } from '@/lib/supabase';
 import { ThemeToggle } from '@/components/ui/ThemeToggle';
+import { UpgradeModal } from '@/components/billing/UpgradeModal';
 import { useAuth } from '@/hooks/useAuth';
 
 const navigation = [
@@ -29,6 +31,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { isLoading } = useAuth(true);
   const pathname = usePathname();
   const { user, logout } = useAuthStore();
+  const tier = useSubscriptionStore((s) => s.getTier());
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -91,7 +94,14 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
                 </span>
               </div>
               <div className="ml-3 flex-1">
-                <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{user?.name || 'User'}</p>
+                <div className="flex items-center gap-2">
+                  <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{user?.name || 'User'}</p>
+                  {tier !== 'free' && (
+                    <span className="text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded bg-primary-100 text-primary-700 dark:bg-primary-900/30 dark:text-primary-400">
+                      {tier === 'pro_plus' ? 'Pro+' : 'Pro'}
+                    </span>
+                  )}
+                </div>
                 <p className="text-xs text-slate-500 dark:text-slate-400">{user?.email}</p>
               </div>
               <button
@@ -109,6 +119,9 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
       <main className="ml-64 min-h-screen">
         <div className="p-8">{children}</div>
       </main>
+
+      {/* Upgrade modal (triggered by 403 interceptor) */}
+      <UpgradeModal />
     </div>
   );
 }

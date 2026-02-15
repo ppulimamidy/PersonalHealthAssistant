@@ -11,6 +11,8 @@ import {
   Check,
   ArrowRight
 } from 'lucide-react';
+import { PricingSection } from './PricingSection';
+import { BetaSignupForm } from './BetaSignupForm';
 
 const features = [
   {
@@ -54,6 +56,9 @@ export function LandingPage() {
             <span className="text-xl font-bold text-slate-900">HealthAssist</span>
           </div>
           <div className="flex items-center gap-4">
+            <a href="#pricing" className="text-sm font-medium text-slate-600 hover:text-slate-900">
+              Pricing
+            </a>
             <Link href="/login">
               <Button variant="ghost">Log in</Button>
             </Link>
@@ -234,7 +239,10 @@ export function LandingPage() {
         </div>
       </section>
 
-      {/* CTA */}
+      {/* Pricing */}
+      <PricingSection />
+
+      {/* CTA / Beta Signup */}
       <section className="py-20 px-6">
         <div className="max-w-3xl mx-auto text-center">
           <Zap className="w-12 h-12 text-primary-600 mx-auto mb-6" />
@@ -242,14 +250,9 @@ export function LandingPage() {
             Ready to Understand Your Health?
           </h2>
           <p className="text-lg text-slate-600 mb-8">
-            Join thousands of people who use HealthAssist to make sense of their health data.
+            Join the waitlist for early access. Limited spots available.
           </p>
-          <Link href="/signup">
-            <Button size="lg">
-              Start Your Free Trial
-              <ArrowRight className="w-5 h-5 ml-2" />
-            </Button>
-          </Link>
+          <BetaSignupForm />
         </div>
       </section>
 

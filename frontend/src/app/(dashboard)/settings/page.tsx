@@ -5,7 +5,9 @@ import { useQuery, useMutation } from '@tanstack/react-query';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { useAuthStore } from '@/stores/authStore';
+import { useSubscriptionStore } from '@/stores/subscriptionStore';
 import { ouraService } from '@/services/oura';
+import { billingService } from '@/services/billing';
 import { supabase } from '@/lib/supabase';
 import {
   User,
@@ -15,13 +17,30 @@ import {
   LogOut,
   Check,
   X,
-  RefreshCw
+  RefreshCw,
+  CreditCard,
+  Zap
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 export default function SettingsPage() {
   const { user, profile, ouraConnection, setOuraConnection, logout } = useAuthStore();
+  const subscription = useSubscriptionStore((s) => s.subscription);
+  const tier = useSubscriptionStore((s) => s.getTier());
   const [isSyncing, setIsSyncing] = useState(false);
+  const [portalLoading, setPortalLoading] = useState(false);
+
+  const handleManageBilling = async () => {
+    setPortalLoading(true);
+    try {
+      const url = await billingService.createPortalSession();
+      window.location.href = url;
+    } catch {
+      toast.error('Failed to open billing portal');
+    } finally {
+      setPortalLoading(false);
+    }
+  };
 
   const { data: connectionStatus, refetch } = useQuery({
     queryKey: ['oura-connection'],
@@ -187,6 +206,69 @@ export default function SettingsPage() {
                   </Button>
                 )}
               </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Subscription */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <CreditCard className="w-5 h-5" />
+              Subscription
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="font-medium text-slate-900 dark:text-slate-100">
+                    Current Plan
+                  </p>
+                  <p className="text-sm text-slate-500 dark:text-slate-400">
+                    {tier === 'free' ? 'Free' : tier === 'pro' ? 'Pro' : 'Pro+'}
+                    {subscription?.status === 'active' && tier !== 'free' && ' — Active'}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  {tier !== 'free' && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleManageBilling}
+                      isLoading={portalLoading}
+                    >
+                      Manage Billing
+                    </Button>
+                  )}
+                  {tier === 'free' && (
+                    <Button size="sm" onClick={() => (window.location.href = '/pricing')}>
+                      <Zap className="w-4 h-4 mr-1" />
+                      Upgrade
+                    </Button>
+                  )}
+                </div>
+              </div>
+
+              {subscription?.usage && (
+                <div className="pt-2 border-t border-slate-200 dark:border-slate-700">
+                  <p className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                    Weekly Usage
+                  </p>
+                  <div className="grid grid-cols-2 gap-3">
+                    {Object.entries(subscription.usage).map(([key, usage]) => (
+                      <div key={key} className="text-sm">
+                        <span className="text-slate-500 dark:text-slate-400">
+                          {key.replace(/_/g, ' ')}
+                        </span>
+                        <span className="ml-2 text-slate-900 dark:text-slate-100">
+                          {usage.used}{usage.limit === -1 ? '' : ` / ${usage.limit}`}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>

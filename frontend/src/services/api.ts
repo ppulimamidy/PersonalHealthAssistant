@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { supabase } from '@/lib/supabase';
+import { useSubscriptionStore } from '@/stores/subscriptionStore';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -31,6 +32,15 @@ api.interceptors.response.use(
         window.location.href = '/login';
       }
     }
+
+    // Usage limit reached — show upgrade modal
+    if (
+      error.response?.status === 403 &&
+      error.response?.data?.error === 'usage_limit_reached'
+    ) {
+      useSubscriptionStore.getState().setShowUpgradeModal(true);
+    }
+
     return Promise.reject(error);
   }
 );

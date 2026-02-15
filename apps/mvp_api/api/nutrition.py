@@ -12,20 +12,33 @@ from typing import Any, Dict, Optional
 
 import aiohttp
 from urllib.parse import urlencode
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, File, Form, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    HTTPException,
+    Query,
+    Request,
+    UploadFile,
+    File,
+    Form,
+    status,
+)
 from datetime import date, timedelta
 
 from common.middleware.auth import get_current_user
 from common.utils.logging import get_logger
+from ..dependencies.usage_gate import UsageGate
 
 logger = get_logger(__name__)
 router = APIRouter()
 
-NUTRITION_SERVICE_URL = os.environ.get("NUTRITION_SERVICE_URL", "http://localhost:8007").rstrip(
-    "/"
-)
+NUTRITION_SERVICE_URL = os.environ.get(
+    "NUTRITION_SERVICE_URL", "http://localhost:8007"
+).rstrip("/")
 TIMEOUT_S = float(os.environ.get("NUTRITION_SERVICE_TIMEOUT_S", "8.0"))
-RECOGNIZE_TIMEOUT_S = float(os.environ.get("NUTRITION_SERVICE_RECOGNIZE_TIMEOUT_S", "30.0"))
+RECOGNIZE_TIMEOUT_S = float(
+    os.environ.get("NUTRITION_SERVICE_RECOGNIZE_TIMEOUT_S", "30.0")
+)
 
 
 def _bearer_from_request(request: Request) -> Optional[str]:
@@ -36,7 +49,10 @@ def _bearer_from_request(request: Request) -> Optional[str]:
 
 
 async def _request_json(
-    method: str, url: str, headers: Dict[str, str], json_body: Optional[Dict[str, Any]] = None
+    method: str,
+    url: str,
+    headers: Dict[str, str],
+    json_body: Optional[Dict[str, Any]] = None,
 ) -> Any:
     timeout = aiohttp.ClientTimeout(total=TIMEOUT_S)
     try:
@@ -96,7 +112,9 @@ async def _request_multipart(
             async with session.post(url, headers=headers, data=form) as resp:
                 text = await resp.text()
                 if resp.status >= 400:
-                    logger.warning("Nutrition upstream error %s: %s", resp.status, text[:500])
+                    logger.warning(
+                        "Nutrition upstream error %s: %s", resp.status, text[:500]
+                    )
                     raise HTTPException(
                         status_code=status.HTTP_502_BAD_GATEWAY,
                         detail="Nutrition service error",
@@ -104,7 +122,9 @@ async def _request_multipart(
                 try:
                     return await resp.json()
                 except Exception:
-                    logger.warning("Nutrition upstream returned non-JSON: %s", text[:500])
+                    logger.warning(
+                        "Nutrition upstream returned non-JSON: %s", text[:500]
+                    )
                     raise HTTPException(
                         status_code=status.HTTP_502_BAD_GATEWAY,
                         detail="Nutrition service returned invalid response",
@@ -143,7 +163,11 @@ async def get_nutrition_summary(
     payload = await _request_json("GET", url, headers={"Authorization": bearer})
 
     # Nutrition service uses { success: bool, data: {...} }
-    if isinstance(payload, dict) and payload.get("success") is True and "data" in payload:
+    if (
+        isinstance(payload, dict)
+        and payload.get("success") is True
+        and "data" in payload
+    ):
         return payload["data"]
     return payload
 
@@ -171,7 +195,11 @@ async def list_meals(
         f"?start_date={start_d.isoformat()}&end_date={end_d.isoformat()}"
     )
     payload = await _request_json("GET", url, headers={"Authorization": bearer})
-    if isinstance(payload, dict) and payload.get("success") is True and "data" in payload:
+    if (
+        isinstance(payload, dict)
+        and payload.get("success") is True
+        and "data" in payload
+    ):
         return {"items": payload["data"]}
     # best-effort fallback
     return {"items": payload if isinstance(payload, list) else []}
@@ -190,7 +218,7 @@ async def recognize_meal_image(
     enable_nutrition_lookup: bool = Form(default=True),
     enable_cultural_recognition: bool = Form(default=True),
     models_to_use: str = Form(default="openai_vision,google_vision,azure_vision"),
-    current_user: Dict[str, Any] = Depends(get_current_user),
+    current_user: Dict[str, Any] = Depends(UsageGate("nutrition_scans")),
 ) -> Dict[str, Any]:
     """
     Recognize foods from an uploaded meal image.
@@ -226,9 +254,16 @@ async def recognize_meal_image(
         form.add_field("dietary_restrictions", dietary_restrictions)
     if preferred_units is not None:
         form.add_field("preferred_units", preferred_units)
-    form.add_field("enable_portion_estimation", "true" if enable_portion_estimation else "false")
-    form.add_field("enable_nutrition_lookup", "true" if enable_nutrition_lookup else "false")
-    form.add_field("enable_cultural_recognition", "true" if enable_cultural_recognition else "false")
+    form.add_field(
+        "enable_portion_estimation", "true" if enable_portion_estimation else "false"
+    )
+    form.add_field(
+        "enable_nutrition_lookup", "true" if enable_nutrition_lookup else "false"
+    )
+    form.add_field(
+        "enable_cultural_recognition",
+        "true" if enable_cultural_recognition else "false",
+    )
     form.add_field("models_to_use", models_to_use)
 
     payload = await _request_multipart(
@@ -261,7 +296,11 @@ async def log_meal(
         "POST", url, headers={"Authorization": bearer}, json_body=meal_data
     )
 
-    if isinstance(payload, dict) and payload.get("success") is True and "data" in payload:
+    if (
+        isinstance(payload, dict)
+        and payload.get("success") is True
+        and "data" in payload
+    ):
         return payload["data"]
     return payload
 
@@ -279,8 +318,14 @@ async def update_meal(
         raise HTTPException(status_code=401, detail="Authentication required")
 
     url = f"{NUTRITION_SERVICE_URL}/api/v1/nutrition/meals/{meal_id}"
-    payload = await _request_json("PUT", url, headers={"Authorization": bearer}, json_body=meal_data)
-    if isinstance(payload, dict) and payload.get("success") is True and "data" in payload:
+    payload = await _request_json(
+        "PUT", url, headers={"Authorization": bearer}, json_body=meal_data
+    )
+    if (
+        isinstance(payload, dict)
+        and payload.get("success") is True
+        and "data" in payload
+    ):
         return payload["data"]
     return payload
 
@@ -324,7 +369,11 @@ async def analyze_meal(
         "POST", url, headers={"Authorization": bearer}, json_body=meal_data
     )
 
-    if isinstance(payload, dict) and payload.get("success") is True and "data" in payload:
+    if (
+        isinstance(payload, dict)
+        and payload.get("success") is True
+        and "data" in payload
+    ):
         return payload["data"]
     return payload
 
@@ -347,14 +396,21 @@ async def get_food_cache(
     if not bearer:
         raise HTTPException(status_code=401, detail="Authentication required")
 
-    params = {k: v for k, v in {"q": q, "source": source, "limit": limit}.items() if v is not None}
+    params = {
+        k: v
+        for k, v in {"q": q, "source": source, "limit": limit}.items()
+        if v is not None
+    }
     qs = urlencode(params)
     url = f"{NUTRITION_SERVICE_URL}/api/v1/nutrition/food-cache"
     if qs:
         url = f"{url}?{qs}"
 
     payload = await _request_json("GET", url, headers={"Authorization": bearer})
-    if isinstance(payload, dict) and payload.get("success") is True and "data" in payload:
+    if (
+        isinstance(payload, dict)
+        and payload.get("success") is True
+        and "data" in payload
+    ):
         return payload["data"]
     return payload
-

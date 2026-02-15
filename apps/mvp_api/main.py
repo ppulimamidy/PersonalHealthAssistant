@@ -18,6 +18,9 @@ from .api.timeline import router as timeline_router
 from .api.insights import router as insights_router
 from .api.doctor_prep import router as doctor_prep_router
 from .api.nutrition import router as nutrition_router
+from .api.billing import router as billing_router
+from .api.beta import router as beta_router
+from .api.health_score import router as health_score_router
 
 logger = get_logger(__name__)
 settings = get_settings()
@@ -67,8 +70,15 @@ setup_error_handlers(app)
 app.include_router(oura_router, prefix="/api/v1/oura", tags=["Oura Integration"])
 app.include_router(timeline_router, prefix="/api/v1/health", tags=["Health Timeline"])
 app.include_router(insights_router, prefix="/api/v1/insights", tags=["AI Insights"])
-app.include_router(doctor_prep_router, prefix="/api/v1/doctor-prep", tags=["Doctor Prep"])
+app.include_router(
+    doctor_prep_router, prefix="/api/v1/doctor-prep", tags=["Doctor Prep"]
+)
 app.include_router(nutrition_router, prefix="/api/v1/nutrition", tags=["Nutrition"])
+app.include_router(billing_router, prefix="/api/v1/billing", tags=["Billing"])
+app.include_router(beta_router, prefix="/api/v1/beta", tags=["Beta"])
+app.include_router(
+    health_score_router, prefix="/api/v1/health-score", tags=["Health Score"]
+)
 
 
 @app.get("/health")
