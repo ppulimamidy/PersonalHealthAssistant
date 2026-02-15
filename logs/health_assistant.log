@@ -1,1 +1,0 @@
-{"timestamp": "2025-08-15T20:04:10.753725", "level": "INFO", "logger": "apps.graphql_bff.main", "message": "{\"event\": \"\\ud83d\\uded1 Shutting down GraphQL BFF Service...\", \"logger\": \"apps.graphql_bff.main\", \"level\": \"info\", \"timestamp\": \"2025-08-15T20:04:10.506475Z\"}", "module": "main", "function": "lifespan", "line": 117}
