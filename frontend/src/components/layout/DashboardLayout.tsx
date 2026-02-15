@@ -9,6 +9,7 @@ import {
   Brain,
   FileText,
   Utensils,
+  TrendingUp,
   Settings,
   LogOut,
 } from 'lucide-react';
@@ -22,6 +23,7 @@ import { useAuth } from '@/hooks/useAuth';
 const navigation = [
   { name: 'Timeline', href: '/timeline', icon: LayoutDashboard },
   { name: 'Insights', href: '/insights', icon: Brain },
+  { name: 'Trends', href: '/trends', icon: TrendingUp },
   { name: 'Nutrition', href: '/nutrition', icon: Utensils },
   { name: 'Doctor Prep', href: '/doctor-prep', icon: FileText },
   { name: 'Settings', href: '/settings', icon: Settings },
