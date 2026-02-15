@@ -223,9 +223,10 @@ async def stripe_webhook(request: Request):
         raise HTTPException(status_code=400, detail="Invalid payload") from exc
 
     event_type = event["type"]
+    event_id = event.get("id", "unknown")
     data = event["data"]["object"]
 
-    logger.info(f"Stripe webhook received: {event_type}")
+    logger.info(f"Stripe webhook received: {event_type} (event={event_id})")
 
     if event_type == "checkout.session.completed":
         await _handle_checkout_completed(data)
@@ -235,6 +236,8 @@ async def stripe_webhook(request: Request):
         await _handle_subscription_deleted(data)
     elif event_type == "invoice.payment_failed":
         await _handle_payment_failed(data)
+    else:
+        logger.info(f"Unhandled webhook event: {event_type}")
 
     return {"status": "ok"}
 
