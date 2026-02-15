@@ -24,8 +24,12 @@ api.interceptors.response.use(
   (response) => response,
   async (error) => {
     if (error.response?.status === 401) {
-      await supabase.auth.signOut();
-      window.location.href = '/login';
+      // Only redirect to login if the user has no active session.
+      // If we *do* have a session, let the UI show the error instead of bouncing.
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        window.location.href = '/login';
+      }
     }
     return Promise.reject(error);
   }

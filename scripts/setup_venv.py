@@ -196,7 +196,11 @@ class VirtualEnvironmentManager:
         print("\n🎉 Virtual environment setup completed successfully!")
         print(f"📍 Virtual environment: {self.venv_path}")
         print(f"🐍 Python executable: {sys.executable}")
-        print(f"📦 Pip location: {subprocess.check_output([sys.executable, '-m', 'pip', 'show', 'pip'], text=True).split('Location: ')[1].split('\n')[0]}")
+        pip_show = subprocess.check_output([sys.executable, "-m", "pip", "show", "pip"], text=True)
+        pip_location = ""
+        if "Location: " in pip_show:
+            pip_location = pip_show.split("Location: ", 1)[1].splitlines()[0].strip()
+        print(f"📦 Pip location: {pip_location}")
         
         return True
 

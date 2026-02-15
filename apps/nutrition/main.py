@@ -12,6 +12,7 @@ from contextlib import asynccontextmanager
 from typing import Dict, Any
 from pathlib import Path
 
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Depends, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
@@ -24,9 +25,14 @@ current_dir = Path(__file__).parent
 project_root = current_dir.parent.parent
 sys.path.insert(0, str(project_root))
 
+# Ensure service-local .env files are loaded (e.g., USDA_API_KEY).
+# Note: common Settings uses `env_file=".env"` relative to CWD, which may not be this folder.
+load_dotenv(dotenv_path=current_dir / ".env", override=False)
+load_dotenv(dotenv_path=current_dir / ".env.local", override=False)
+
 from common.config.settings import get_settings
 from common.database.connection import get_db_manager
-from common.middleware.auth import auth_middleware
+from common.middleware.auth import AuthMiddleware
 from common.middleware.error_handling import setup_error_handlers
 from common.middleware.security import setup_security
 from common.utils.logging import setup_logging
@@ -52,6 +58,8 @@ settings = get_settings()
 ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 PROMETHEUS_ENABLED = os.getenv("PROMETHEUS_ENABLED", "true").lower() == "true"
+ALLOW_NO_DB = os.getenv("NUTRITION_ALLOW_NO_DB", "true").lower() in ("true", "1", "yes")
+AUTO_CREATE_TABLES = os.getenv("NUTRITION_AUTO_CREATE_TABLES", "false").lower() in ("true", "1", "yes")
 
 # External service URLs
 HEALTH_TRACKING_SERVICE_URL = os.getenv(
@@ -100,6 +108,18 @@ async def lifespan(app: FastAPI):
     app.state.food_recognition_service = FoodRecognitionService()
     app.state.recommendations_service = RecommendationsService()
 
+    # Log which external nutrition sources are configured (never log secrets).
+    try:
+        ns = app.state.nutrition_service
+        logger.info(
+            "Nutrition sources configured: nutritionix=%s usda=%s openfoodfacts=%s",
+            bool(getattr(ns, "nutritionix_available", False)),
+            bool(getattr(ns, "usda_available", False)),
+            bool(getattr(ns, "openfoodfacts_available", False)),
+        )
+    except Exception:
+        pass
+
     # Test database connection
     try:
         db_manager = get_db_manager()
@@ -107,9 +127,30 @@ async def lifespan(app: FastAPI):
         async with async_session_factory() as session:
             await session.execute(text("SELECT 1"))
         logger.info("Database connection established")
+        app.state.db_available = True
+
+        # Dev convenience: create schema/tables if missing (no seeding, just DDL)
+        if ENVIRONMENT == "development" and AUTO_CREATE_TABLES:
+            try:
+                from common.models.base import Base
+                import apps.nutrition.models.database_models  # noqa: F401
+
+                engine = db_manager.create_async_engine()
+                async with engine.begin() as conn:
+                    await conn.execute(text("CREATE SCHEMA IF NOT EXISTS nutrition"))
+                    await conn.run_sync(Base.metadata.create_all)
+                logger.info("Nutrition schema/tables ensured (auto-create)")
+            except Exception as e:
+                logger.warning(f"Auto-create nutrition tables failed: {e}")
     except Exception as e:
         logger.error(f"Failed to connect to database: {e}")
-        raise
+        app.state.db_available = False
+        if not (ENVIRONMENT == "development" and ALLOW_NO_DB):
+            raise
+        logger.warning(
+            "Starting Nutrition Service without a database (development mode). "
+            "Nutrition history/logging endpoints may return empty results."
+        )
 
     logger.info("Nutrition Service started successfully")
 
@@ -154,8 +195,9 @@ app.add_middleware(
 if hasattr(settings, "ALLOWED_HOSTS") and settings.ALLOWED_HOSTS:
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.ALLOWED_HOSTS)
 
-# Add auth middleware first (will be executed last)
-app.middleware("http")(auth_middleware)
+# Add auth middleware
+# Note: AuthMiddleware is an ASGI middleware (scope/receive/send), so it must be added via add_middleware.
+app.add_middleware(AuthMiddleware)
 
 # Add security middleware (will be executed before auth)
 setup_security(app)
@@ -206,12 +248,38 @@ async def health_check() -> Dict[str, Any]:
             "recommendations": "healthy",
         }
 
+        nutrition_sources: Dict[str, bool] = {}
+        try:
+            ns = getattr(app.state, "nutrition_service", None)
+            if ns is not None:
+                nutrition_sources = {
+                    "nutritionix": bool(getattr(ns, "nutritionix_available", False)),
+                    "usda": bool(getattr(ns, "usda_available", False)),
+                    "openfoodfacts": bool(getattr(ns, "openfoodfacts_available", False)),
+                }
+        except Exception:
+            nutrition_sources = {}
+
+        food_recognition_sources: Dict[str, bool] = {}
+        try:
+            fr = getattr(app.state, "food_recognition_service", None)
+            if fr is not None:
+                food_recognition_sources = {
+                    "openai_vision": bool(getattr(fr, "openai_available", False)),
+                    "google_vision": bool(getattr(fr, "google_available", False)),
+                    "azure_vision": bool(getattr(fr, "azure_available", False)),
+                }
+        except Exception:
+            food_recognition_sources = {}
+
         return {
             "service": "nutrition",
             "status": "healthy",
             "version": "1.0.0",
             "environment": ENVIRONMENT,
             "services": services_status,
+            "nutrition_sources": nutrition_sources,
+            "food_recognition_sources": food_recognition_sources,
         }
     except Exception as e:
         logger.error(f"Health check failed: {e}")

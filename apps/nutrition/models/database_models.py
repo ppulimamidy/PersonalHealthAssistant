@@ -72,10 +72,10 @@ class FoodRecognitionResult(Base):
 
     # Indexes and schema
     __table_args__ = (
-        Index("idx_user_timestamp", "user_id", "timestamp"),
-        Index("idx_recognition_id", "recognition_id"),
-        Index("idx_meal_type", "meal_type"),
-        Index("idx_is_corrected", "is_corrected"),
+        Index("idx_food_recognition_user_timestamp", "user_id", "timestamp"),
+        Index("idx_food_recognition_recognition_id", "recognition_id"),
+        Index("idx_food_recognition_meal_type", "meal_type"),
+        Index("idx_food_recognition_is_corrected", "is_corrected"),
         {"schema": "nutrition"},
     )
 
@@ -113,9 +113,9 @@ class UserCorrection(Base):
 
     # Indexes and schema
     __table_args__ = (
-        Index("idx_user_timestamp", "user_id", "timestamp"),
-        Index("idx_recognition_result", "recognition_result_id"),
-        Index("idx_correction_type", "correction_type"),
+        Index("idx_user_correction_user_timestamp", "user_id", "timestamp"),
+        Index("idx_user_correction_recognition_result", "recognition_result_id"),
+        Index("idx_user_correction_type", "correction_type"),
         {"schema": "nutrition"},
     )
 
@@ -168,11 +168,11 @@ class MealLog(Base):
 
     # Indexes and schema
     __table_args__ = (
-        Index("idx_user_meal_date", "user_id", "timestamp"),
-        Index("idx_meal_type", "meal_type"),
-        Index("idx_recognition_result", "recognition_result_id"),
+        Index("idx_meal_log_user_timestamp", "user_id", "timestamp"),
+        Index("idx_meal_log_meal_type", "meal_type"),
+        Index("idx_meal_log_recognition_result", "recognition_result_id"),
         Index(
-            "idx_synced_flags",
+            "idx_meal_log_synced_flags",
             "synced_to_health_tracking",
             "synced_to_medical_analysis",
         ),
@@ -344,4 +344,7 @@ class UserPreferences(Base):
     enable_portion_estimation = Column(Boolean, default=True)
 
     # Indexes and schema
-    __table_args__ = (Index("idx_user_preferences", "user_id"), {"schema": "nutrition"})
+    __table_args__ = (
+        Index("idx_user_preferences_user_id", "user_id"),
+        {"schema": "nutrition"},
+    )

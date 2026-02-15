@@ -8,21 +8,25 @@ import {
   Activity,
   Brain,
   FileText,
+  Utensils,
   Settings,
   LogOut,
 } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
 import { supabase } from '@/lib/supabase';
 import { ThemeToggle } from '@/components/ui/ThemeToggle';
+import { useAuth } from '@/hooks/useAuth';
 
 const navigation = [
   { name: 'Timeline', href: '/timeline', icon: LayoutDashboard },
   { name: 'Insights', href: '/insights', icon: Brain },
+  { name: 'Nutrition', href: '/nutrition', icon: Utensils },
   { name: 'Doctor Prep', href: '/doctor-prep', icon: FileText },
   { name: 'Settings', href: '/settings', icon: Settings },
 ];
 
 export function DashboardLayout({ children }: { children: React.ReactNode }) {
+  const { isLoading } = useAuth(true);
   const pathname = usePathname();
   const { user, logout } = useAuthStore();
 
@@ -30,6 +34,15 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
     await supabase.auth.signOut();
     logout();
   };
+
+  // Prevent hydration issues by rendering a stable loading UI until auth is resolved.
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-slate-50 dark:bg-slate-900 transition-colors duration-200 flex items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600" />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-900 transition-colors duration-200">

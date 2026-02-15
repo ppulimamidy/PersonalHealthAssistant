@@ -8,6 +8,7 @@ Provides JWT validation, role checking, and circuit breaker patterns for all ser
 import base64
 import json
 import os
+import ssl
 import time
 import urllib.error
 import urllib.request
@@ -32,6 +33,21 @@ logger = get_logger(__name__)
 
 _DEFAULT_JWKS_CACHE_TTL_S = 600  # keep <= Supabase edge cache window
 _JWKS_CACHE: Dict[str, Dict[str, Any]] = {}
+
+
+def _certifi_ssl_context() -> ssl.SSLContext:
+    """
+    Create an SSL context using certifi CA bundle.
+
+    This avoids local dev issues where the Python runtime can't locate system CAs
+    (common on macOS python.org installs).
+    """
+    try:
+        import certifi
+
+        return ssl.create_default_context(cafile=certifi.where())
+    except Exception:
+        return ssl.create_default_context()
 
 
 class HTTPBearer401(HTTPBearer):
@@ -203,7 +219,12 @@ class AuthMiddleware:
         alg = str(header.get("alg") or "")
         kid = str(header.get("kid") or "")
         if alg and alg.upper() != "HS256":
-            return self._decode_with_jwks(token=token, alg=alg, kid=kid)
+            # Prefer local JWKS verification, but fall back to Supabase Auth `/user`
+            # endpoint if JWKS verification fails (keeps MVP reliable during key migrations).
+            try:
+                return self._decode_with_jwks(token=token, alg=alg, kid=kid)
+            except HTTPException:
+                return self._decode_with_supabase_auth_user(token=token)
 
         # Deduplicate while preserving order
         seen = set()
@@ -232,10 +253,93 @@ class AuthMiddleware:
                 last_error = e
                 continue
 
+        # HS256 fallback: if we're missing the legacy shared secret (or keys were migrated),
+        # validate against Supabase Auth server directly.
+        try:
+            return self._decode_with_supabase_auth_user(token=token)
+        except HTTPException:
+            pass
+
         detail = "Invalid token"
         if last_error:
             detail = f"Invalid token: {str(last_error)}"
         raise HTTPException(status_code=401, detail=detail)
+
+    def _decode_with_supabase_auth_user(self, token: str) -> Dict[str, Any]:
+        """
+        Validate a Supabase access token by calling the Auth server.
+
+        Supabase docs recommend this approach when not using asymmetric signing keys,
+        but it also works as a robust fallback during signing key transitions.
+
+        Requires:
+        - `SUPABASE_URL` (or a valid `iss` claim in the JWT)
+        - an API key for the `apikey` header (prefer `SUPABASE_PUBLISHABLE_KEY`)
+        """
+        unverified_claims = self._get_unverified_claims(token)
+        iss = str(unverified_claims.get("iss") or "").rstrip("/")
+
+        expected_issuer = os.environ.get("SUPABASE_ISSUER")
+        if not expected_issuer:
+            supabase_url = os.environ.get("SUPABASE_URL")
+            if supabase_url:
+                expected_issuer = supabase_url.rstrip("/") + "/auth/v1"
+
+        if expected_issuer and iss and iss != expected_issuer.rstrip("/"):
+            raise HTTPException(status_code=401, detail="Invalid token issuer")
+
+        issuer_base = expected_issuer.rstrip("/") if expected_issuer else iss
+        if not issuer_base:
+            raise HTTPException(status_code=401, detail="Missing issuer (iss) claim")
+
+        api_key = (
+            os.environ.get("SUPABASE_PUBLISHABLE_KEY")
+            or os.environ.get("SUPABASE_ANON_KEY")
+            or os.environ.get("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY")
+        )
+        if not api_key:
+            raise HTTPException(
+                status_code=401,
+                detail="Supabase API key missing for token validation",
+            )
+
+        url = issuer_base + "/user"
+        req = urllib.request.Request(
+            url,
+            method="GET",
+            headers={
+                "apikey": api_key,
+                "Authorization": f"Bearer {token}",
+                "Accept": "application/json",
+            },
+        )
+        try:
+            with urllib.request.urlopen(
+                req, timeout=6, context=_certifi_ssl_context()
+            ) as resp:
+                body = resp.read().decode("utf-8")
+                if resp.status != 200:
+                    raise HTTPException(status_code=401, detail="Invalid token")
+                user_obj = json.loads(body)
+        except urllib.error.HTTPError as e:
+            raise HTTPException(status_code=401, detail="Invalid token") from e
+        except Exception as e:
+            raise HTTPException(status_code=401, detail="Token validation failed") from e
+
+        user_id = user_obj.get("id") or user_obj.get("sub")
+        email = user_obj.get("email")
+        user_metadata = user_obj.get("user_metadata") or {}
+
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Invalid token payload")
+
+        # Return a token-like payload to keep downstream code consistent.
+        return {
+            "sub": user_id,
+            "email": email,
+            "user_metadata": user_metadata,
+            "iss": issuer_base,
+        }
 
     def _decode_with_jwks(self, token: str, alg: str, kid: str) -> Dict[str, Any]:
         """
@@ -290,9 +394,14 @@ class AuthMiddleware:
             )
 
         try:
+            # Convert JWK to PEM for python-jose verification
+            from jose import jwk  # import here to avoid circular import issues
+
+            constructed = jwk.construct(key, algorithm=alg)
+            pem = constructed.to_pem()
             return jwt.decode(
                 token,
-                key,
+                pem,
                 algorithms=[alg],
                 options={"verify_aud": False},
                 issuer=expected_issuer.rstrip("/") if expected_issuer else None,
@@ -331,7 +440,9 @@ class AuthMiddleware:
             jwks_url, method="GET", headers={"Accept": "application/json"}
         )
         try:
-            with urllib.request.urlopen(req, timeout=5) as resp:
+            with urllib.request.urlopen(
+                req, timeout=5, context=_certifi_ssl_context()
+            ) as resp:
                 jwks = json.loads(resp.read().decode("utf-8"))
         except urllib.error.URLError as e:
             raise HTTPException(status_code=401, detail=f"Failed to fetch JWKS: {e}")

@@ -89,7 +89,7 @@ class UserProfileClient:
         except Exception as e:
             logger.error(f"Error getting user preferences: {e}")
             return None
-    
+
     async def get_health_attributes(self, user_id: str, token: str) -> Optional[Dict[str, Any]]:
         """
         Get user health attributes for nutrition recommendations.
@@ -167,7 +167,7 @@ class UserProfileClient:
             preferences = await self.get_user_preferences(user_id, token)
             health_attrs = await self.get_health_attributes(user_id, token)
             
-            nutrition_prefs = {
+            nutrition_prefs: Dict[str, Any] = {
                 "dietary_restrictions": [],
                 "allergies": [],
                 "health_goals": [],
