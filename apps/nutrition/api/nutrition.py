@@ -5,7 +5,7 @@ Nutrition API endpoints for meal logging, nutrition analysis, and data managemen
 import logging
 from typing import Dict, Any, List, Optional
 from datetime import date, datetime, timedelta
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi import APIRouter, Depends, HTTPException, status, Request, Query
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 from common.middleware.auth import get_current_user
@@ -107,6 +107,27 @@ async def log_meal(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to log meal"
+        )
+
+
+@router.get("/food-cache")
+async def get_food_cache(
+    q: Optional[str] = Query(default=None, description="Search term for food name"),
+    source: Optional[str] = Query(default=None, description="Data source filter (usda, nutritionix, openfoodfacts, etc.)"),
+    limit: int = Query(default=50, ge=1, le=200),
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    nutrition_service: NutritionService = Depends(get_nutrition_service),
+) -> Dict[str, Any]:
+    """List cached foods stored in the Nutrition service DB."""
+    try:
+        _ = current_user["id"]
+        rows = await nutrition_service.get_food_cache(query=q, source=source, limit=limit)
+        return {"success": True, "data": {"items": rows}}
+    except Exception as e:
+        logger.error(f"Failed to get food cache: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get food cache",
         )
 
 @router.get("/daily-nutrition/{target_date}")
@@ -370,7 +391,7 @@ async def delete_meal(
     """
     try:
         user_id = current_user["id"]
-        await nutrition_service.delete_meal(meal_id)
+        await nutrition_service.delete_meal(user_id=user_id, meal_id=meal_id)
         
         logger.info(f"Meal {meal_id} deleted for user {user_id}")
         return {
@@ -383,6 +404,33 @@ async def delete_meal(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to delete meal"
+        )
+
+
+@router.put("/meals/{meal_id}")
+async def update_meal(
+    request: Request,
+    meal_id: str,
+    meal_data: Dict[str, Any],
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    nutrition_service: NutritionService = Depends(get_nutrition_service),
+) -> Dict[str, Any]:
+    """Update an existing meal log and recompute totals."""
+    try:
+        user_id = current_user["id"]
+
+        auth_header = request.headers.get("Authorization")
+        token = auth_header.split(" ")[1] if auth_header and auth_header.startswith("Bearer ") else None
+
+        result = await nutrition_service.update_meal(user_id=user_id, meal_id=meal_id, meal_data=meal_data, token=token)
+        return {"success": True, "data": result}
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Meal not found")
+    except Exception as e:
+        logger.error(f"Failed to update meal: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update meal",
         )
 
 @router.post("/food-items")

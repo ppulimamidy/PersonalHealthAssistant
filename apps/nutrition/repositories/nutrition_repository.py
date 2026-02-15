@@ -151,7 +151,7 @@ class NutritionRepository:
         user_id: str, 
         start_date: date, 
         end_date: date
-    ) -> List[MealLog]:
+    ) -> List[Dict[str, Any]]:
         """Get user's meal logs for a date range (all times in each day)."""
         try:
             start_datetime = datetime.combine(start_date, time.min)
@@ -213,7 +213,7 @@ class NutritionRepository:
             total_sugar = sum(meal["total_sugar_g"] for meal in meals)
             
             # Aggregate micronutrients
-            micronutrients = {}
+            micronutrients: Dict[str, float] = {}
             for meal in meals:
                 if meal["micronutrients"]:
                     for nutrient, value in meal["micronutrients"].items():
@@ -236,16 +236,71 @@ class NutritionRepository:
             logger.error(f"Failed to get daily nutrition summary: {e}")
             raise
 
-    async def delete_meal_log(self, meal_id: str) -> bool:
-        """Delete a meal log."""
+    async def delete_meal_log(self, meal_id: str, user_id: str) -> bool:
+        """Delete a meal log (scoped to the user)."""
         try:
-            query = delete(MealLog).where(MealLog.id == meal_id)
+            query = delete(MealLog).where(and_(MealLog.id == meal_id, MealLog.user_id == user_id))
             result = await self.session.execute(query)
             await self.session.commit()
             return result.rowcount > 0
         except Exception as e:
             await self.session.rollback()
             logger.error(f"Failed to delete meal log: {e}")
+            raise
+
+    async def update_meal_log(self, meal_id: str, user_id: str, updates: Dict[str, Any]) -> Dict[str, Any]:
+        """Update an existing meal log (scoped to the user) and return it as a dict."""
+        try:
+            meal = await self.get_meal_log(meal_id)
+            if meal is None or meal.user_id != user_id:
+                raise ValueError("Meal not found")
+
+            # Only update known fields if provided
+            for field in [
+                "meal_type",
+                "meal_name",
+                "meal_description",
+                "food_items",
+                "total_calories",
+                "total_protein_g",
+                "total_carbs_g",
+                "total_fat_g",
+                "total_fiber_g",
+                "total_sodium_mg",
+                "total_sugar_g",
+                "micronutrients",
+                "user_notes",
+                "mood_before",
+                "mood_after",
+            ]:
+                if field in updates:
+                    setattr(meal, field, updates[field])
+
+            await self.session.commit()
+            await self.session.refresh(meal)
+
+            return {
+                "id": str(meal.id),
+                "meal_type": meal.meal_type,
+                "meal_name": meal.meal_name,
+                "meal_description": meal.meal_description,
+                "food_items": meal.food_items,
+                "total_calories": meal.total_calories,
+                "total_protein_g": meal.total_protein_g,
+                "total_carbs_g": meal.total_carbs_g,
+                "total_fat_g": meal.total_fat_g,
+                "total_fiber_g": meal.total_fiber_g,
+                "total_sodium_mg": meal.total_sodium_mg,
+                "total_sugar_g": meal.total_sugar_g,
+                "micronutrients": meal.micronutrients,
+                "user_notes": meal.user_notes,
+                "mood_before": meal.mood_before,
+                "mood_after": meal.mood_after,
+                "timestamp": meal.timestamp.isoformat() if meal.timestamp else None,
+            }
+        except Exception as e:
+            await self.session.rollback()
+            logger.error(f"Failed to update meal log: {e}")
             raise
 
     # Nutrition Goals
@@ -321,6 +376,30 @@ class NutritionRepository:
     async def cache_food_data(self, food_data: Dict[str, Any]) -> FoodDatabase:
         """Cache food data in local database."""
         try:
+            food_name = (food_data.get("food_name") or "").strip()
+            source = (food_data.get("source") or "").strip()
+
+            if food_name and source:
+                existing_q = (
+                    select(FoodDatabase)
+                    .where(func.lower(FoodDatabase.food_name) == food_name.lower())
+                    .where(FoodDatabase.source == source)
+                    .limit(1)
+                )
+                existing_res = await self.session.execute(existing_q)
+                existing = existing_res.scalar_one_or_none()
+                if existing:
+                    # Update existing cache entry in-place (avoid duplicates)
+                    for key, value in food_data.items():
+                        if hasattr(existing, key) and key not in ("id", "created_at"):
+                            setattr(existing, key, value)
+                    existing.updated_at = datetime.utcnow()
+                    existing.last_accessed = datetime.utcnow()
+                    existing.access_count = (existing.access_count or 0) + 1
+                    await self.session.commit()
+                    await self.session.refresh(existing)
+                    return existing
+
             food = FoodDatabase(**food_data)
             self.session.add(food)
             await self.session.commit()
@@ -329,6 +408,56 @@ class NutritionRepository:
         except Exception as e:
             await self.session.rollback()
             logger.error(f"Failed to cache food data: {e}")
+            raise
+
+    async def list_food_cache(
+        self,
+        query: Optional[str] = None,
+        source: Optional[str] = None,
+        limit: int = 50,
+    ) -> List[Dict[str, Any]]:
+        """List cached foods (best-effort search)."""
+        try:
+            q = select(FoodDatabase)
+
+            if query:
+                q = q.where(FoodDatabase.food_name.ilike(f"%{query}%"))
+
+            if source:
+                q = q.where(FoodDatabase.source == source)
+
+            q = q.order_by(
+                func.coalesce(FoodDatabase.access_count, 0).desc(),
+                FoodDatabase.updated_at.desc(),
+            ).limit(limit)
+
+            res = await self.session.execute(q)
+            rows = res.scalars().all()
+
+            return [
+                {
+                    "food_name": r.food_name,
+                    "food_category": r.food_category,
+                    "source": r.source,
+                    "calories_per_100g": r.calories_per_100g,
+                    "protein_g_per_100g": r.protein_g_per_100g,
+                    "carbs_g_per_100g": r.carbs_g_per_100g,
+                    "fat_g_per_100g": r.fat_g_per_100g,
+                    "fiber_g_per_100g": r.fiber_g_per_100g,
+                    "sodium_mg_per_100g": r.sodium_mg_per_100g,
+                    "sugar_g_per_100g": r.sugar_g_per_100g,
+                    "brand_name": r.brand_name,
+                    "barcode": r.barcode,
+                    "serving_size_g": r.serving_size_g,
+                    "serving_description": r.serving_description,
+                    "access_count": r.access_count,
+                    "last_accessed": r.last_accessed.isoformat() if r.last_accessed else None,
+                    "updated_at": r.updated_at.isoformat() if r.updated_at else None,
+                }
+                for r in rows
+            ]
+        except Exception as e:
+            logger.error(f"Failed to list food cache: {e}")
             raise
 
     # User Preferences

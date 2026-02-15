@@ -3,6 +3,8 @@ MVP API Main Application
 Consolidated FastAPI service for Personal Health Assistant MVP.
 """
 
+import os
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
@@ -15,6 +17,7 @@ from .api.oura import router as oura_router
 from .api.timeline import router as timeline_router
 from .api.insights import router as insights_router
 from .api.doctor_prep import router as doctor_prep_router
+from .api.nutrition import router as nutrition_router
 
 logger = get_logger(__name__)
 settings = get_settings()
@@ -35,14 +38,23 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS configuration
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
+# CORS configuration – read from ALLOWED_ORIGINS env var in production
+_allowed_origins_env = os.environ.get("ALLOWED_ORIGINS", "").strip()
+if _allowed_origins_env and _allowed_origins_env != "*":
+    _allowed_origins = [o.strip() for o in _allowed_origins_env.split(",") if o.strip()]
+elif _allowed_origins_env == "*":
+    _allowed_origins = ["*"]
+else:
+    _allowed_origins = [
         "http://localhost:3000",
         "http://127.0.0.1:3000",
-        settings.frontend_url if hasattr(settings, 'frontend_url') else "*",
-    ],
+    ]
+    if hasattr(settings, "frontend_url") and settings.frontend_url:
+        _allowed_origins.append(settings.frontend_url)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -56,6 +68,7 @@ app.include_router(oura_router, prefix="/api/v1/oura", tags=["Oura Integration"]
 app.include_router(timeline_router, prefix="/api/v1/health", tags=["Health Timeline"])
 app.include_router(insights_router, prefix="/api/v1/insights", tags=["AI Insights"])
 app.include_router(doctor_prep_router, prefix="/api/v1/doctor-prep", tags=["Doctor Prep"])
+app.include_router(nutrition_router, prefix="/api/v1/nutrition", tags=["Nutrition"])
 
 
 @app.get("/health")

@@ -50,8 +50,15 @@ class FoodRecognitionService:
         import time
         start_time = time.time()
         
-        user_id = request_data.get("user_id")
-        image_data = request_data.get("image_data")
+        user_id_raw = request_data.get("user_id")
+        if not isinstance(user_id_raw, str) or not user_id_raw.strip():
+            raise ValueError("user_id is required")
+        user_id: str = user_id_raw
+
+        image_data_raw = request_data.get("image_data")
+        if not isinstance(image_data_raw, (bytes, bytearray)):
+            raise ValueError("image_data must be bytes")
+        image_data: bytes = bytes(image_data_raw)
         models_to_use = request_data.get("models_to_use", ["google_vision"])
         enable_portion_estimation = request_data.get("enable_portion_estimation", True)
         enable_nutrition_lookup = request_data.get("enable_nutrition_lookup", True)
@@ -59,6 +66,7 @@ class FoodRecognitionService:
         try:
             # Recognize foods in image
             recognized_foods = await self.recognize_foods_in_image(image_data, user_id)
+            used_mock = any(bool(item.get("is_mock_result")) for item in (recognized_foods or []))
             
             # Estimate portion sizes if enabled
             if enable_portion_estimation:
@@ -96,6 +104,13 @@ class FoodRecognitionService:
             recognition_id = str(uuid.uuid4())
             
             # Create response that matches the expected Pydantic model
+            warnings: List[str] = []
+            if used_mock:
+                warnings.append(
+                    "Food recognition fell back to a default demo response. "
+                    "At least one vision provider is failing or not configured (e.g., OpenAI quota, missing Google/Azure keys)."
+                )
+
             response = {
                 "request_id": recognition_id,
                 "user_id": user_id,
@@ -109,7 +124,7 @@ class FoodRecognitionService:
                 "overall_confidence": overall_confidence,
                 "image_quality_score": 0.8,  # TODO: Calculate actual quality score
                 "suggestions": self._generate_nutrition_suggestions(total_calories, total_protein, total_carbs, total_fat),
-                "warnings": self._generate_nutrition_warnings(recognized_foods),
+                "warnings": warnings + self._generate_nutrition_warnings(recognized_foods),
                 "detected_cuisine": request_data.get("cuisine_hint"),
                 "detected_region": request_data.get("region_hint"),
                 "timestamp": datetime.utcnow().isoformat(),
@@ -159,7 +174,7 @@ class FoodRecognitionService:
         """
         try:
             # TODO: Retrieve original recognition result from database
-            original_result = {"recognized_foods": []}  # Placeholder
+            original_result: Dict[str, Any] = {"recognized_foods": []}  # Placeholder
             
             # Apply corrections
             corrected_foods = []
@@ -215,7 +230,9 @@ class FoodRecognitionService:
             "average_confidence": 0.78
         }
 
-    async def estimate_portion_size(self, food_name: str, image_data: bytes, reference_object: Optional[str] = None) -> Dict[str, Any]:
+    async def estimate_single_portion_size(
+        self, food_name: str, image_data: bytes, reference_object: Optional[str] = None
+    ) -> Dict[str, Any]:
         """
         Estimate portion size for a specific food item.
         """
@@ -223,12 +240,17 @@ class FoodRecognitionService:
             # Use AI for portion estimation
             if self.openai_available:
                 try:
-                    return await self._estimate_portion_with_openai(image_data, [{"name": food_name}])
+                    items = await self._estimate_portion_with_openai(image_data, [{"name": food_name}])
+                    if items:
+                        portion_g = int(items[0].get("portion_g", 100) or 100)
+                        return {"portion_g": portion_g, "confidence": 0.7, "method": "openai"}
                 except Exception as e:
                     logger.warning(f"OpenAI portion estimation failed: {e}")
             
             # Fallback to heuristic estimation
-            return self._estimate_portion_heuristic([{"name": food_name, "category": "other"}])
+            items = self._estimate_portion_heuristic([{"name": food_name, "category": "other"}])
+            portion_g = int(items[0].get("portion_g", 100) or 100) if items else 100
+            return {"portion_g": portion_g, "confidence": 0.4, "method": "heuristic"}
             
         except Exception as e:
             logger.error(f"Portion estimation failed: {e}")
@@ -576,21 +598,24 @@ class FoodRecognitionService:
                 "confidence": 0.95, 
                 "description": "White rice", 
                 "category": "grain",
-                "model_used": "google_vision"
+                "model_used": "google_vision",
+                "is_mock_result": True,
             },
             {
                 "name": "chicken", 
                 "confidence": 0.90, 
                 "description": "Grilled chicken", 
                 "category": "protein",
-                "model_used": "google_vision"
+                "model_used": "google_vision",
+                "is_mock_result": True,
             },
             {
                 "name": "broccoli", 
                 "confidence": 0.85, 
                 "description": "Steamed broccoli", 
                 "category": "vegetable",
-                "model_used": "google_vision"
+                "model_used": "google_vision",
+                "is_mock_result": True,
             }
         ]
 
@@ -655,9 +680,59 @@ class FoodRecognitionService:
             max_tokens=500
         )
         
-        # TODO: Parse JSON response and update food items
-        # For now, use heuristic estimation
-        return self._estimate_portion_heuristic(food_items)
+        content = response.choices[0].message.content or ""
+        try:
+            import json
+
+            # Extract JSON object if wrapped in code fences
+            if "```json" in content:
+                json_start = content.find("```json") + 7
+                json_end = content.find("```", json_start)
+                json_content = content[json_start:json_end].strip()
+            elif "```" in content:
+                json_start = content.find("```") + 3
+                json_end = content.find("```", json_start)
+                json_content = content[json_start:json_end].strip()
+            else:
+                json_content = content.strip()
+
+            grams_map = json.loads(json_content) if json_content else {}
+            if not isinstance(grams_map, dict):
+                return self._estimate_portion_heuristic(food_items)
+
+            updated: List[Dict[str, Any]] = []
+            for item in food_items:
+                name = (item.get("name") or "").strip()
+                g = grams_map.get(name)
+                if g is None:
+                    g = grams_map.get(name.lower())
+                try:
+                    g_val = int(float(g)) if g is not None else None
+                except Exception:
+                    g_val = None
+
+                if g_val is None or g_val <= 0:
+                    updated.append(item)
+                    continue
+
+                updated.append(
+                    {
+                        **item,
+                        "portion_g": g_val,
+                        "portion_estimate": {
+                            "food_name": name or (item.get("name") or "unknown"),
+                            "estimated_quantity": g_val,
+                            "unit": "g",
+                            "confidence": 0.7,
+                        },
+                        "estimation_method": "openai",
+                    }
+                )
+
+            return updated
+        except Exception as e:
+            logger.warning(f"Failed to parse OpenAI portion JSON: {e}")
+            return self._estimate_portion_heuristic(food_items)
 
     def _estimate_portion_heuristic(self, food_items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
@@ -707,6 +782,12 @@ class FoodRecognitionService:
             estimated_items.append({
                 **food_item,
                 "portion_g": default_portion,
+                "portion_estimate": {
+                    "food_name": (food_item.get("name") or "").strip() or "unknown",
+                    "estimated_quantity": default_portion,
+                    "unit": "g",
+                    "confidence": 0.4,
+                },
                 "confidence": 0.7,  # Lower confidence for heuristic estimation
                 "estimation_method": "heuristic"
             })

@@ -16,6 +16,132 @@ export interface UserProfile {
   profile_completed?: boolean;
 }
 
+// Nutrition types (MVP surface)
+export interface NutritionSummary {
+  period_days: number;
+  average_daily_calories: number;
+  average_daily_protein_g: number;
+  average_daily_carbs_g: number;
+  average_daily_fat_g: number;
+  days_with_data: number;
+  recent_nutrition_data: Array<{
+    date?: string;
+    total_calories?: number;
+    total_protein_g?: number;
+    total_carbs_g?: number;
+    total_fat_g?: number;
+  }>;
+  daily_breakdown?: Array<{
+    date?: string;
+    rows?: Array<{
+      meal_type?: MealType;
+      meal_count?: number;
+      total_calories?: number;
+      total_protein_g?: number;
+      total_carbs_g?: number;
+      total_fat_g?: number;
+    }>;
+    total?: {
+      total_calories?: number;
+      total_protein_g?: number;
+      total_carbs_g?: number;
+      total_fat_g?: number;
+    };
+  }>;
+}
+
+export interface NutritionSummaryResponse {
+  user_preferences?: Record<string, unknown>;
+  nutrition_summary?: NutritionSummary;
+  recommendations?: unknown;
+}
+
+export type MealType = 'breakfast' | 'lunch' | 'dinner' | 'snack' | 'unknown';
+
+export interface MealFoodItemInput {
+  name: string;
+  portion_g?: number;
+}
+
+export interface LogMealRequest {
+  meal_type: MealType;
+  meal_name?: string;
+  meal_description?: string;
+  food_items: MealFoodItemInput[];
+  user_notes?: string;
+}
+
+export interface LogMealResponse {
+  meal_log_id?: string | null;
+  totals?: {
+    calories?: number;
+    protein_g?: number;
+    carbs_g?: number;
+    fat_g?: number;
+  };
+}
+
+// Food recognition (meal photo)
+export interface RecognizedFoodItem {
+  id?: string;
+  name: string;
+  confidence?: number;
+  category?: string;
+  cuisine?: string;
+  region?: string;
+  portion_g?: number;
+  calories?: number;
+  protein_g?: number;
+  carbs_g?: number;
+  fat_g?: number;
+  nutrition_source?: string;
+  // Service may return richer fields; keep it flexible.
+  [key: string]: unknown;
+}
+
+export interface FoodRecognitionResponse {
+  request_id?: string;
+  user_id?: string;
+  recognized_foods?: RecognizedFoodItem[];
+  total_calories?: number;
+  total_protein?: number;
+  total_carbs?: number;
+  total_fat?: number;
+  overall_confidence?: number;
+  detected_cuisine?: string | null;
+  detected_region?: string | null;
+  warnings?: string[] | null;
+  suggestions?: string[] | null;
+  image_url?: string | null;
+  timestamp?: string;
+}
+
+export interface MealLogItem {
+  id: string;
+  meal_type?: MealType;
+  meal_name?: string | null;
+  meal_description?: string | null;
+  food_items?: Array<{
+    name?: string;
+    portion_g?: number;
+    calories?: number;
+    protein_g?: number;
+    carbs_g?: number;
+    fat_g?: number;
+    nutrition_source?: string;
+    [key: string]: unknown;
+  }>;
+  total_calories?: number;
+  total_protein_g?: number;
+  total_carbs_g?: number;
+  total_fat_g?: number;
+  total_fiber_g?: number;
+  total_sodium_mg?: number;
+  total_sugar_g?: number;
+  micronutrients?: Record<string, number> | null;
+  timestamp?: string | null;
+}
+
 // Oura data types
 export interface OuraConnection {
   id: string;
