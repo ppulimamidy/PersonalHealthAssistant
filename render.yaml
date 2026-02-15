@@ -1,4 +1,4 @@
-# Render Blueprint for Personal Health Assistant MVP API
+# Render Blueprint for Personal Health Assistant MVP
 # Deploy with: render deploy
 
 services:
@@ -40,6 +40,10 @@ services:
       - key: ALLOWED_ORIGINS
         sync: false
 
+      # Nutrition Service URL (will be set after nutrition service deploys)
+      - key: NUTRITION_SERVICE_URL
+        sync: false
+
       # Oura Ring Configuration
       - key: USE_SANDBOX
         value: true
@@ -66,8 +70,64 @@ services:
       - key: LOG_FORMAT
         value: json
 
-    # Auto-deploy on push
     autoDeploy: true
+    numInstances: 1
 
-    # Scaling
+  # Nutrition Service
+  - type: web
+    name: nutrition-service
+    env: docker
+    dockerfilePath: ./Dockerfile.nutrition.render
+    region: oregon
+    plan: free
+    branch: master
+    healthCheckPath: /health
+    envVars:
+      # Database (Supabase PostgreSQL)
+      - key: DATABASE_URL
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+
+      # JWT (must match MVP API)
+      - key: JWT_SECRET_KEY
+        sync: false
+
+      # Environment
+      - key: ENVIRONMENT
+        value: production
+      - key: LOG_LEVEL
+        value: INFO
+
+      # Database behavior
+      - key: NUTRITION_ALLOW_NO_DB
+        value: "true"
+      - key: NUTRITION_AUTO_CREATE_TABLES
+        value: "true"
+
+      # CORS
+      - key: CORS_ORIGINS
+        sync: false
+      - key: ALLOWED_ORIGINS
+        sync: false
+
+      # External API keys (optional – service falls back gracefully)
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: NUTRITIONIX_APP_ID
+        sync: false
+      - key: NUTRITIONIX_API_KEY
+        sync: false
+      - key: USDA_API_KEY
+        sync: false
+
+      # Monitoring
+      - key: PROMETHEUS_ENABLED
+        value: "true"
+
+    autoDeploy: true
     numInstances: 1
