@@ -21,6 +21,7 @@ class BetaSignupRequest(BaseModel):  # pylint: disable=too-few-public-methods
     """Request body for beta signup."""
 
     email: str
+    source: str = "landing_page"
 
 
 @router.post("/signup")
@@ -34,7 +35,7 @@ async def beta_signup(body: BetaSignupRequest):
         "beta_signups",
         {
             "email": email,
-            "source": "landing_page",
+            "source": body.source,
             "status": "pending",
         },
     )
