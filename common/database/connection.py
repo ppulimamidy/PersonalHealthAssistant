@@ -80,19 +80,39 @@ class DatabaseManager:
         # Convert to async URL if needed
         if database_url.startswith("postgresql://"):
             async_url = database_url.replace("postgresql://", "postgresql+asyncpg://", 1)
-            logger.info(f"Converted to async URL: {async_url}")
         else:
             async_url = database_url
-            logger.info(f"Using original URL as async: {async_url}")
-            
+
+        # Strip ?sslmode=... from URL (asyncpg doesn't support it as a query param)
+        # and convert to asyncpg's ssl connect_arg instead.
+        import re
+        ssl_connect_arg = {}
+        match = re.search(r"[?&]sslmode=(\w+)", async_url)
+        if match:
+            sslmode = match.group(1)
+            # Remove sslmode param from URL
+            async_url = re.sub(r"[?&]sslmode=\w+", "", async_url)
+            # Clean up dangling ? or &
+            async_url = async_url.rstrip("?&")
+            if sslmode in ("require", "verify-ca", "verify-full"):
+                import ssl
+                ssl_ctx = ssl.create_default_context()
+                if sslmode == "require":
+                    ssl_ctx.check_hostname = False
+                    ssl_ctx.verify_mode = ssl.CERT_NONE
+                ssl_connect_arg = {"ssl": ssl_ctx}
+
+        logger.info(f"Async URL (sanitized): {async_url.split('@')[0]}@***")
+
         try:
             self._async_engine = create_async_engine(
                 async_url,
-                pool_pre_ping=True,  # Enable connection health checks
-                echo=False,  # Set to False for production
+                pool_pre_ping=True,
+                echo=False,
                 pool_size=self.settings.DATABASE_POOL_SIZE,
                 max_overflow=self.settings.DATABASE_MAX_OVERFLOW,
-                pool_recycle=3600   # Recycle connections after 1 hour
+                pool_recycle=3600,
+                connect_args=ssl_connect_arg,
             )
             logger.info("Async database engine created successfully")
         except Exception as e:
