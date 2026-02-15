@@ -19,7 +19,7 @@ repos:
     -   id: pylint
         additional_dependencies: [pylint-django]
         language_version: python3.11
-        args: ["--disable=import-error,no-member"]
+        args: ["--disable=import-error,no-member", "--fail-under=9.0"]
 
 -   repo: https://github.com/pre-commit/mirrors-mypy
     rev: v1.8.0

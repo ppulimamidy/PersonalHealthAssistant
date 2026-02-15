@@ -18,6 +18,7 @@ from pydantic import BaseModel
 
 from common.middleware.auth import get_current_user
 from common.utils.logging import get_logger
+from ..dependencies.usage_gate import UsageGate
 
 logger = get_logger(__name__)
 
@@ -423,7 +424,7 @@ async def _get_advanced_insights(
 @router.get("", response_model=List[AIInsight])
 async def get_insights(
     limit: int = Query(default=5, ge=1, le=10),
-    current_user: dict = Depends(get_user_optional),
+    current_user: dict = Depends(UsageGate("ai_insights")),
 ):
     """
     Get AI-generated insights based on user's health data.
