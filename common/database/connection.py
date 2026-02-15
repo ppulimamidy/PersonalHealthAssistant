@@ -83,24 +83,34 @@ class DatabaseManager:
         else:
             async_url = database_url
 
-        # Strip ?sslmode=... from URL (asyncpg doesn't support it as a query param)
-        # and convert to asyncpg's ssl connect_arg instead.
+        # asyncpg doesn't support ?sslmode= as a URL query param.
+        # Strip it from the URL and enable SSL via connect_args instead.
+        # For remote hosts (e.g. Supabase pooler), always enable SSL.
         import re
-        ssl_connect_arg = {}
+        import ssl as _ssl
+
+        # Check for explicit sslmode in URL
+        sslmode = None
         match = re.search(r"[?&]sslmode=(\w+)", async_url)
         if match:
             sslmode = match.group(1)
-            # Remove sslmode param from URL
             async_url = re.sub(r"[?&]sslmode=\w+", "", async_url)
-            # Clean up dangling ? or &
             async_url = async_url.rstrip("?&")
-            if sslmode in ("require", "verify-ca", "verify-full"):
-                import ssl
-                ssl_ctx = ssl.create_default_context()
-                if sslmode == "require":
-                    ssl_ctx.check_hostname = False
-                    ssl_ctx.verify_mode = ssl.CERT_NONE
-                ssl_connect_arg = {"ssl": ssl_ctx}
+
+        # Determine if this is a remote host (not localhost/127.0.0.1)
+        is_remote = not any(
+            h in async_url for h in ("@localhost", "@127.0.0.1", "@host.docker.internal")
+        )
+
+        ssl_connect_arg = {}
+        if sslmode in ("require", "verify-ca", "verify-full") or (
+            sslmode is None and is_remote
+        ):
+            ssl_ctx = _ssl.create_default_context()
+            if sslmode != "verify-full":
+                ssl_ctx.check_hostname = False
+                ssl_ctx.verify_mode = _ssl.CERT_NONE
+            ssl_connect_arg = {"ssl": ssl_ctx}
 
         logger.info(f"Async URL (sanitized): {async_url.split('@')[0]}@***")
 
