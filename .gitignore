@@ -45,7 +45,7 @@ env/
 
 # Logs
 *.log
-logs/*.log.*
+logs/
 traefik/logs/
 
 # Test results and reports

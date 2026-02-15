@@ -4,11 +4,14 @@ import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/authStore';
+import { useSubscriptionStore } from '@/stores/subscriptionStore';
+import { billingService } from '@/services/billing';
 import type { UserProfile } from '@/types';
 
 export function useAuth(requireAuth = true) {
   const router = useRouter();
   const { user, setUser, setProfile, setLoading, isLoading } = useAuthStore();
+  const setSubscription = useSubscriptionStore((s) => s.setSubscription);
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -31,6 +34,9 @@ export function useAuth(requireAuth = true) {
             created_at: session.user.created_at,
           });
           setProfile(profile);
+
+          // Hydrate subscription store (non-blocking)
+          billingService.getSubscription().then(setSubscription).catch(() => {});
         } else if (requireAuth) {
           router.push('/login');
         }
@@ -59,9 +65,13 @@ export function useAuth(requireAuth = true) {
             created_at: session.user.created_at,
           });
           setProfile(profile);
+
+          // Refresh subscription on auth change
+          billingService.getSubscription().then(setSubscription).catch(() => {});
         } else {
           setUser(null);
           setProfile(null);
+          setSubscription(null);
           if (requireAuth) {
             router.push('/login');
           }
@@ -72,7 +82,7 @@ export function useAuth(requireAuth = true) {
     return () => {
       subscription.unsubscribe();
     };
-  }, [requireAuth, router, setUser, setLoading]);
+  }, [requireAuth, router, setUser, setLoading, setSubscription]);
 
   return { user, isLoading };
 }
