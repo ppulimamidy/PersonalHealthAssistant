@@ -15,7 +15,6 @@ from pathlib import Path
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Depends, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 import uvicorn
@@ -189,9 +188,9 @@ app.add_middleware(
     allow_headers=settings.CORS_ALLOW_HEADERS,
 )
 
-# Add trusted host middleware
-if hasattr(settings, "ALLOWED_HOSTS") and settings.ALLOWED_HOSTS:
-    app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.ALLOWED_HOSTS)
+# Note: TrustedHostMiddleware is skipped – this microservice sits behind
+# the MVP API gateway and Render's own routing; the default ALLOWED_HOSTS
+# (localhost, 127.0.0.1) would reject Render's health-check probes.
 
 # Add auth middleware
 # Note: AuthMiddleware is an ASGI middleware (scope/receive/send), so it must be added via add_middleware.
