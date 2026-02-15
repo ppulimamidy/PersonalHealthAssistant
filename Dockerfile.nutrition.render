@@ -19,10 +19,9 @@ RUN apt-get update \
         curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies (lightweight production set)
-COPY requirements.txt .
-COPY apps/nutrition/requirements.production.txt ./nutrition_requirements.txt
-RUN pip install --no-cache-dir -r requirements.txt -r nutrition_requirements.txt
+# Install Python dependencies (lightweight production set – no root requirements.txt)
+COPY apps/nutrition/requirements.production.txt ./requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy common directory
 COPY common/ ./common/
