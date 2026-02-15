@@ -129,8 +129,8 @@ async def lifespan(app: FastAPI):
         logger.info("Database connection established")
         app.state.db_available = True
 
-        # Dev convenience: create schema/tables if missing (no seeding, just DDL)
-        if ENVIRONMENT == "development" and AUTO_CREATE_TABLES:
+        # Create schema/tables if missing (no seeding, just DDL)
+        if AUTO_CREATE_TABLES:
             try:
                 from common.models.base import Base
                 import apps.nutrition.models.database_models  # noqa: F401
@@ -145,10 +145,10 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"Failed to connect to database: {e}")
         app.state.db_available = False
-        if not (ENVIRONMENT == "development" and ALLOW_NO_DB):
+        if not ALLOW_NO_DB:
             raise
         logger.warning(
-            "Starting Nutrition Service without a database (development mode). "
+            "Starting Nutrition Service without a database (NUTRITION_ALLOW_NO_DB=true). "
             "Nutrition history/logging endpoints may return empty results."
         )
 
