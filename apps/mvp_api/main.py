@@ -23,6 +23,10 @@ from .api.beta import router as beta_router
 from .api.health_score import router as health_score_router
 from .api.email_summary import router as email_summary_router
 from .api.referral import router as referral_router
+from .api.correlations import router as correlations_router
+from .api.recommendations import router as recommendations_router
+from .api.health_conditions import router as health_conditions_router
+from .api.health_questionnaire import router as health_questionnaire_router
 
 logger = get_logger(__name__)
 settings = get_settings()
@@ -83,6 +87,26 @@ app.include_router(
 )
 app.include_router(email_summary_router, prefix="/api/v1/email", tags=["Email Summary"])
 app.include_router(referral_router, prefix="/api/v1/referral", tags=["Referral"])
+app.include_router(
+    correlations_router,
+    prefix="/api/v1/correlations",
+    tags=["Metabolic Intelligence"],
+)
+app.include_router(
+    recommendations_router,
+    prefix="/api/v1/recommendations",
+    tags=["Metabolic Intelligence"],
+)
+app.include_router(
+    health_conditions_router,
+    prefix="/api/v1/health-conditions",
+    tags=["Health Conditions"],
+)
+app.include_router(
+    health_questionnaire_router,
+    prefix="/api/v1/health-questionnaire",
+    tags=["Health Questionnaire"],
+)
 
 
 @app.get("/health")

@@ -227,6 +227,23 @@ export interface DataPoint {
 }
 
 // Doctor Visit Prep types
+export interface HealthIntelligenceIndicators {
+  sleep_score_trend: 'improving' | 'declining' | 'stable';
+  hrv_trend: 'improving' | 'declining' | 'stable';
+  nutrition_quality_score: number;
+  inflammation_risk: 'low' | 'moderate' | 'elevated' | 'high';
+  stress_index: number;
+  personalized_actions: string[];
+}
+
+export interface CorrelationHighlight {
+  metric_a_label: string;
+  metric_b_label: string;
+  correlation_coefficient: number;
+  effect_description: string;
+  strength: string;
+}
+
 export interface DoctorPrepReport {
   id: string;
   user_id: string;
@@ -248,6 +265,9 @@ export interface DoctorPrepReport {
     readiness: ReadinessSummary;
   };
   ai_insights: AIInsight[];
+  health_intelligence?: HealthIntelligenceIndicators;
+  nutrition_correlations?: CorrelationHighlight[];
+  condition_specific_notes?: string[];
 }
 
 export interface KeyMetric {
@@ -344,6 +364,147 @@ export interface ReferralStats extends ReferralInfo {
     redeemed_by: string;
     created_at: string;
   }>;
+}
+
+// Correlation Engine types
+export type CorrelationStrength = 'strong' | 'moderate' | 'weak';
+export type CorrelationDirection = 'positive' | 'negative';
+export type CorrelationCategory = 'nutrition_sleep' | 'nutrition_readiness' | 'nutrition_activity';
+
+export interface CorrelationDataPoint {
+  date: string;
+  a_value: number;
+  b_value: number;
+}
+
+export interface Correlation {
+  id: string;
+  metric_a: string;
+  metric_a_label: string;
+  metric_b: string;
+  metric_b_label: string;
+  correlation_coefficient: number;
+  p_value: number;
+  sample_size: number;
+  lag_days: number;
+  effect_description: string;
+  category: CorrelationCategory;
+  strength: CorrelationStrength;
+  direction: CorrelationDirection;
+  data_points: CorrelationDataPoint[];
+}
+
+export interface CorrelationResults {
+  correlations: Correlation[];
+  summary: string | null;
+  data_quality_score: number;
+  oura_days_available: number;
+  nutrition_days_available: number;
+  computed_at: string;
+  period_days: number;
+}
+
+export interface CorrelationSummary {
+  summary: string | null;
+  top_correlations: Correlation[];
+  data_quality_score: number;
+  has_data: boolean;
+}
+
+// Health Condition types
+export type ConditionCategory = 'metabolic' | 'cardiovascular' | 'autoimmune' | 'digestive' | 'mental_health' | 'other';
+
+export interface HealthCondition {
+  id: string;
+  condition_name: string;
+  condition_category: ConditionCategory;
+  severity: 'mild' | 'moderate' | 'severe';
+  diagnosed_date?: string;
+  notes?: string;
+  is_active: boolean;
+  tracked_variables?: string[];
+  watch_metrics?: string[];
+}
+
+export interface ConditionCatalogItem {
+  key: string;
+  label: string;
+  category: string;
+  tracked_variable_count: number;
+}
+
+export interface UserHealthProfile {
+  health_goals: string[];
+  dietary_preferences: string[];
+  supplements: Array<{ name: string; dose: string; frequency: string }>;
+  medications: Array<{ name: string; dose: string; frequency: string }>;
+  questionnaire_completed_at?: string;
+}
+
+// Recommendation types
+export interface FoodSuggestion {
+  name: string;
+  reason: string;
+  category: string;
+}
+
+export interface PatternDetection {
+  pattern: string;
+  label: string;
+  severity: 'mild' | 'moderate' | 'high';
+  signals: string[];
+  food_suggestions: FoodSuggestion[];
+}
+
+export interface Recommendation {
+  id: string;
+  title: string;
+  description: string;
+  priority: 'high' | 'medium' | 'low';
+  category: string;
+  foods: FoodSuggestion[];
+  rationale: string;
+}
+
+export interface RecommendationsResponse {
+  patterns_detected: PatternDetection[];
+  recommendations: Recommendation[];
+  ai_summary?: string;
+  data_quality: string;
+  generated_at: string;
+}
+
+export interface RecoveryPlan {
+  title: string;
+  overview: string;
+  daily_plan: Array<{ day: string; focus: string; meals: string }>;
+  key_focus_areas: string[];
+  foods_to_emphasize: FoodSuggestion[];
+  foods_to_limit: string[];
+  generated_at: string;
+}
+
+// Questionnaire types
+export interface QuestionOption {
+  value: string;
+  label: string;
+}
+
+export interface HealthQuestion {
+  id: string;
+  question: string;
+  type: 'single_choice' | 'multi_choice' | 'text' | 'scale';
+  category: string;
+  options?: QuestionOption[];
+  scale_min?: number;
+  scale_max?: number;
+  required: boolean;
+}
+
+export interface QuestionnaireData {
+  questions: HealthQuestion[];
+  profile_completed: boolean;
+  sections: string[];
 }
 
 // Beta signup

@@ -16,10 +16,17 @@ import {
   Minus,
   AlertCircle,
   CheckCircle,
-  Printer
+  Printer,
+  Activity,
+  Heart,
+  Flame,
+  Brain,
+  Zap,
+  Utensils,
+  HeartPulse,
 } from 'lucide-react';
 import { formatDate } from '@/lib/utils';
-import type { DoctorPrepReport, KeyMetric, TrendSummary } from '@/types';
+import type { DoctorPrepReport, KeyMetric, TrendSummary, HealthIntelligenceIndicators, CorrelationHighlight } from '@/types';
 import toast from 'react-hot-toast';
 import jsPDF from 'jspdf';
 import { useAuthStore } from '@/stores/authStore';
@@ -108,6 +115,153 @@ function TrendItem({ trend }: { trend: TrendSummary }) {
         </span>
       </div>
     </div>
+  );
+}
+
+const TREND_ICONS: Record<string, React.ReactNode> = {
+  improving: <TrendingUp className="w-4 h-4 text-green-500" />,
+  declining: <TrendingDown className="w-4 h-4 text-red-500" />,
+  stable: <Minus className="w-4 h-4 text-slate-400" />,
+};
+
+const INFLAMMATION_STYLES: Record<string, { bg: string; text: string }> = {
+  low: { bg: 'bg-green-100 dark:bg-green-900/30', text: 'text-green-700 dark:text-green-300' },
+  moderate: { bg: 'bg-amber-100 dark:bg-amber-900/30', text: 'text-amber-700 dark:text-amber-300' },
+  elevated: { bg: 'bg-orange-100 dark:bg-orange-900/30', text: 'text-orange-700 dark:text-orange-300' },
+  high: { bg: 'bg-red-100 dark:bg-red-900/30', text: 'text-red-700 dark:text-red-300' },
+};
+
+function IntelligencePanel({ indicators }: { indicators: HealthIntelligenceIndicators }) {
+  const inflStyle = INFLAMMATION_STYLES[indicators.inflammation_risk] || INFLAMMATION_STYLES.moderate;
+  const stressColor = indicators.stress_index > 60
+    ? 'text-red-600 dark:text-red-400'
+    : indicators.stress_index > 40
+      ? 'text-amber-600 dark:text-amber-400'
+      : 'text-green-600 dark:text-green-400';
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Zap className="w-5 h-5 text-primary-600 dark:text-primary-400" />
+          Health Intelligence
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+          {/* Sleep Trend */}
+          <div className="text-center p-3 rounded-lg bg-slate-50 dark:bg-slate-700/50">
+            <Activity className="w-5 h-5 text-indigo-500 mx-auto mb-1" />
+            <p className="text-[10px] uppercase font-semibold text-slate-500 dark:text-slate-400">Sleep Trend</p>
+            <div className="flex items-center justify-center gap-1 mt-1">
+              {TREND_ICONS[indicators.sleep_score_trend]}
+              <span className="text-sm font-medium text-slate-800 dark:text-slate-200 capitalize">
+                {indicators.sleep_score_trend}
+              </span>
+            </div>
+          </div>
+
+          {/* HRV Trend */}
+          <div className="text-center p-3 rounded-lg bg-slate-50 dark:bg-slate-700/50">
+            <Heart className="w-5 h-5 text-pink-500 mx-auto mb-1" />
+            <p className="text-[10px] uppercase font-semibold text-slate-500 dark:text-slate-400">HRV Trend</p>
+            <div className="flex items-center justify-center gap-1 mt-1">
+              {TREND_ICONS[indicators.hrv_trend]}
+              <span className="text-sm font-medium text-slate-800 dark:text-slate-200 capitalize">
+                {indicators.hrv_trend}
+              </span>
+            </div>
+          </div>
+
+          {/* Nutrition Quality */}
+          <div className="text-center p-3 rounded-lg bg-slate-50 dark:bg-slate-700/50">
+            <Utensils className="w-5 h-5 text-emerald-500 mx-auto mb-1" />
+            <p className="text-[10px] uppercase font-semibold text-slate-500 dark:text-slate-400">Nutrition</p>
+            <p className="text-lg font-bold text-slate-900 dark:text-slate-100 mt-1">
+              {indicators.nutrition_quality_score}
+            </p>
+            <p className="text-[10px] text-slate-400">/100</p>
+          </div>
+
+          {/* Inflammation Risk */}
+          <div className="text-center p-3 rounded-lg bg-slate-50 dark:bg-slate-700/50">
+            <Flame className="w-5 h-5 text-orange-500 mx-auto mb-1" />
+            <p className="text-[10px] uppercase font-semibold text-slate-500 dark:text-slate-400">Inflammation</p>
+            <span className={`inline-block mt-1 text-xs font-semibold px-2 py-0.5 rounded-full ${inflStyle.bg} ${inflStyle.text} capitalize`}>
+              {indicators.inflammation_risk}
+            </span>
+          </div>
+
+          {/* Stress Index */}
+          <div className="text-center p-3 rounded-lg bg-slate-50 dark:bg-slate-700/50">
+            <Brain className="w-5 h-5 text-purple-500 mx-auto mb-1" />
+            <p className="text-[10px] uppercase font-semibold text-slate-500 dark:text-slate-400">Stress</p>
+            <p className={`text-lg font-bold mt-1 ${stressColor}`}>
+              {indicators.stress_index}
+            </p>
+            <p className="text-[10px] text-slate-400">/100</p>
+          </div>
+        </div>
+
+        {/* Personalized Actions */}
+        {indicators.personalized_actions.length > 0 && (
+          <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-700">
+            <p className="text-xs font-semibold text-slate-600 dark:text-slate-400 mb-2">Recommended Actions</p>
+            <ul className="space-y-1.5">
+              {indicators.personalized_actions.map((action, idx) => (
+                <li key={idx} className="flex items-start gap-2 text-sm text-slate-700 dark:text-slate-300">
+                  <CheckCircle className="w-4 h-4 text-primary-500 mt-0.5 shrink-0" />
+                  {action}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function CorrelationsPanel({ correlations }: { correlations: CorrelationHighlight[] }) {
+  const STRENGTH_COLORS: Record<string, string> = {
+    strong: 'text-purple-600 dark:text-purple-400',
+    moderate: 'text-blue-600 dark:text-blue-400',
+    weak: 'text-slate-500 dark:text-slate-400',
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <HeartPulse className="w-5 h-5 text-primary-600 dark:text-primary-400" />
+          Key Nutrition Correlations
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="space-y-3">
+          {correlations.map((c, idx) => (
+            <div key={idx} className="flex items-start gap-3 p-3 rounded-lg bg-slate-50 dark:bg-slate-700/50">
+              <div className="flex-1">
+                <p className="text-sm font-medium text-slate-800 dark:text-slate-200">
+                  {c.effect_description || `${c.metric_a_label} vs ${c.metric_b_label}`}
+                </p>
+                <div className="flex items-center gap-3 mt-1">
+                  <span className="text-xs text-slate-500 dark:text-slate-400">
+                    {c.metric_a_label} &harr; {c.metric_b_label}
+                  </span>
+                  <span className={`text-xs font-semibold capitalize ${STRENGTH_COLORS[c.strength] || STRENGTH_COLORS.weak}`}>
+                    {c.strength}
+                  </span>
+                  <span className="text-xs text-slate-400">
+                    r={c.correlation_coefficient.toFixed(2)}
+                  </span>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -210,6 +364,55 @@ function ReportView({ report }: { report: DoctorPrepReport }) {
       yPos += 10;
     }
 
+    // Health Intelligence
+    if (report.health_intelligence) {
+      const hi = report.health_intelligence;
+      doc.setFontSize(14);
+      doc.text('Health Intelligence:', 20, yPos);
+      yPos += 10;
+      doc.setFontSize(11);
+      doc.text(`• Sleep Trend: ${hi.sleep_score_trend}`, 25, yPos); yPos += 7;
+      doc.text(`• HRV Trend: ${hi.hrv_trend}`, 25, yPos); yPos += 7;
+      doc.text(`• Nutrition Quality: ${hi.nutrition_quality_score}/100`, 25, yPos); yPos += 7;
+      doc.text(`• Inflammation Risk: ${hi.inflammation_risk}`, 25, yPos); yPos += 7;
+      doc.text(`• Stress Index: ${hi.stress_index}/100`, 25, yPos); yPos += 7;
+      if (hi.personalized_actions.length > 0) {
+        yPos += 3;
+        doc.text('Actions:', 25, yPos); yPos += 7;
+        hi.personalized_actions.forEach((a) => {
+          doc.text(`  - ${a}`, 28, yPos); yPos += 7;
+        });
+      }
+      yPos += 10;
+    }
+
+    // Nutrition Correlations
+    if (report.nutrition_correlations && report.nutrition_correlations.length > 0) {
+      doc.setFontSize(14);
+      doc.text('Key Nutrition Correlations:', 20, yPos);
+      yPos += 10;
+      doc.setFontSize(11);
+      report.nutrition_correlations.forEach((c) => {
+        const desc = c.effect_description || `${c.metric_a_label} vs ${c.metric_b_label}`;
+        doc.text(`• ${desc} (r=${c.correlation_coefficient.toFixed(2)}, ${c.strength})`, 25, yPos);
+        yPos += 7;
+      });
+      yPos += 10;
+    }
+
+    // Condition Notes
+    if (report.condition_specific_notes && report.condition_specific_notes.length > 0) {
+      doc.setFontSize(14);
+      doc.text('Health Conditions:', 20, yPos);
+      yPos += 10;
+      doc.setFontSize(11);
+      report.condition_specific_notes.forEach((n) => {
+        doc.text(`• ${n}`, 25, yPos);
+        yPos += 7;
+      });
+      yPos += 10;
+    }
+
     // Questions for clinician
     doc.setFontSize(14);
     doc.text('Questions to ask your clinician:', 20, yPos);
@@ -299,6 +502,37 @@ function ReportView({ report }: { report: DoctorPrepReport }) {
           </div>
         </div>
       </Card>
+
+      {/* Health Intelligence Indicators */}
+      {report.health_intelligence && (
+        <IntelligencePanel indicators={report.health_intelligence} />
+      )}
+
+      {/* Nutrition Correlations */}
+      {report.nutrition_correlations && report.nutrition_correlations.length > 0 && (
+        <CorrelationsPanel correlations={report.nutrition_correlations} />
+      )}
+
+      {/* Condition-Specific Notes */}
+      {report.condition_specific_notes && report.condition_specific_notes.length > 0 && (
+        <Card className="border-purple-200 dark:border-purple-800 bg-purple-50 dark:bg-purple-900/20">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <HeartPulse className="w-5 h-5 text-purple-500" />
+              Health Conditions
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ul className="space-y-2">
+              {report.condition_specific_notes.map((note, idx) => (
+                <li key={idx} className="text-sm text-slate-700 dark:text-slate-300">
+                  • {note}
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Trends */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
