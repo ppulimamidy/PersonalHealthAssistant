@@ -13,6 +13,7 @@ import {
   Zap,
   HeartPulse,
   Pill,
+  ClipboardList,
   Settings,
   LogOut,
 } from 'lucide-react';
@@ -31,6 +32,7 @@ const navigation = [
   { name: 'Metabolic AI', href: '/correlations', icon: Zap },
   { name: 'Health Profile', href: '/health-profile', icon: HeartPulse },
   { name: 'Medications', href: '/medications', icon: Pill },
+  { name: 'Symptom Journal', href: '/symptoms', icon: ClipboardList },
   { name: 'Doctor Prep', href: '/doctor-prep', icon: FileText },
   { name: 'Settings', href: '/settings', icon: Settings },
 ];
