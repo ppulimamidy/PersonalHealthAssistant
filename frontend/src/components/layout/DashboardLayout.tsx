@@ -12,6 +12,7 @@ import {
   TrendingUp,
   Zap,
   HeartPulse,
+  Pill,
   Settings,
   LogOut,
 } from 'lucide-react';
@@ -29,6 +30,7 @@ const navigation = [
   { name: 'Nutrition', href: '/nutrition', icon: Utensils },
   { name: 'Metabolic AI', href: '/correlations', icon: Zap },
   { name: 'Health Profile', href: '/health-profile', icon: HeartPulse },
+  { name: 'Medications', href: '/medications', icon: Pill },
   { name: 'Doctor Prep', href: '/doctor-prep', icon: FileText },
   { name: 'Settings', href: '/settings', icon: Settings },
 ];
