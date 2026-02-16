@@ -23,13 +23,20 @@ const TABS: { value: FilterTab; label: string }[] = [
 export function CorrelationsView() {
   const [activeTab, setActiveTab] = useState<FilterTab>('all');
   const [days, setDays] = useState<7 | 14>(14);
+  const [subscriptionFetched, setSubscriptionFetched] = useState(false);
   const queryClient = useQueryClient();
   const setSubscription = useSubscriptionStore((s) => s.setSubscription);
   const canUse = useSubscriptionStore((s) => s.canUseFeature('correlations'));
 
-  // Refetch subscription on mount so Pro/Pro+ unlock is correct after upgrade
+  // Refetch subscription on mount so Pro/Pro+ unlock is correct after upgrade (don't trust persisted state)
   useEffect(() => {
-    billingService.getSubscription().then(setSubscription).catch(() => {});
+    billingService
+      .getSubscription()
+      .then((data) => {
+        setSubscription(data);
+        setSubscriptionFetched(true);
+      })
+      .catch(() => setSubscriptionFetched(true));
   }, [setSubscription]);
 
   const { data, isLoading, error } = useQuery({
@@ -51,7 +58,28 @@ export function CorrelationsView() {
       ? data?.correlations ?? []
       : (data?.correlations ?? []).filter((c) => c.category === activeTab);
 
-  // Pro+ gate
+  // Wait for subscription refetch before showing gate (avoids showing gate from stale persisted data after upgrade)
+  if (!subscriptionFetched) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center gap-3">
+          <Zap className="w-6 h-6 text-primary-600 dark:text-primary-400" />
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">
+            Metabolic Intelligence
+          </h1>
+        </div>
+        <Card>
+          <CardContent>
+            <div className="flex flex-col items-center justify-center py-12 text-center">
+              <p className="text-sm text-slate-500 dark:text-slate-400">Checking access…</p>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  // Pro gate
   if (!canUse) {
     return (
       <div className="space-y-6">

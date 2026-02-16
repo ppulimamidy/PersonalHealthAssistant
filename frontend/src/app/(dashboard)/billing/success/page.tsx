@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { CheckCircle } from 'lucide-react';
+import { CheckCircle, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { useSubscriptionStore } from '@/stores/subscriptionStore';
 import { billingService } from '@/services/billing';
@@ -14,7 +14,11 @@ const MAX_POLL_ATTEMPTS = 10;
 export default function BillingSuccessPage() {
   const searchParams = useSearchParams();
   const setSubscription = useSubscriptionStore((s) => s.setSubscription);
+  const tier = useSubscriptionStore((s) => s.getTier());
+  const [activating, setActivating] = useState(true);
   const mounted = useRef(true);
+
+  const isPro = tier === 'pro' || tier === 'pro_plus';
 
   useEffect(() => {
     mounted.current = true;
@@ -29,7 +33,6 @@ export default function BillingSuccessPage() {
 
     const runPoll = async () => {
       if (!mounted.current) return;
-      // On first run, confirm checkout with Stripe session_id so backend activates subscription (works when webhook has not run)
       const sessionId = searchParams.get('session_id');
       if (sessionId && !confirmDone) {
         confirmDone = true;
@@ -42,9 +45,15 @@ export default function BillingSuccessPage() {
       try {
         const data = await billingService.getSubscription();
         setSubscription(data);
-        if (data.tier === 'free' && attempt < MAX_POLL_ATTEMPTS) scheduleNext();
+        if (data.tier !== 'free' && data.tier !== undefined) {
+          setActivating(false);
+          return;
+        }
+        if (attempt < MAX_POLL_ATTEMPTS) scheduleNext();
+        else setActivating(false);
       } catch {
         if (attempt < MAX_POLL_ATTEMPTS) scheduleNext();
+        else setActivating(false);
       }
     };
 
@@ -58,19 +67,30 @@ export default function BillingSuccessPage() {
   return (
     <div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-6">
       <div className="w-16 h-16 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center mb-6">
-        <CheckCircle className="w-8 h-8 text-green-600 dark:text-green-400" />
+        {activating ? (
+          <Loader2 className="w-8 h-8 text-green-600 dark:text-green-400 animate-spin" />
+        ) : (
+          <CheckCircle className="w-8 h-8 text-green-600 dark:text-green-400" />
+        )}
       </div>
       <h1 className="text-2xl font-bold text-slate-900 dark:text-white mb-2">
-        Welcome to Pro!
+        {activating ? 'Activating your subscription…' : 'Welcome to Pro!'}
       </h1>
       <p className="text-slate-600 dark:text-slate-400 max-w-md mb-8">
-        Your subscription is active. You now have access to unlimited insights,
-        nutrition scans, and more.
+        {activating
+          ? 'One moment while we unlock your Pro features.'
+          : 'Your subscription is active. You now have access to unlimited insights, nutrition scans, and more.'}
       </p>
       <div className="flex flex-wrap gap-4 justify-center">
-        <Link href="/correlations">
-          <Button>Open Metabolic AI</Button>
-        </Link>
+        {isPro ? (
+          <Link href="/correlations">
+            <Button>Open Metabolic AI</Button>
+          </Link>
+        ) : (
+          <Button disabled={activating} title={activating ? 'Please wait…' : undefined}>
+            {activating ? 'Activating…' : 'Open Metabolic AI'}
+          </Button>
+        )}
         <Link href="/timeline">
           <Button variant="outline">Go to Timeline</Button>
         </Link>
