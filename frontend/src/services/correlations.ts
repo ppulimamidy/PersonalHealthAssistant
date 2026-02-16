@@ -1,5 +1,5 @@
 import { api } from './api';
-import type { CorrelationResults, Correlation, CorrelationSummary } from '@/types';
+import type { CorrelationResults, Correlation, CorrelationSummary, CausalGraph } from '@/types';
 
 export const correlationsService = {
   getCorrelations: async (days: 7 | 14 = 14): Promise<CorrelationResults> => {
@@ -21,6 +21,13 @@ export const correlationsService = {
 
   getSummary: async (): Promise<CorrelationSummary> => {
     const response = await api.get('/api/v1/correlations/summary');
+    return response.data;
+  },
+
+  getCausalGraph: async (days: 7 | 14 = 14): Promise<CausalGraph> => {
+    const response = await api.get('/api/v1/correlations/causal-graph', {
+      params: { days },
+    });
     return response.data;
   },
 };
