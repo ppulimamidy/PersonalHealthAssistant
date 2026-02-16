@@ -90,12 +90,12 @@ export default function HealthProfilePage() {
               Track health conditions, get personalized questionnaires, and receive AI-powered
               nutrition recommendations. Upgrade to Pro+ for unlimited access.
             </p>
-            <button
-              onClick={() => useSubscriptionStore.getState().setShowUpgradeModal(true)}
-              className="inline-block mt-4 px-4 py-2 text-sm font-medium text-white bg-primary-600 rounded-lg hover:bg-primary-700"
+            <a
+              href="/pricing"
+              className="inline-block mt-4 px-4 py-2 text-sm font-medium text-white bg-primary-600 rounded-lg hover:bg-primary-700 transition-colors"
             >
               Upgrade to Pro+
-            </button>
+            </a>
           </div>
         </Card>
       </div>
