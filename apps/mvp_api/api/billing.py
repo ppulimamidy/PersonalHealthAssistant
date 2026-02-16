@@ -268,27 +268,35 @@ async def force_activate_pro(
     """
     user_id = current_user["id"]
 
-    # Get existing subscription
-    rows = await _supabase_get(
-        "subscriptions",
-        f"user_id=eq.{user_id}&select=*&limit=1",
-    )
+    # Direct PATCH to update subscription
+    if not os.environ.get("SUPABASE_URL") or not os.environ.get("SUPABASE_SERVICE_KEY"):
+        raise HTTPException(status_code=500, detail="Supabase not configured")
 
-    if not rows:
-        raise HTTPException(status_code=404, detail="No subscription found")
+    supabase_url = os.environ["SUPABASE_URL"]
+    supabase_key = os.environ["SUPABASE_SERVICE_KEY"]
 
-    existing = rows[0]
+    url = f"{supabase_url}/rest/v1/subscriptions?user_id=eq.{user_id}"
+    headers = {
+        "apikey": supabase_key,
+        "Authorization": f"Bearer {supabase_key}",
+        "Content-Type": "application/json",
+        "Prefer": "return=representation",
+    }
+    payload = {"tier": "pro", "status": "active", "updated_at": "now()"}
 
-    # Update to Pro/active while preserving customer_id
-    await _upsert_subscription(
-        user_id=user_id,
-        stripe_customer_id=existing.get("stripe_customer_id"),
-        stripe_subscription_id=existing.get("stripe_subscription_id"),
-        tier="pro",
-        status="active",
-    )
+    import aiohttp
 
-    logger.info(f"Force-activated Pro subscription for user {user_id}")
+    async with aiohttp.ClientSession() as session:
+        async with session.patch(url, headers=headers, json=payload) as resp:
+            if resp.status not in (200, 204):
+                error = await resp.text()
+                logger.error(f"Failed to update subscription: {resp.status} {error}")
+                raise HTTPException(
+                    status_code=500, detail=f"Database update failed: {error}"
+                )
+            result = await resp.json() if resp.status == 200 else None
+
+    logger.info(f"Force-activated Pro subscription for user {user_id}: {result}")
 
     return {"ok": True, "message": "Pro subscription activated", "tier": "pro"}
 
