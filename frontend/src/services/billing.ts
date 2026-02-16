@@ -16,4 +16,9 @@ export const billingService = {
     const response = await api.post('/api/v1/billing/create-portal-session');
     return response.data.portal_url;
   },
+
+  /** Confirm checkout so backend activates subscription (when webhook has not run yet). */
+  confirmCheckoutSession: async (sessionId: string): Promise<void> => {
+    await api.post('/api/v1/billing/confirm-checkout-session', { session_id: sessionId });
+  },
 };

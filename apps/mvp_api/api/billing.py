@@ -58,6 +58,12 @@ class PortalResponse(BaseModel):  # pylint: disable=too-few-public-methods
     portal_url: str
 
 
+class ConfirmCheckoutRequest(BaseModel):  # pylint: disable=too-few-public-methods
+    """Request body for confirming a checkout session (success page fallback)."""
+
+    session_id: str
+
+
 # --- Helpers ---
 
 
@@ -175,6 +181,50 @@ async def create_portal_session(
     )
 
     return PortalResponse(portal_url=session.url)
+
+
+@router.post("/confirm-checkout-session")
+async def confirm_checkout_session(
+    body: ConfirmCheckoutRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """Confirm a checkout session and activate subscription (called from success page).
+    Use when webhook may not have run yet (e.g. production without webhook)."""
+    if not stripe.api_key:
+        raise HTTPException(status_code=500, detail="Stripe not configured")
+
+    try:
+        session = stripe.checkout.Session.retrieve(
+            body.session_id,
+            expand=["subscription"],
+        )
+    except stripe.error.InvalidRequestError as exc:
+        raise HTTPException(status_code=400, detail="Invalid session") from exc
+
+    if getattr(session, "payment_status", None) != "paid":
+        raise HTTPException(status_code=400, detail="Session not paid")
+
+    metadata = getattr(session, "metadata", None) or {}
+    if not isinstance(metadata, dict):
+        metadata = {
+            "user_id": getattr(metadata, "user_id", None),
+            "tier": getattr(metadata, "tier", "pro"),
+        }
+    user_id = metadata.get("user_id")
+    if user_id != current_user["id"]:
+        raise HTTPException(
+            status_code=403, detail="Session does not belong to this user"
+        )
+
+    sub = getattr(session, "subscription", None)
+    subscription_id = getattr(sub, "id", sub) if sub else None
+    session_dict = {
+        "metadata": metadata,
+        "customer": getattr(session, "customer", None),
+        "subscription": subscription_id,
+    }
+    await _handle_checkout_completed(session_dict)
+    return {"ok": True}
 
 
 @router.get("/subscription")
