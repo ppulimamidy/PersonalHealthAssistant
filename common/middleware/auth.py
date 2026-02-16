@@ -160,10 +160,23 @@ class AuthMiddleware:
             await response(scope, receive, send)
 
     def _init_redis(self):
-        """Initialize Redis connection for token blacklisting"""
+        """Initialize Redis connection for token blacklisting. Skips connection when
+        REDIS_URL is unset or points to localhost (e.g. on Render/Vercel without Redis)."""
+        redis_url = (
+            os.environ.get("REDIS_URL")
+            or getattr(settings.external_services, "redis_url", None)
+            or ""
+        ).strip()
+        if not redis_url or "localhost" in redis_url or "127.0.0.1" in redis_url:
+            self.redis_client = None
+            logger.info(
+                "Redis not configured for auth (token blacklist disabled). "
+                "Set REDIS_URL to a remote Redis (e.g. Render Redis or Upstash) to enable blacklisting."
+            )
+            return
         try:
             self.redis_client = redis.from_url(
-                settings.external_services.redis_url,
+                redis_url,
                 encoding="utf-8",
                 decode_responses=True,
             )
@@ -182,6 +195,7 @@ class AuthMiddleware:
             return blacklisted is not None
         except Exception as e:
             logger.error(f"Error checking token blacklist: {e}")
+            self.redis_client = None  # Disable so we don't retry every request
             return False
 
     def _decode_jwt_token(self, token: str) -> Dict[str, Any]:
@@ -324,7 +338,9 @@ class AuthMiddleware:
         except urllib.error.HTTPError as e:
             raise HTTPException(status_code=401, detail="Invalid token") from e
         except Exception as e:
-            raise HTTPException(status_code=401, detail="Token validation failed") from e
+            raise HTTPException(
+                status_code=401, detail="Token validation failed"
+            ) from e
 
         user_id = user_obj.get("id") or user_obj.get("sub")
         email = user_obj.get("email")
