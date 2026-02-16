@@ -21,4 +21,9 @@ export const billingService = {
   confirmCheckoutSession: async (sessionId: string): Promise<void> => {
     await api.post('/api/v1/billing/confirm-checkout-session', { session_id: sessionId });
   },
+
+  /** Emergency endpoint to force-activate Pro subscription for stuck incomplete subscriptions. */
+  forceActivatePro: async (): Promise<void> => {
+    await api.post('/api/v1/billing/force-activate-pro');
+  },
 };
