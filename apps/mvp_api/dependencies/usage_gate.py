@@ -100,7 +100,16 @@ async def _supabase_upsert(table: str, body: dict) -> Optional[dict]:
             async with session.post(url, headers=headers, json=body) as resp:
                 if resp.status in (200, 201):
                     data = await resp.json()
-                    return data[0] if isinstance(data, list) and data else data
+                    result = data[0] if isinstance(data, list) and data else data
+                    logger.info(
+                        f"Supabase upsert {table} succeeded: status={resp.status}, result={result}"
+                    )
+                    return result
+                else:
+                    error_text = await resp.text()
+                    logger.error(
+                        f"Supabase upsert {table} failed: status={resp.status}, error={error_text}"
+                    )
                 return None
     except (aiohttp.ClientError, TimeoutError) as exc:
         logger.warning(f"Supabase upsert {table} failed: {exc}")
