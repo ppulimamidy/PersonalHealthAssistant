@@ -6,15 +6,16 @@ Endpoints for generating health summary reports for doctor visits.
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 from datetime import datetime, timedelta
+import json
 import uuid
 import io
 import os
 
 from common.middleware.auth import get_current_user
 from common.utils.logging import get_logger
-from ..dependencies.usage_gate import UsageGate
+from ..dependencies.usage_gate import UsageGate, _supabase_get
 
 logger = get_logger(__name__)
 
@@ -95,6 +96,23 @@ class DetailedData(BaseModel):
     readiness: ReadinessSummary
 
 
+class HealthIntelligenceIndicators(BaseModel):
+    sleep_score_trend: str  # improving, declining, stable
+    hrv_trend: str
+    nutrition_quality_score: float  # 0-100
+    inflammation_risk: str  # low, moderate, elevated, high
+    stress_index: float  # 0-100
+    personalized_actions: List[str]
+
+
+class CorrelationHighlight(BaseModel):
+    metric_a_label: str
+    metric_b_label: str
+    correlation_coefficient: float
+    effect_description: str
+    strength: str
+
+
 class DoctorPrepReport(BaseModel):
     id: str
     user_id: str
@@ -102,19 +120,370 @@ class DoctorPrepReport(BaseModel):
     date_range: dict
     summary: ReportSummary
     detailed_data: DetailedData
+    health_intelligence: Optional[HealthIntelligenceIndicators] = None
+    nutrition_correlations: Optional[List[CorrelationHighlight]] = None
+    condition_specific_notes: Optional[List[str]] = None
 
 
 class GenerateReportRequest(BaseModel):
     days: int = 30
 
 
+# ---------------------------------------------------------------------------
+# Intelligence indicator helpers
+# ---------------------------------------------------------------------------
+
+
+def _safe_avg(vals: List[float]) -> float:
+    return sum(vals) / len(vals) if vals else 0.0
+
+
+def _compute_trend(recent: List[float], older: List[float]) -> str:
+    if not recent or not older:
+        return "stable"
+    r_avg = _safe_avg(recent)
+    o_avg = _safe_avg(older)
+    if o_avg == 0:
+        return "stable"
+    pct = ((r_avg - o_avg) / o_avg) * 100
+    if pct > 5:
+        return "improving"
+    if pct < -5:
+        return "declining"
+    return "stable"
+
+
+def _compute_nutrition_quality(nutrition_daily: Dict[str, Dict[str, float]]) -> float:
+    """
+    Score 0-100 based on macro balance and variety.
+    Ideal: 25-35% protein, 40-55% carbs, 20-35% fat, sufficient fiber.
+    """
+    if not nutrition_daily:
+        return 0.0
+
+    scores: List[float] = []
+    for _day, d in nutrition_daily.items():
+        cals = d.get("total_calories", 0) or 1
+        protein_pct = (d.get("total_protein_g", 0) * 4 / cals) * 100
+        carb_pct = (d.get("total_carbs_g", 0) * 4 / cals) * 100
+        fat_pct = (d.get("total_fat_g", 0) * 9 / cals) * 100
+        fiber = d.get("total_fiber_g", 0)
+
+        day_score = 0.0
+        # Protein: ideal 25-35%
+        if 25 <= protein_pct <= 35:
+            day_score += 30
+        elif 15 <= protein_pct <= 45:
+            day_score += 20
+        else:
+            day_score += 5
+
+        # Carbs: ideal 40-55%
+        if 40 <= carb_pct <= 55:
+            day_score += 25
+        elif 30 <= carb_pct <= 65:
+            day_score += 15
+        else:
+            day_score += 5
+
+        # Fat: ideal 20-35%
+        if 20 <= fat_pct <= 35:
+            day_score += 25
+        elif 15 <= fat_pct <= 45:
+            day_score += 15
+        else:
+            day_score += 5
+
+        # Fiber: ideal >= 25g
+        if fiber >= 25:
+            day_score += 20
+        elif fiber >= 15:
+            day_score += 12
+        elif fiber >= 5:
+            day_score += 5
+
+        scores.append(min(100, day_score))
+
+    return round(_safe_avg(scores), 1)
+
+
+def _compute_inflammation_risk(
+    temp_vals: List[float],
+    hrv_vals: List[float],
+    sugar_vals: List[float],
+    rhr_vals: List[float],
+) -> str:
+    """
+    Inflammation risk: low / moderate / elevated / high.
+    Based on temp deviation, HRV, sugar intake, resting HR.
+    """
+    score = 0
+
+    if temp_vals:
+        avg_temp = _safe_avg(temp_vals)
+        if avg_temp > 0.5:
+            score += 3
+        elif avg_temp > 0.3:
+            score += 2
+        elif avg_temp > 0.1:
+            score += 1
+
+    if hrv_vals:
+        avg_hrv = _safe_avg(hrv_vals)
+        if avg_hrv < 40:
+            score += 3
+        elif avg_hrv < 55:
+            score += 2
+        elif avg_hrv < 65:
+            score += 1
+
+    if sugar_vals:
+        avg_sugar = _safe_avg(sugar_vals)
+        if avg_sugar > 80:
+            score += 2
+        elif avg_sugar > 50:
+            score += 1
+
+    if rhr_vals:
+        avg_rhr = _safe_avg(rhr_vals)
+        if avg_rhr > 75:
+            score += 2
+        elif avg_rhr > 65:
+            score += 1
+
+    if score >= 7:
+        return "high"
+    if score >= 5:
+        return "elevated"
+    if score >= 3:
+        return "moderate"
+    return "low"
+
+
+def _compute_stress_index(
+    hrv_vals: List[float],
+    sleep_eff_vals: List[float],
+    rhr_vals: List[float],
+) -> float:
+    """
+    Stress index 0-100 (higher = more stress).
+    Weighted: inverse HRV 40% + inverse sleep efficiency 30% + elevated RHR 30%.
+    """
+    hrv_component = 0.0
+    if hrv_vals:
+        avg_hrv = _safe_avg(hrv_vals)
+        # HRV typically 0-100; invert so low HRV = high stress
+        hrv_component = max(0, 100 - avg_hrv)
+
+    sleep_component = 0.0
+    if sleep_eff_vals:
+        avg_eff = _safe_avg(sleep_eff_vals)
+        sleep_component = max(0, 100 - avg_eff)
+
+    rhr_component = 0.0
+    if rhr_vals:
+        avg_rhr = _safe_avg(rhr_vals)
+        # RHR 50-100 range; normalize
+        rhr_component = max(0, min(100, (avg_rhr - 50) * 2))
+
+    index = (hrv_component * 0.4) + (sleep_component * 0.3) + (rhr_component * 0.3)
+    return round(max(0, min(100, index)), 1)
+
+
+async def _build_intelligence_indicators(
+    timeline: list,
+    user_id: str,
+    bearer: Optional[str],
+    days: int,
+) -> Optional[HealthIntelligenceIndicators]:
+    """Build health intelligence indicators from timeline + nutrition data."""
+    try:
+        from .correlations import _extract_oura_daily, _fetch_nutrition_daily
+
+        oura_daily = _extract_oura_daily(timeline)
+        nutrition_daily = await _fetch_nutrition_daily(bearer, days)
+
+        if not oura_daily:
+            return None
+
+        dates = sorted(oura_daily.keys())
+        half = len(dates) // 2
+        recent_dates = dates[half:]
+        older_dates = dates[:half]
+
+        # Trends
+        sleep_recent = [
+            oura_daily[d].get("sleep_score", 0)
+            for d in recent_dates
+            if oura_daily[d].get("sleep_score")
+        ]
+        sleep_older = [
+            oura_daily[d].get("sleep_score", 0)
+            for d in older_dates
+            if oura_daily[d].get("sleep_score")
+        ]
+        sleep_trend = _compute_trend(sleep_recent, sleep_older)
+
+        hrv_recent = [
+            oura_daily[d].get("hrv_balance", 0)
+            for d in recent_dates
+            if oura_daily[d].get("hrv_balance")
+        ]
+        hrv_older = [
+            oura_daily[d].get("hrv_balance", 0)
+            for d in older_dates
+            if oura_daily[d].get("hrv_balance")
+        ]
+        hrv_trend = _compute_trend(hrv_recent, hrv_older)
+
+        # Nutrition quality
+        nutrition_quality = _compute_nutrition_quality(nutrition_daily)
+
+        # Inflammation risk
+        temp_vals = [
+            oura_daily[d].get("temperature_deviation", 0)
+            for d in dates
+            if "temperature_deviation" in oura_daily[d]
+        ]
+        hrv_vals = [
+            oura_daily[d].get("hrv_balance", 0)
+            for d in dates
+            if oura_daily[d].get("hrv_balance")
+        ]
+        sugar_vals = [
+            nutrition_daily[d].get("total_sugar_g", 0)
+            for d in dates
+            if d in nutrition_daily and nutrition_daily[d].get("total_sugar_g")
+        ]
+        rhr_vals = [
+            oura_daily[d].get("resting_heart_rate", 0)
+            for d in dates
+            if oura_daily[d].get("resting_heart_rate")
+        ]
+        inflammation = _compute_inflammation_risk(
+            temp_vals, hrv_vals, sugar_vals, rhr_vals
+        )
+
+        # Stress index
+        sleep_eff_vals = [
+            oura_daily[d].get("sleep_efficiency", 0)
+            for d in dates
+            if oura_daily[d].get("sleep_efficiency")
+        ]
+        stress = _compute_stress_index(hrv_vals, sleep_eff_vals, rhr_vals)
+
+        # Personalized actions from recommendations
+        actions: List[str] = []
+        try:
+            from .recommendations import _detect_patterns
+
+            patterns = _detect_patterns(oura_daily, nutrition_daily)
+            for p in patterns[:3]:
+                actions.append(
+                    f"Address {p.label.lower()}: {p.signals[0] if p.signals else ''}"
+                )
+        except Exception:
+            pass
+
+        if inflammation in ("elevated", "high"):
+            actions.append(
+                "Consider anti-inflammatory foods: salmon, blueberries, leafy greens"
+            )
+        if stress > 60:
+            actions.append(
+                "Focus on stress reduction: earlier meals, meditation, light exercise"
+            )
+        if nutrition_quality < 50:
+            actions.append(
+                "Improve macro balance: aim for 25-35% protein, 40-55% carbs, 20-35% fat"
+            )
+
+        return HealthIntelligenceIndicators(
+            sleep_score_trend=sleep_trend,
+            hrv_trend=hrv_trend,
+            nutrition_quality_score=nutrition_quality,
+            inflammation_risk=inflammation,
+            stress_index=stress,
+            personalized_actions=actions[:5],
+        )
+    except Exception as exc:
+        logger.warning("Failed to build intelligence indicators: %s", exc)
+        return None
+
+
+async def _get_top_correlations(user_id: str) -> Optional[List[CorrelationHighlight]]:
+    """Fetch top 3 cached correlations for the report."""
+    try:
+        from datetime import timezone
+
+        now = datetime.now(timezone.utc).isoformat()
+        rows = await _supabase_get(
+            "correlation_results",
+            f"user_id=eq.{user_id}&expires_at=gt.{now}&select=correlations&limit=1&order=period_days.desc",
+        )
+        if not rows or not isinstance(rows, list):
+            return None
+
+        corr_data = rows[0].get("correlations", "[]")
+        if isinstance(corr_data, str):
+            corr_data = json.loads(corr_data)
+
+        highlights = []
+        for c in corr_data[:3]:
+            highlights.append(
+                CorrelationHighlight(
+                    metric_a_label=c.get("metric_a_label", ""),
+                    metric_b_label=c.get("metric_b_label", ""),
+                    correlation_coefficient=c.get("correlation_coefficient", 0),
+                    effect_description=c.get("effect_description", ""),
+                    strength=c.get("strength", "weak"),
+                )
+            )
+        return highlights if highlights else None
+    except Exception:
+        return None
+
+
+async def _get_condition_notes(user_id: str) -> Optional[List[str]]:
+    """Generate condition-specific notes for the doctor report."""
+    try:
+        from .health_conditions import CONDITION_VARIABLE_MAP
+
+        rows = await _supabase_get(
+            "health_conditions",
+            f"user_id=eq.{user_id}&is_active=eq.true&select=condition_name,condition_category,severity",
+        )
+        if not rows or not isinstance(rows, list):
+            return None
+
+        notes: List[str] = []
+        for row in rows:
+            name = row.get("condition_name", "")
+            severity = row.get("severity", "")
+            key = name.lower().replace(" ", "_").replace("-", "_")
+            info = CONDITION_VARIABLE_MAP.get(key)
+            if info:
+                watch = info.get("watch_metrics", [])
+                note = f"{name} ({severity})"
+                if watch:
+                    note += f" — {watch[0]}"
+                notes.append(note)
+            else:
+                notes.append(f"{name} ({severity})")
+        return notes if notes else None
+    except Exception:
+        return None
+
+
 @router.post("/generate", response_model=DoctorPrepReport)
 async def generate_report(
     request: GenerateReportRequest,
+    http_request: Request = None,
     current_user: dict = Depends(UsageGate("doctor_prep")),
 ):
     """
     Generate a comprehensive health summary report for doctor visits.
+    Now includes health intelligence indicators, correlations, and condition notes.
     """
     from .timeline import get_timeline
 
@@ -348,10 +717,45 @@ async def generate_report(
             "Excellent cardiovascular fitness indicated by low resting HR"
         )
 
+    # Build intelligence indicators (best-effort, non-blocking)
+    bearer = http_request.headers.get("Authorization") if http_request else None
+    user_id = current_user["id"]
+
+    health_intelligence = await _build_intelligence_indicators(
+        timeline, user_id, bearer, days
+    )
+    nutrition_correlations = await _get_top_correlations(user_id)
+    condition_notes = await _get_condition_notes(user_id)
+
+    # Enrich concerns/improvements with intelligence data
+    if health_intelligence:
+        if health_intelligence.inflammation_risk in ("elevated", "high"):
+            concerns.append(
+                f"Inflammation risk is {health_intelligence.inflammation_risk} — "
+                f"consider discussing anti-inflammatory diet strategies"
+            )
+        if health_intelligence.stress_index > 60:
+            concerns.append(
+                f"Stress index is elevated ({health_intelligence.stress_index}/100) — "
+                f"review stress management and sleep hygiene"
+            )
+        if health_intelligence.nutrition_quality_score >= 70:
+            improvements.append(
+                f"Nutrition quality score is good ({health_intelligence.nutrition_quality_score}/100)"
+            )
+        elif (
+            health_intelligence.nutrition_quality_score > 0
+            and health_intelligence.nutrition_quality_score < 40
+        ):
+            concerns.append(
+                f"Nutrition quality score is low ({health_intelligence.nutrition_quality_score}/100) — "
+                f"macro balance could be improved"
+            )
+
     # Build report
     report = DoctorPrepReport(
         id=str(uuid.uuid4()),
-        user_id=current_user["id"],
+        user_id=user_id,
         generated_at=datetime.utcnow(),
         date_range={
             "start": start_date.strftime("%Y-%m-%d"),
@@ -367,9 +771,12 @@ async def generate_report(
         detailed_data=DetailedData(
             sleep=sleep_summary, activity=activity_summary, readiness=readiness_summary
         ),
+        health_intelligence=health_intelligence,
+        nutrition_correlations=nutrition_correlations,
+        condition_specific_notes=condition_notes,
     )
 
-    logger.info(f"Generated doctor prep report for user {current_user['id']}")
+    logger.info(f"Generated doctor prep report for user {user_id}")
     return report
 
 

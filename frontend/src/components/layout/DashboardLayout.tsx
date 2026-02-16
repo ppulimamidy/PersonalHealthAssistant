@@ -10,6 +10,8 @@ import {
   FileText,
   Utensils,
   TrendingUp,
+  Zap,
+  HeartPulse,
   Settings,
   LogOut,
 } from 'lucide-react';
@@ -25,6 +27,8 @@ const navigation = [
   { name: 'Insights', href: '/insights', icon: Brain },
   { name: 'Trends', href: '/trends', icon: TrendingUp },
   { name: 'Nutrition', href: '/nutrition', icon: Utensils },
+  { name: 'Metabolic AI', href: '/correlations', icon: Zap },
+  { name: 'Health Profile', href: '/health-profile', icon: HeartPulse },
   { name: 'Doctor Prep', href: '/doctor-prep', icon: FileText },
   { name: 'Settings', href: '/settings', icon: Settings },
 ];

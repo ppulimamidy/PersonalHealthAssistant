@@ -22,18 +22,29 @@ SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
 
 # Tier feature limits (-1 = unlimited, 0 = not available)
 TIER_LIMITS: Dict[str, Dict[str, int]] = {
-    "free": {"ai_insights": 3, "nutrition_scans": 5, "doctor_prep": 0, "pdf_export": 0},
+    "free": {
+        "ai_insights": 3,
+        "nutrition_scans": 5,
+        "doctor_prep": 0,
+        "pdf_export": 0,
+        "correlations": 0,
+        "health_conditions": 0,
+    },
     "pro": {
         "ai_insights": -1,
         "nutrition_scans": -1,
         "doctor_prep": 0,
         "pdf_export": 0,
+        "correlations": 3,
+        "health_conditions": 0,
     },
     "pro_plus": {
         "ai_insights": -1,
         "nutrition_scans": -1,
         "doctor_prep": -1,
         "pdf_export": -1,
+        "correlations": -1,
+        "health_conditions": -1,
     },
 }
 
