@@ -507,6 +507,195 @@ export interface QuestionnaireData {
   sections: string[];
 }
 
+// Medications & Supplements types
+export interface Medication {
+  id: string;
+  medication_name: string;
+  generic_name?: string;
+  dosage: string;
+  frequency: string;
+  route: string;
+  indication?: string;
+  prescribing_doctor?: string;
+  pharmacy?: string;
+  prescription_number?: string;
+  start_date?: string;
+  end_date?: string;
+  is_active: boolean;
+  refill_reminder_enabled: boolean;
+  refill_reminder_days_before: number;
+  side_effects_experienced: string[];
+  notes?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Supplement {
+  id: string;
+  supplement_name: string;
+  brand?: string;
+  dosage: string;
+  frequency: string;
+  form: string;
+  purpose?: string;
+  taken_with_food?: boolean;
+  time_of_day?: string;
+  start_date?: string;
+  end_date?: string;
+  is_active: boolean;
+  notes?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MedicationAdherenceLog {
+  id: string;
+  medication_id?: string;
+  supplement_id?: string;
+  scheduled_time: string;
+  taken_time?: string;
+  was_taken: boolean;
+  missed_reason?: string;
+  side_effects_noted?: string;
+  created_at: string;
+}
+
+export interface AdherenceStats {
+  medications: Array<{
+    medication_id: string;
+    medication_name: string;
+    total_scheduled: number;
+    total_taken: number;
+    adherence_rate: number;
+    missed_count: number;
+  }>;
+  supplements: Array<{
+    supplement_id: string;
+    supplement_name: string;
+    total_scheduled: number;
+    total_taken: number;
+    adherence_rate: number;
+    missed_count: number;
+  }>;
+  overall_adherence_rate: number;
+}
+
+export interface CreateMedicationRequest {
+  medication_name: string;
+  generic_name?: string;
+  dosage: string;
+  frequency: string;
+  route?: string;
+  indication?: string;
+  prescribing_doctor?: string;
+  pharmacy?: string;
+  prescription_number?: string;
+  start_date?: string;
+  end_date?: string;
+  is_active?: boolean;
+  refill_reminder_enabled?: boolean;
+  refill_reminder_days_before?: number;
+  side_effects_experienced?: string[];
+  notes?: string;
+}
+
+export interface CreateSupplementRequest {
+  supplement_name: string;
+  brand?: string;
+  dosage: string;
+  frequency: string;
+  form?: string;
+  purpose?: string;
+  taken_with_food?: boolean;
+  time_of_day?: string;
+  start_date?: string;
+  end_date?: string;
+  is_active?: boolean;
+  notes?: string;
+}
+
+// Symptom Journal types
+export type SymptomType = 'pain' | 'fatigue' | 'nausea' | 'headache' | 'digestive' | 'mental_health' | 'respiratory' | 'skin' | 'other';
+export type MoodType = 'happy' | 'anxious' | 'stressed' | 'sad' | 'neutral' | 'irritable' | 'energetic';
+
+export interface SymptomJournalEntry {
+  id: string;
+  symptom_date: string;
+  symptom_time?: string;
+  symptom_type: SymptomType | string;
+  severity: number;
+  location?: string;
+  duration_minutes?: number;
+  triggers: string[];
+  associated_symptoms: string[];
+  medications_taken: string[];
+  notes?: string;
+  mood?: MoodType | string;
+  weather_conditions?: string;
+  stress_level?: number;
+  sleep_hours_previous_night?: number;
+  photo_url?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateSymptomRequest {
+  symptom_date: string;
+  symptom_time?: string;
+  symptom_type: string;
+  severity: number;
+  location?: string;
+  duration_minutes?: number;
+  triggers?: string[];
+  associated_symptoms?: string[];
+  medications_taken?: string[];
+  notes?: string;
+  mood?: string;
+  weather_conditions?: string;
+  stress_level?: number;
+  sleep_hours_previous_night?: number;
+}
+
+export interface SymptomAnalytics {
+  total_entries: number;
+  date_range: {
+    start: string;
+    end: string;
+  };
+  symptom_types: Array<{
+    symptom_type: string;
+    count: number;
+  }>;
+  severity_distribution: {
+    mild: number;
+    moderate: number;
+    severe: number;
+  };
+  average_severity: number;
+  most_common_triggers: Array<{
+    trigger: string;
+    count: number;
+  }>;
+  mood_correlations?: {
+    [mood: string]: number;
+  };
+  stress_correlations?: {
+    [level: string]: number[];
+  };
+}
+
+export interface SymptomPattern {
+  id: string;
+  pattern_type: 'time_based' | 'trigger_based' | 'cyclic' | 'correlation';
+  symptom_type: string;
+  pattern_description?: string;
+  confidence_score: number;
+  supporting_entries: string[];
+  recommendations: string[];
+  detected_at: string;
+  is_active: boolean;
+}
+
 // Beta signup
 export interface BetaSignupResponse {
   success: boolean;
