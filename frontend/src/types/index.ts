@@ -411,6 +411,32 @@ export interface CorrelationSummary {
   has_data: boolean;
 }
 
+export interface CausalEdge {
+  from_metric: string;
+  from_label: string;
+  to_metric: string;
+  to_label: string;
+  causality_score: number;
+  correlation: number;
+  granger_p_value?: number;
+  optimal_lag_days: number;
+  strength: 'strong' | 'moderate' | 'weak';
+  evidence: string[];
+}
+
+export interface CausalGraphNode {
+  id: string;
+  label: string;
+  type: 'nutrition' | 'oura';
+}
+
+export interface CausalGraph {
+  nodes: CausalGraphNode[];
+  edges: CausalEdge[];
+  computed_at: string;
+  confidence_threshold: number;
+}
+
 // Health Condition types
 export type ConditionCategory = 'metabolic' | 'cardiovascular' | 'autoimmune' | 'digestive' | 'mental_health' | 'other';
 
