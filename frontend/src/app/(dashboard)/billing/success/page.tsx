@@ -1,21 +1,45 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { CheckCircle } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { useSubscriptionStore } from '@/stores/subscriptionStore';
 import { billingService } from '@/services/billing';
 import Link from 'next/link';
 
+const POLL_INTERVAL_MS = 2000;
+const MAX_POLL_ATTEMPTS = 10;
+
 export default function BillingSuccessPage() {
   const setSubscription = useSubscriptionStore((s) => s.setSubscription);
+  const mounted = useRef(true);
 
   useEffect(() => {
-    // Refresh subscription data after successful checkout
-    billingService
-      .getSubscription()
-      .then(setSubscription)
-      .catch(() => {});
+    mounted.current = true;
+    let attempt = 0;
+
+    const scheduleNext = () => {
+      if (!mounted.current || attempt >= MAX_POLL_ATTEMPTS) return;
+      attempt += 1;
+      setTimeout(runPoll, attempt === 1 ? 0 : POLL_INTERVAL_MS);
+    };
+
+    const runPoll = async () => {
+      if (!mounted.current) return;
+      try {
+        const data = await billingService.getSubscription();
+        setSubscription(data);
+        if (data.tier === 'free' && attempt < MAX_POLL_ATTEMPTS) scheduleNext();
+      } catch {
+        if (attempt < MAX_POLL_ATTEMPTS) scheduleNext();
+      }
+    };
+
+    scheduleNext();
+
+    return () => {
+      mounted.current = false;
+    };
   }, [setSubscription]);
 
   return (

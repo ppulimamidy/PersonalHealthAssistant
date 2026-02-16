@@ -1,11 +1,12 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { CorrelationCard } from './CorrelationCard';
 import { correlationsService } from '@/services/correlations';
+import { billingService } from '@/services/billing';
 import { useSubscriptionStore } from '@/stores/subscriptionStore';
 import { Zap, RefreshCw, AlertTriangle, Lock } from 'lucide-react';
 import type { CorrelationCategory } from '@/types';
@@ -23,7 +24,13 @@ export function CorrelationsView() {
   const [activeTab, setActiveTab] = useState<FilterTab>('all');
   const [days, setDays] = useState<7 | 14>(14);
   const queryClient = useQueryClient();
+  const setSubscription = useSubscriptionStore((s) => s.setSubscription);
   const canUse = useSubscriptionStore((s) => s.canUseFeature('correlations'));
+
+  // Refetch subscription on mount so Pro/Pro+ unlock is correct after upgrade
+  useEffect(() => {
+    billingService.getSubscription().then(setSubscription).catch(() => {});
+  }, [setSubscription]);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['correlations', days],
