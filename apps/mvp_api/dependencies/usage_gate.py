@@ -30,6 +30,7 @@ TIER_LIMITS: Dict[str, Dict[str, int]] = {
         "correlations": 0,
         "health_conditions": 0,
         "symptom_journal": 0,  # Phase 1: Not available for free tier
+        "medical_literature": 0,  # Phase 2: Not available for free tier
     },
     "pro": {
         "ai_insights": -1,
@@ -39,6 +40,7 @@ TIER_LIMITS: Dict[str, Dict[str, int]] = {
         "correlations": 3,
         "health_conditions": 0,
         "symptom_journal": 3,  # Phase 1: 3 entries per week for Pro
+        "medical_literature": 20,  # Phase 2: 20 searches per week for Pro
     },
     "pro_plus": {
         "ai_insights": -1,
@@ -48,6 +50,7 @@ TIER_LIMITS: Dict[str, Dict[str, int]] = {
         "correlations": -1,
         "health_conditions": -1,  # Pro+ gets medications/supplements (reuses this gate)
         "symptom_journal": -1,  # Phase 1: Unlimited for Pro+
+        "medical_literature": -1,  # Phase 2: Unlimited for Pro+
     },
 }
 
