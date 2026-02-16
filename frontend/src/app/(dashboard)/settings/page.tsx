@@ -25,13 +25,21 @@ import toast from 'react-hot-toast';
 import { ReferralCard } from '@/components/referral/ReferralCard';
 
 export default function SettingsPage() {
-  const { user, profile, ouraConnection, setOuraConnection, logout } = useAuthStore();
+  const { user, profile, ouraConnection, setOuraConnection, setProfile, logout } = useAuthStore();
   const subscription = useSubscriptionStore((s) => s.subscription);
   const setSubscription = useSubscriptionStore((s) => s.setSubscription);
   const tier = useSubscriptionStore((s) => s.getTier());
   const [isSyncing, setIsSyncing] = useState(false);
   const [portalLoading, setPortalLoading] = useState(false);
   const [forceActivating, setForceActivating] = useState(false);
+  const [isEditingProfile, setIsEditingProfile] = useState(false);
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
+
+  // Edit profile form state
+  const [editAge, setEditAge] = useState<number | ''>('');
+  const [editGender, setEditGender] = useState<'male' | 'female' | 'other' | 'prefer_not_to_say' | ''>('');
+  const [editWeight, setEditWeight] = useState<number | ''>('');
+  const [editWeightUnit, setEditWeightUnit] = useState<'kg' | 'lb'>('lb');
 
   const handleManageBilling = async () => {
     setPortalLoading(true);
@@ -58,6 +66,76 @@ export default function SettingsPage() {
       toast.error(error?.message || 'Failed to activate subscription');
     } finally {
       setForceActivating(false);
+    }
+  };
+
+  const handleEditProfile = () => {
+    // Initialize edit form with current values
+    setEditAge(profile?.age ?? '');
+    setEditGender(profile?.gender ?? '');
+
+    // Convert weight to lb for display if present
+    if (profile?.weight_kg != null) {
+      setEditWeightUnit('lb');
+      setEditWeight(Math.round(profile.weight_kg * 2.20462));
+    } else {
+      setEditWeight('');
+    }
+
+    setIsEditingProfile(true);
+  };
+
+  const handleCancelEdit = () => {
+    setIsEditingProfile(false);
+    setEditAge('');
+    setEditGender('');
+    setEditWeight('');
+  };
+
+  const handleSaveProfile = async () => {
+    if (typeof editAge !== 'number' || editAge < 13 || editAge > 120) {
+      toast.error('Please enter a valid age (13-120)');
+      return;
+    }
+    if (!editGender) {
+      toast.error('Please select a gender');
+      return;
+    }
+    if (typeof editWeight !== 'number' || editWeight <= 0) {
+      toast.error('Please enter a valid weight');
+      return;
+    }
+
+    setIsSavingProfile(true);
+    try {
+      // Convert weight to kg
+      const weightKg = editWeightUnit === 'kg' ? editWeight : editWeight / 2.20462;
+      const roundedWeightKg = Math.round(weightKg * 10) / 10;
+
+      const { error } = await supabase.auth.updateUser({
+        data: {
+          age: editAge,
+          gender: editGender,
+          weight_kg: roundedWeightKg,
+        },
+      });
+
+      if (error) throw error;
+
+      // Update local state
+      setProfile({
+        age: editAge,
+        gender: editGender as 'male' | 'female' | 'other' | 'prefer_not_to_say',
+        weight_kg: roundedWeightKg,
+        profile_completed: true,
+      });
+
+      toast.success('Profile updated');
+      setIsEditingProfile(false);
+    } catch (error: any) {
+      toast.error(error?.message || 'Failed to update profile');
+    } finally {
+      setIsSavingProfile(false);
     }
   };
 
@@ -121,10 +199,17 @@ export default function SettingsPage() {
         {/* Profile */}
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <User className="w-5 h-5" />
-              Profile
-            </CardTitle>
+            <div className="flex items-center justify-between">
+              <CardTitle className="flex items-center gap-2">
+                <User className="w-5 h-5" />
+                Profile
+              </CardTitle>
+              {!isEditingProfile && (
+                <Button variant="outline" size="sm" onClick={handleEditProfile}>
+                  Edit
+                </Button>
+              )}
+            </div>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
@@ -140,28 +225,99 @@ export default function SettingsPage() {
                 </label>
                 <p className="text-slate-900 dark:text-slate-100">{user?.email}</p>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
-                    Age
-                  </label>
-                  <p className="text-slate-900 dark:text-slate-100">{profile?.age ?? 'Not set'}</p>
+
+              {isEditingProfile ? (
+                <>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+                        Age
+                      </label>
+                      <input
+                        type="number"
+                        value={editAge}
+                        onChange={(e) => setEditAge(e.target.value === '' ? '' : Number(e.target.value))}
+                        min={13}
+                        max={120}
+                        className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                        placeholder="e.g. 32"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+                        Gender
+                      </label>
+                      <select
+                        value={editGender}
+                        onChange={(e) => setEditGender(e.target.value as 'male' | 'female' | 'other' | 'prefer_not_to_say')}
+                        className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                      >
+                        <option value="">Select…</option>
+                        <option value="male">Male</option>
+                        <option value="female">Female</option>
+                        <option value="other">Other</option>
+                        <option value="prefer_not_to_say">Prefer not to say</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+                        Weight
+                      </label>
+                      <div className="flex gap-2">
+                        <input
+                          type="number"
+                          value={editWeight}
+                          onChange={(e) => setEditWeight(e.target.value === '' ? '' : Number(e.target.value))}
+                          min={1}
+                          className="flex-1 px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                          placeholder={editWeightUnit === 'lb' ? '160' : '72'}
+                        />
+                        <select
+                          value={editWeightUnit}
+                          onChange={(e) => setEditWeightUnit(e.target.value as 'kg' | 'lb')}
+                          className="w-16 px-2 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                        >
+                          <option value="lb">lb</option>
+                          <option value="kg">kg</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex gap-2 pt-2">
+                    <Button onClick={handleSaveProfile} isLoading={isSavingProfile}>
+                      Save Changes
+                    </Button>
+                    <Button variant="outline" onClick={handleCancelEdit}>
+                      Cancel
+                    </Button>
+                  </div>
+                </>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+                      Age
+                    </label>
+                    <p className="text-slate-900 dark:text-slate-100">{profile?.age ?? 'Not set'}</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+                      Gender
+                    </label>
+                    <p className="text-slate-900 dark:text-slate-100">
+                      {profile?.gender === 'prefer_not_to_say' ? 'Prefer not to say' : profile?.gender ?? 'Not set'}
+                    </p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+                      Weight
+                    </label>
+                    <p className="text-slate-900 dark:text-slate-100">
+                      {profile?.weight_kg != null ? `${profile.weight_kg} kg` : 'Not set'}
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
-                    Gender
-                  </label>
-                  <p className="text-slate-900 dark:text-slate-100">{profile?.gender ?? 'Not set'}</p>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
-                    Weight
-                  </label>
-                  <p className="text-slate-900 dark:text-slate-100">
-                    {profile?.weight_kg != null ? `${profile.weight_kg} kg` : 'Not set'}
-                  </p>
-                </div>
-              </div>
+              )}
             </div>
           </CardContent>
         </Card>
