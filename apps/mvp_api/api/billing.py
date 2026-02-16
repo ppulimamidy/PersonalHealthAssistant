@@ -258,15 +258,23 @@ async def get_subscription(
     }
 
 
+class ForceActivateRequest(BaseModel):  # pylint: disable=too-few-public-methods
+    """Request body for force-activating a subscription with a specific tier."""
+
+    tier: str = "pro"  # Default to "pro" for backwards compatibility
+
+
 @router.post("/force-activate-pro")
 async def force_activate_pro(
+    body: ForceActivateRequest = ForceActivateRequest(),
     current_user: dict = Depends(get_current_user),
 ):
     """
-    Emergency endpoint to manually activate Pro subscription.
+    Emergency endpoint to manually activate Pro/Pro+ subscription.
     Use this to fix incomplete subscriptions stuck after failed checkout.
     """
     user_id = current_user["id"]
+    tier = body.tier if body.tier in ("pro", "pro_plus") else "pro"
 
     # Direct PATCH to update subscription
     if not os.environ.get("SUPABASE_URL") or not os.environ.get("SUPABASE_SERVICE_KEY"):
@@ -282,7 +290,7 @@ async def force_activate_pro(
         "Content-Type": "application/json",
         "Prefer": "return=representation",
     }
-    payload = {"tier": "pro", "status": "active", "updated_at": "now()"}
+    payload = {"tier": tier, "status": "active", "updated_at": "now()"}
 
     import aiohttp
 
@@ -296,9 +304,13 @@ async def force_activate_pro(
                 )
             result = await resp.json() if resp.status == 200 else None
 
-    logger.info(f"Force-activated Pro subscription for user {user_id}: {result}")
+    logger.info(f"Force-activated {tier} subscription for user {user_id}: {result}")
 
-    return {"ok": True, "message": "Pro subscription activated", "tier": "pro"}
+    return {
+        "ok": True,
+        "message": f"{tier.replace('_', '+')} subscription activated",
+        "tier": tier,
+    }
 
 
 @router.post("/webhook")

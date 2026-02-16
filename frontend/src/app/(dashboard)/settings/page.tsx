@@ -45,11 +45,12 @@ export default function SettingsPage() {
     }
   };
 
-  const handleForceActivate = async () => {
+  const handleForceActivate = async (targetTier: 'pro' | 'pro_plus' = 'pro') => {
     setForceActivating(true);
     try {
-      await billingService.forceActivatePro();
-      toast.success('Pro subscription activated!');
+      await billingService.forceActivatePro(targetTier);
+      const tierName = targetTier === 'pro_plus' ? 'Pro+' : 'Pro';
+      toast.success(`${tierName} subscription activated!`);
       // Refetch subscription
       const freshSub = await billingService.getSubscription();
       setSubscription(freshSub);
@@ -261,14 +262,25 @@ export default function SettingsPage() {
                     </Button>
                   )}
                   {subscription?.status === 'incomplete' && (
-                    <Button
-                      size="sm"
-                      onClick={handleForceActivate}
-                      isLoading={forceActivating}
-                    >
-                      <Zap className="w-4 h-4 mr-1" />
-                      Activate Pro
-                    </Button>
+                    <>
+                      <Button
+                        size="sm"
+                        onClick={() => handleForceActivate('pro')}
+                        isLoading={forceActivating}
+                        variant="outline"
+                      >
+                        <Zap className="w-4 h-4 mr-1" />
+                        Activate Pro
+                      </Button>
+                      <Button
+                        size="sm"
+                        onClick={() => handleForceActivate('pro_plus')}
+                        isLoading={forceActivating}
+                      >
+                        <Zap className="w-4 h-4 mr-1" />
+                        Activate Pro+
+                      </Button>
+                    </>
                   )}
                   {tier === 'free' && subscription?.status !== 'incomplete' && (
                     <Button size="sm" onClick={() => (window.location.href = '/pricing')}>
