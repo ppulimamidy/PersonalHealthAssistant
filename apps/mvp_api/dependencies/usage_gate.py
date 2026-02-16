@@ -29,6 +29,7 @@ TIER_LIMITS: Dict[str, Dict[str, int]] = {
         "pdf_export": 0,
         "correlations": 0,
         "health_conditions": 0,
+        "symptom_journal": 0,  # Phase 1: Not available for free tier
     },
     "pro": {
         "ai_insights": -1,
@@ -37,6 +38,7 @@ TIER_LIMITS: Dict[str, Dict[str, int]] = {
         "pdf_export": 0,
         "correlations": 3,
         "health_conditions": 0,
+        "symptom_journal": 3,  # Phase 1: 3 entries per week for Pro
     },
     "pro_plus": {
         "ai_insights": -1,
@@ -44,7 +46,8 @@ TIER_LIMITS: Dict[str, Dict[str, int]] = {
         "doctor_prep": -1,
         "pdf_export": -1,
         "correlations": -1,
-        "health_conditions": -1,
+        "health_conditions": -1,  # Pro+ gets medications/supplements (reuses this gate)
+        "symptom_journal": -1,  # Phase 1: Unlimited for Pro+
     },
 }
 
@@ -105,15 +108,67 @@ async def _supabase_upsert(table: str, body: dict) -> Optional[dict]:
                         f"Supabase upsert {table} succeeded: status={resp.status}, result={result}"
                     )
                     return result
-                else:
-                    error_text = await resp.text()
-                    logger.error(
-                        f"Supabase upsert {table} failed: status={resp.status}, error={error_text}"
-                    )
+
+                error_text = await resp.text()
+                logger.error(
+                    f"Supabase upsert {table} failed: status={resp.status}, error={error_text}"
+                )
                 return None
     except (aiohttp.ClientError, TimeoutError) as exc:
         logger.warning(f"Supabase upsert {table} failed: {exc}")
         return None
+
+
+async def _supabase_patch(table: str, params: str, body: dict) -> Optional[dict]:
+    """PATCH (update) to Supabase PostgREST."""
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        return None
+    url = f"{SUPABASE_URL}/rest/v1/{table}?{params}"
+    headers = {
+        **_supabase_headers(),
+        "Prefer": "return=representation",
+    }
+    timeout = aiohttp.ClientTimeout(total=5)
+    try:
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.patch(url, headers=headers, json=body) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    result = data[0] if isinstance(data, list) and data else data
+                    logger.info(f"Supabase patch {table} succeeded")
+                    return result
+
+                error_text = await resp.text()
+                logger.error(
+                    f"Supabase patch {table} failed: status={resp.status}, error={error_text}"
+                )
+                return None
+    except (aiohttp.ClientError, TimeoutError) as exc:
+        logger.warning(f"Supabase patch {table} failed: {exc}")
+        return None
+
+
+async def _supabase_delete(table: str, params: str) -> bool:
+    """DELETE from Supabase PostgREST."""
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        return False
+    url = f"{SUPABASE_URL}/rest/v1/{table}?{params}"
+    timeout = aiohttp.ClientTimeout(total=5)
+    try:
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.delete(url, headers=_supabase_headers()) as resp:
+                if resp.status in (200, 204):
+                    logger.info(f"Supabase delete {table} succeeded")
+                    return True
+
+                error_text = await resp.text()
+                logger.error(
+                    f"Supabase delete {table} failed: status={resp.status}, error={error_text}"
+                )
+                return False
+    except (aiohttp.ClientError, TimeoutError) as exc:
+        logger.warning(f"Supabase delete {table} failed: {exc}")
+        return False
 
 
 async def get_user_tier(user_id: str) -> str:

@@ -27,6 +27,8 @@ from .api.correlations import router as correlations_router
 from .api.recommendations import router as recommendations_router
 from .api.health_conditions import router as health_conditions_router
 from .api.health_questionnaire import router as health_questionnaire_router
+from .api.medications_supplements import router as medications_supplements_router
+from .api.symptom_journal import router as symptom_journal_router
 
 logger = get_logger(__name__)
 settings = get_settings()
@@ -106,6 +108,16 @@ app.include_router(
     health_questionnaire_router,
     prefix="/api/v1/health-questionnaire",
     tags=["Health Questionnaire"],
+)
+app.include_router(
+    medications_supplements_router,
+    prefix="/api/v1",
+    tags=["Medications & Supplements"],
+)
+app.include_router(
+    symptom_journal_router,
+    prefix="/api/v1/symptoms",
+    tags=["Symptom Journal"],
 )
 
 
