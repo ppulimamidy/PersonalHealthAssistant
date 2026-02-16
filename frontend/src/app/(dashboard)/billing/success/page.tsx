@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { CheckCircle, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { useSubscriptionStore } from '@/stores/subscriptionStore';
@@ -12,13 +12,27 @@ const POLL_INTERVAL_MS = 2000;
 const MAX_POLL_ATTEMPTS = 10;
 
 export default function BillingSuccessPage() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const setSubscription = useSubscriptionStore((s) => s.setSubscription);
   const tier = useSubscriptionStore((s) => s.getTier());
   const [activating, setActivating] = useState(true);
+  const [navigating, setNavigating] = useState(false);
   const mounted = useRef(true);
 
   const isPro = tier === 'pro' || tier === 'pro_plus';
+
+  const handleOpenMetabolicAI = async () => {
+    if (!isPro || navigating) return;
+    setNavigating(true);
+    try {
+      const data = await billingService.getSubscription();
+      setSubscription(data);
+    } catch {
+      // use existing store
+    }
+    router.push('/correlations');
+  };
 
   useEffect(() => {
     mounted.current = true;
@@ -83,9 +97,9 @@ export default function BillingSuccessPage() {
       </p>
       <div className="flex flex-wrap gap-4 justify-center">
         {isPro ? (
-          <Link href="/correlations">
-            <Button>Open Metabolic AI</Button>
-          </Link>
+          <Button onClick={handleOpenMetabolicAI} disabled={navigating}>
+            {navigating ? 'Opening…' : 'Open Metabolic AI'}
+          </Button>
         ) : (
           <Button disabled={activating} title={activating ? 'Please wait…' : undefined}>
             {activating ? 'Activating…' : 'Open Metabolic AI'}
