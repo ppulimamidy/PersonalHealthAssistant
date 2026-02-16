@@ -696,6 +696,94 @@ export interface SymptomPattern {
   is_active: boolean;
 }
 
+// Medical Literature & RAG types
+export interface ResearchArticle {
+  id: string;
+  pubmed_id?: string;
+  doi?: string;
+  title: string;
+  abstract?: string;
+  authors: string[];
+  journal?: string;
+  publication_date?: string;
+  keywords: string[];
+  relevance_score?: number;
+  citation_count: number;
+  source_url?: string;
+  fetched_at: string;
+}
+
+export interface PubMedSearchRequest {
+  query: string;
+  max_results?: number;
+  date_from?: string;
+  date_to?: string;
+  sort?: 'relevance' | 'date';
+}
+
+export interface SearchResultsResponse {
+  query: string;
+  total_results: number;
+  articles: ResearchArticle[];
+  query_id?: string;
+}
+
+export interface ArticleBookmark {
+  id: string;
+  article_id: string;
+  user_notes?: string;
+  tags: string[];
+  relevance_rating?: number;
+  bookmarked_at: string;
+}
+
+export interface BookmarkArticleRequest {
+  article_id: string;
+  user_notes?: string;
+  tags?: string[];
+  relevance_rating?: number;
+}
+
+export interface RAGMessage {
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: string;
+  sources: string[];
+}
+
+export interface RAGConversation {
+  id: string;
+  title?: string;
+  messages: RAGMessage[];
+  context_articles: string[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RAGMessageRequest {
+  conversation_id?: string;
+  message: string;
+  context_article_ids?: string[];
+}
+
+export interface ResearchInsight {
+  id: string;
+  insight_type: string;
+  topic: string;
+  summary: string;
+  key_findings: string[];
+  recommendations: string[];
+  source_article_ids: string[];
+  confidence_score: number;
+  generated_at: string;
+}
+
+export interface ResearchInsightRequest {
+  topic: string;
+  insight_type?: string;
+  article_ids?: string[];
+}
+
 // Beta signup
 export interface BetaSignupResponse {
   success: boolean;
