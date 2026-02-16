@@ -258,6 +258,41 @@ async def get_subscription(
     }
 
 
+@router.post("/force-activate-pro")
+async def force_activate_pro(
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Emergency endpoint to manually activate Pro subscription.
+    Use this to fix incomplete subscriptions stuck after failed checkout.
+    """
+    user_id = current_user["id"]
+
+    # Get existing subscription
+    rows = await _supabase_get(
+        "subscriptions",
+        f"user_id=eq.{user_id}&select=*&limit=1",
+    )
+
+    if not rows:
+        raise HTTPException(status_code=404, detail="No subscription found")
+
+    existing = rows[0]
+
+    # Update to Pro/active while preserving customer_id
+    await _upsert_subscription(
+        user_id=user_id,
+        stripe_customer_id=existing.get("stripe_customer_id"),
+        stripe_subscription_id=existing.get("stripe_subscription_id"),
+        tier="pro",
+        status="active",
+    )
+
+    logger.info(f"Force-activated Pro subscription for user {user_id}")
+
+    return {"ok": True, "message": "Pro subscription activated", "tier": "pro"}
+
+
 @router.post("/webhook")
 async def stripe_webhook(request: Request):
     """Handle Stripe webhook events."""
