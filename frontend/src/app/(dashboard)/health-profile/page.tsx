@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Card } from '@/components/ui/Card';
 import { ConditionsList } from '@/components/health-conditions/ConditionsList';
@@ -9,6 +9,7 @@ import { HealthQuestionnaire } from '@/components/health-conditions/HealthQuesti
 import { RecommendationCard, PatternBanner } from '@/components/correlations/RecommendationCard';
 import { RecoveryPlanView } from '@/components/correlations/RecoveryPlan';
 import { recommendationsService } from '@/services/recommendations';
+import { billingService } from '@/services/billing';
 import { useSubscriptionStore } from '@/stores/subscriptionStore';
 import {
   Plus,
@@ -25,7 +26,23 @@ type Tab = 'conditions' | 'questionnaire' | 'recommendations' | 'recovery';
 export default function HealthProfilePage() {
   const [tab, setTab] = useState<Tab>('conditions');
   const [showAddModal, setShowAddModal] = useState(false);
+  const setSubscription = useSubscriptionStore((s) => s.setSubscription);
   const canUse = useSubscriptionStore((s) => s.canUseFeature('health_conditions'));
+
+  // Refetch subscription on mount to ensure fresh tier/usage data
+  const { data: freshSub, isLoading: isRefreshingSub } = useQuery({
+    queryKey: ['subscription-check-health'],
+    queryFn: () => billingService.getSubscription(),
+    staleTime: 0,
+    retry: 1,
+  });
+
+  // Update store when fresh subscription arrives
+  useEffect(() => {
+    if (freshSub) {
+      setSubscription(freshSub);
+    }
+  }, [freshSub, setSubscription]);
 
   const { data: recs } = useQuery<RecommendationsResponse>({
     queryKey: ['recommendations'],
@@ -41,6 +58,22 @@ export default function HealthProfilePage() {
     { key: 'recovery', label: 'Recovery Plan', icon: Salad },
   ];
 
+  // Wait for subscription refetch before showing gate
+  if (isRefreshingSub) {
+    return (
+      <div className="max-w-3xl mx-auto">
+        <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100 mb-6">
+          Health Profile
+        </h1>
+        <Card>
+          <div className="text-center py-10">
+            <p className="text-sm text-slate-500 dark:text-slate-400">Checking access…</p>
+          </div>
+        </Card>
+      </div>
+    );
+  }
+
   if (!canUse) {
     return (
       <div className="max-w-3xl mx-auto">
@@ -51,18 +84,18 @@ export default function HealthProfilePage() {
           <div className="text-center py-10">
             <Lock className="w-10 h-10 text-slate-300 dark:text-slate-600 mx-auto mb-3" />
             <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
-              Pro+ Feature
+              Unlock Health Profile with Pro+
             </h3>
             <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 max-w-sm mx-auto">
               Track health conditions, get personalized questionnaires, and receive AI-powered
-              nutrition recommendations.
+              nutrition recommendations. Upgrade to Pro+ for unlimited access.
             </p>
-            <a
-              href="/settings"
+            <button
+              onClick={() => useSubscriptionStore.getState().setShowUpgradeModal(true)}
               className="inline-block mt-4 px-4 py-2 text-sm font-medium text-white bg-primary-600 rounded-lg hover:bg-primary-700"
             >
               Upgrade to Pro+
-            </a>
+            </button>
           </div>
         </Card>
       </div>
