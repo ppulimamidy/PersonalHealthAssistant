@@ -4,6 +4,13 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { SubscriptionData, SubscriptionTier } from '@/types';
 
+function normalizeTier(t: string | undefined): SubscriptionTier {
+  const s = t ? String(t).toLowerCase() : '';
+  if (s === 'pro_plus') return 'pro_plus';
+  if (s === 'pro') return 'pro';
+  return 'free';
+}
+
 interface SubscriptionState {
   subscription: SubscriptionData | null;
   isLoading: boolean;
@@ -21,10 +28,15 @@ export const useSubscriptionStore = create<SubscriptionState>()(
       subscription: null,
       isLoading: false,
       showUpgradeModal: false,
-      setSubscription: (subscription) => set({ subscription }),
+      setSubscription: (subscription) => {
+        if (subscription?.tier && typeof subscription.tier === 'string') {
+          subscription = { ...subscription, tier: normalizeTier(subscription.tier) };
+        }
+        set({ subscription });
+      },
       setLoading: (isLoading) => set({ isLoading }),
       setShowUpgradeModal: (showUpgradeModal) => set({ showUpgradeModal }),
-      getTier: () => get().subscription?.tier || 'free',
+      getTier: () => normalizeTier(get().subscription?.tier),
       canUseFeature: (feature: string) => {
         const sub = get().subscription;
         if (!sub) return true; // Optimistic — let backend enforce
