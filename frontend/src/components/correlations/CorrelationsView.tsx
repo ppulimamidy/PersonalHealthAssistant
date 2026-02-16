@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
+import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { CorrelationCard } from './CorrelationCard';
 import { correlationsService } from '@/services/correlations';
@@ -23,21 +23,24 @@ const TABS: { value: FilterTab; label: string }[] = [
 export function CorrelationsView() {
   const [activeTab, setActiveTab] = useState<FilterTab>('all');
   const [days, setDays] = useState<7 | 14>(14);
-  const [subscriptionFetched, setSubscriptionFetched] = useState(false);
   const queryClient = useQueryClient();
   const setSubscription = useSubscriptionStore((s) => s.setSubscription);
   const canUse = useSubscriptionStore((s) => s.canUseFeature('correlations'));
 
-  // Refetch subscription on mount so Pro/Pro+ unlock is correct after upgrade (don't trust persisted state)
+  // Refetch subscription on mount to ensure fresh tier/usage data
+  const { data: freshSub, isLoading: isRefreshingSub } = useQuery({
+    queryKey: ['subscription-check'],
+    queryFn: () => billingService.getSubscription(),
+    staleTime: 0, // Always fetch fresh
+    retry: 1,
+  });
+
+  // Update store when fresh subscription arrives
   useEffect(() => {
-    billingService
-      .getSubscription()
-      .then((data) => {
-        setSubscription(data);
-        setSubscriptionFetched(true);
-      })
-      .catch(() => setSubscriptionFetched(true));
-  }, [setSubscription]);
+    if (freshSub) {
+      setSubscription(freshSub);
+    }
+  }, [freshSub, setSubscription]);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['correlations', days],
@@ -59,7 +62,7 @@ export function CorrelationsView() {
       : (data?.correlations ?? []).filter((c) => c.category === activeTab);
 
   // Wait for subscription refetch before showing gate (avoids showing gate from stale persisted data after upgrade)
-  if (!subscriptionFetched) {
+  if (isRefreshingSub) {
     return (
       <div className="space-y-6">
         <div className="flex items-center gap-3">
