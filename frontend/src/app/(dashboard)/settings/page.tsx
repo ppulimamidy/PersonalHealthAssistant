@@ -27,9 +27,11 @@ import { ReferralCard } from '@/components/referral/ReferralCard';
 export default function SettingsPage() {
   const { user, profile, ouraConnection, setOuraConnection, logout } = useAuthStore();
   const subscription = useSubscriptionStore((s) => s.subscription);
+  const setSubscription = useSubscriptionStore((s) => s.setSubscription);
   const tier = useSubscriptionStore((s) => s.getTier());
   const [isSyncing, setIsSyncing] = useState(false);
   const [portalLoading, setPortalLoading] = useState(false);
+  const [forceActivating, setForceActivating] = useState(false);
 
   const handleManageBilling = async () => {
     setPortalLoading(true);
@@ -40,6 +42,21 @@ export default function SettingsPage() {
       toast.error('Failed to open billing portal');
     } finally {
       setPortalLoading(false);
+    }
+  };
+
+  const handleForceActivate = async () => {
+    setForceActivating(true);
+    try {
+      await billingService.forceActivatePro();
+      toast.success('Pro subscription activated!');
+      // Refetch subscription
+      const freshSub = await billingService.getSubscription();
+      setSubscription(freshSub);
+    } catch (error: any) {
+      toast.error(error?.message || 'Failed to activate subscription');
+    } finally {
+      setForceActivating(false);
     }
   };
 
@@ -229,10 +246,11 @@ export default function SettingsPage() {
                   <p className="text-sm text-slate-500 dark:text-slate-400">
                     {tier === 'free' ? 'Free' : tier === 'pro' ? 'Pro' : 'Pro+'}
                     {subscription?.status === 'active' && tier !== 'free' && ' — Active'}
+                    {subscription?.status === 'incomplete' && ' — Incomplete'}
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
-                  {tier !== 'free' && (
+                  {tier !== 'free' && subscription?.status === 'active' && (
                     <Button
                       variant="outline"
                       size="sm"
@@ -242,7 +260,17 @@ export default function SettingsPage() {
                       Manage Billing
                     </Button>
                   )}
-                  {tier === 'free' && (
+                  {subscription?.status === 'incomplete' && (
+                    <Button
+                      size="sm"
+                      onClick={handleForceActivate}
+                      isLoading={forceActivating}
+                    >
+                      <Zap className="w-4 h-4 mr-1" />
+                      Activate Pro
+                    </Button>
+                  )}
+                  {tier === 'free' && subscription?.status !== 'incomplete' && (
                     <Button size="sm" onClick={() => (window.location.href = '/pricing')}>
                       <Zap className="w-4 h-4 mr-1" />
                       Upgrade
