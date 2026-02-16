@@ -43,6 +43,7 @@ export const useSubscriptionStore = create<SubscriptionState>()(
         const usage = sub.usage[feature as keyof typeof sub.usage];
         if (!usage) return true;
         if (usage.limit === -1) return true;
+        if (usage.limit === 0) return false; // Explicitly blocked
         return usage.used < usage.limit;
       },
     }),
