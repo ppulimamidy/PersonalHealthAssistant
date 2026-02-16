@@ -22,6 +22,7 @@ from .api.billing import router as billing_router
 from .api.beta import router as beta_router
 from .api.health_score import router as health_score_router
 from .api.email_summary import router as email_summary_router
+from .api.referral import router as referral_router
 
 logger = get_logger(__name__)
 settings = get_settings()
@@ -81,6 +82,7 @@ app.include_router(
     health_score_router, prefix="/api/v1/health-score", tags=["Health Score"]
 )
 app.include_router(email_summary_router, prefix="/api/v1/email", tags=["Email Summary"])
+app.include_router(referral_router, prefix="/api/v1/referral", tags=["Referral"])
 
 
 @app.get("/health")

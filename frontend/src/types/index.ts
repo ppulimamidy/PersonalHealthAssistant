@@ -331,6 +331,21 @@ export interface DailyHealthScore {
   date: string | null;
 }
 
+// Referral types
+export interface ReferralInfo {
+  code: string | null;
+  referral_count: number;
+  credits_earned: number;
+  share_url: string | null;
+}
+
+export interface ReferralStats extends ReferralInfo {
+  recent_referrals: Array<{
+    redeemed_by: string;
+    created_at: string;
+  }>;
+}
+
 // Beta signup
 export interface BetaSignupResponse {
   success: boolean;

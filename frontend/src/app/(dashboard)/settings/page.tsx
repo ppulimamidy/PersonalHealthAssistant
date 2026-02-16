@@ -22,6 +22,7 @@ import {
   Zap
 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { ReferralCard } from '@/components/referral/ReferralCard';
 
 export default function SettingsPage() {
   const { user, profile, ouraConnection, setOuraConnection, logout } = useAuthStore();
@@ -272,6 +273,9 @@ export default function SettingsPage() {
             </div>
           </CardContent>
         </Card>
+
+        {/* Referral */}
+        <ReferralCard />
 
         {/* Privacy & Security */}
         <Card>
