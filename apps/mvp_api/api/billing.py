@@ -95,6 +95,12 @@ async def _upsert_subscription(  # pylint: disable=too-many-arguments
     cancel_at_period_end: bool = False,
 ) -> None:
     """Create or update a subscription record in Supabase."""
+    # Check if subscription exists
+    existing = await _supabase_get(
+        "subscriptions",
+        f"user_id=eq.{user_id}&select=id&limit=1",
+    )
+
     body = {
         "user_id": user_id,
         "stripe_customer_id": stripe_customer_id,
@@ -109,9 +115,33 @@ async def _upsert_subscription(  # pylint: disable=too-many-arguments
     if current_period_end:
         body["current_period_end"] = current_period_end
 
-    logger.info(f"_upsert_subscription: user_id={user_id}, tier={tier}, body={body}")
-    await _supabase_upsert("subscriptions", body)
-    logger.info(f"_upsert_subscription: SUCCESS for user_id={user_id}")
+    logger.info(
+        f"_upsert_subscription: user_id={user_id}, tier={tier}, existing={bool(existing)}"
+    )
+
+    if existing:
+        # PATCH existing record
+        import aiohttp
+
+        supabase_url = os.environ.get("SUPABASE_URL")
+        supabase_key = os.environ.get("SUPABASE_SERVICE_KEY")
+        url = f"{supabase_url}/rest/v1/subscriptions?user_id=eq.{user_id}"
+        headers = {
+            "apikey": supabase_key,
+            "Authorization": f"Bearer {supabase_key}",
+            "Content-Type": "application/json",
+        }
+        async with aiohttp.ClientSession() as session:
+            async with session.patch(url, headers=headers, json=body) as resp:
+                if resp.status not in (200, 204):
+                    error = await resp.text()
+                    logger.error(f"PATCH subscription failed: {resp.status} {error}")
+                else:
+                    logger.info(f"PATCH subscription succeeded for user {user_id}")
+    else:
+        # POST new record
+        await _supabase_upsert("subscriptions", body)
+        logger.info(f"POST new subscription for user {user_id}")
 
 
 # --- Endpoints ---
