@@ -6,9 +6,11 @@ Can be triggered by a cron job (e.g., Render Cron or external scheduler).
 
 import os
 from datetime import date, timedelta
+from typing import List, Optional
+from typing_extensions import TypedDict
 
 import aiohttp
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 
 from common.middleware.auth import get_current_user
 from common.utils.logging import get_logger
@@ -24,6 +26,7 @@ RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
 EMAIL_FROM = os.environ.get(
     "EMAIL_FROM", "HealthAssist <health@updates.healthassist.app>"
 )
+_DATE_FMT = "%b %d"
 
 
 async def _send_email(to: str, subject: str, html: str) -> bool:
@@ -56,6 +59,85 @@ async def _send_email(to: str, subject: str, html: str) -> bool:
     except (aiohttp.ClientError, TimeoutError) as exc:
         logger.error(f"Failed to send email: {exc}")
         return False
+
+
+def _fmt_date(d_str: str) -> str:
+    """Format ISO date string to human-readable 'Monday, Jan 01'."""
+    try:
+        return date.fromisoformat(d_str).strftime("%A, %b %d")
+    except (ValueError, TypeError):
+        return d_str
+
+
+def _compute_sleep_trend(sleep_scores: List[float]) -> str:
+    """Determine sleep trend from a list of scores."""
+    if len(sleep_scores) < 3:
+        return "Not enough data"
+    half = len(sleep_scores) // 2
+    first = sum(sleep_scores[:half]) / half
+    second = sum(sleep_scores[half:]) / (len(sleep_scores) - half)
+    if second - first > 3:
+        return "Improving"
+    if first - second > 3:
+        return "Declining"
+    return "Stable"
+
+
+def _day_score(entry: dict) -> float:
+    """Average of available scores for a single timeline day."""
+    scores: List[float] = []
+    if entry.get("sleep"):
+        scores.append(entry["sleep"]["sleep_score"])
+    if entry.get("readiness"):
+        scores.append(entry["readiness"]["readiness_score"])
+    if entry.get("activity"):
+        scores.append(entry["activity"]["activity_score"])
+    return sum(scores) / len(scores) if scores else 0
+
+
+def _safe_avg(values: List[float]) -> float:
+    """Return average of values, or 0 if empty."""
+    return sum(values) / len(values) if values else 0
+
+
+class _SummaryData(TypedDict):
+    avg_sleep: float
+    avg_readiness: float
+    avg_activity: float
+    sleep_trend: str
+    best_day: str
+    worst_day: str
+
+
+def _compute_summary(timeline: list) -> _SummaryData:
+    """Extract averages, trend, best/worst day from timeline data."""
+    sleep_scores = [e["sleep"]["sleep_score"] for e in timeline if e.get("sleep")]
+    readiness_scores = [
+        e["readiness"]["readiness_score"] for e in timeline if e.get("readiness")
+    ]
+    activity_scores = [
+        e["activity"]["activity_score"] for e in timeline if e.get("activity")
+    ]
+
+    sorted_days = sorted(timeline, key=_day_score, reverse=True)
+    best_day = sorted_days[0]["date"] if sorted_days else "N/A"
+    worst_day = sorted_days[-1]["date"] if sorted_days else "N/A"
+
+    return {
+        "avg_sleep": _safe_avg(sleep_scores),
+        "avg_readiness": _safe_avg(readiness_scores),
+        "avg_activity": _safe_avg(activity_scores),
+        "sleep_trend": _compute_sleep_trend(sleep_scores),
+        "best_day": _fmt_date(best_day),
+        "worst_day": _fmt_date(worst_day),
+    }
+
+
+def _weekly_subject() -> str:
+    """Build the weekly email subject line."""
+    week_start = (date.today() - timedelta(days=7)).strftime(_DATE_FMT)
+    week_end = date.today().strftime(_DATE_FMT)
+    return f"Your Health Week: {week_start} - {week_end}"
 
 
 def _build_summary_html(
@@ -113,7 +195,9 @@ def _build_summary_html(
 
 
 @router.post("/send-weekly-summary")
-async def send_weekly_summary(current_user: dict = Depends(get_current_user)):
+async def send_weekly_summary(
+    current_user: dict = Depends(get_current_user),
+):
     """
     Send a weekly health summary email to the authenticated user.
     Only available for Pro+ subscribers.
@@ -129,7 +213,6 @@ async def send_weekly_summary(current_user: dict = Depends(get_current_user)):
             detail="Weekly email summaries are a Pro+ feature",
         )
 
-    # Fetch last 7 days of timeline data
     from .timeline import get_timeline
 
     try:
@@ -143,90 +226,26 @@ async def send_weekly_summary(current_user: dict = Depends(get_current_user)):
     if not timeline:
         return {"sent": False, "reason": "No data available for the past week"}
 
-    # Compute averages
-    sleep_scores = [e["sleep"]["sleep_score"] for e in timeline if e.get("sleep")]
-    readiness_scores = [
-        e["readiness"]["readiness_score"] for e in timeline if e.get("readiness")
-    ]
-    activity_scores = [
-        e["activity"]["activity_score"] for e in timeline if e.get("activity")
-    ]
-
-    avg_sleep = sum(sleep_scores) / len(sleep_scores) if sleep_scores else 0
-    avg_readiness = (
-        sum(readiness_scores) / len(readiness_scores) if readiness_scores else 0
-    )
-    avg_activity = sum(activity_scores) / len(activity_scores) if activity_scores else 0
-
-    # Determine sleep trend
-    if len(sleep_scores) >= 3:
-        first_half = sum(sleep_scores[: len(sleep_scores) // 2]) / (
-            len(sleep_scores) // 2
-        )
-        second_half = sum(sleep_scores[len(sleep_scores) // 2 :]) / (
-            len(sleep_scores) - len(sleep_scores) // 2
-        )
-        if second_half - first_half > 3:
-            sleep_trend = "Improving"
-        elif first_half - second_half > 3:
-            sleep_trend = "Declining"
-        else:
-            sleep_trend = "Stable"
-    else:
-        sleep_trend = "Not enough data"
-
-    # Best and worst days
-    def day_score(entry: dict) -> float:
-        scores = []
-        if entry.get("sleep"):
-            scores.append(entry["sleep"]["sleep_score"])
-        if entry.get("readiness"):
-            scores.append(entry["readiness"]["readiness_score"])
-        if entry.get("activity"):
-            scores.append(entry["activity"]["activity_score"])
-        return sum(scores) / len(scores) if scores else 0
-
-    sorted_days = sorted(timeline, key=day_score, reverse=True)
-    best_day = sorted_days[0]["date"] if sorted_days else "N/A"
-    worst_day = sorted_days[-1]["date"] if sorted_days else "N/A"
-
-    # Format dates nicely
-    def fmt_date(d: str) -> str:
-        try:
-            dt = date.fromisoformat(d)
-            return dt.strftime("%A, %b %d")
-        except (ValueError, TypeError):
-            return d
-
-    html = _build_summary_html(
-        user_name=name,
-        avg_sleep=avg_sleep,
-        avg_readiness=avg_readiness,
-        avg_activity=avg_activity,
-        sleep_trend=sleep_trend,
-        best_day=fmt_date(best_day),
-        worst_day=fmt_date(worst_day),
-    )
-
-    week_start = (date.today() - timedelta(days=7)).strftime("%b %d")
-    week_end = date.today().strftime("%b %d")
-    subject = f"Your Health Week: {week_start} - {week_end}"
-
-    sent = await _send_email(email, subject, html)
+    summary = _compute_summary(timeline)
+    html = _build_summary_html(user_name=name, **summary)
+    sent = await _send_email(email, _weekly_subject(), html)
     return {"sent": sent}
 
 
 @router.post("/send-bulk-weekly")
-async def send_bulk_weekly():
+async def send_bulk_weekly(
+    x_cron_secret: str = Header(..., alias="X-Cron-Secret"),
+):
     """
     Cron-triggered endpoint to send weekly summaries to all Pro+ users.
-    Should be called by an external scheduler with a secret header.
+    Requires X-Cron-Secret header matching the CRON_SECRET env var.
     """
     cron_secret = os.environ.get("CRON_SECRET", "")
     if not cron_secret:
         raise HTTPException(status_code=500, detail="CRON_SECRET not configured")
+    if x_cron_secret != cron_secret:
+        raise HTTPException(status_code=401, detail="Invalid cron secret")
 
-    # Fetch all Pro+ subscriptions
     rows = await _supabase_get(
         "subscriptions",
         "tier=eq.pro_plus&status=eq.active&select=user_id",
@@ -235,27 +254,56 @@ async def send_bulk_weekly():
         return {"sent": 0, "total": 0}
 
     sent_count = 0
+    errors = 0
+    subject = _weekly_subject()
+
     for row in rows:
         user_id = row.get("user_id")
         if not user_id:
             continue
 
         try:
-            # Build a mock current_user dict for the timeline call
-            mock_user = {"id": user_id, "email": "", "user_type": "system"}
-            from .timeline import get_timeline
+            email, name = await _lookup_user_email(user_id)
+            if not email:
+                continue
 
-            timeline = await get_timeline(days=7, current_user=mock_user)
+            timeline = await _fetch_user_timeline(user_id, email)
             if not timeline:
                 continue
 
-            # We'd need to look up email — simplified for now
-            logger.info(
-                f"Would send weekly summary to user {user_id} "
-                f"({len(timeline)} days of data)"
-            )
-            sent_count += 1
+            summary = _compute_summary(timeline)
+            html = _build_summary_html(user_name=name or email.split("@")[0], **summary)
+            if await _send_email(email, subject, html):
+                sent_count += 1
+
         except (HTTPException, KeyError, TypeError) as exc:
             logger.warning(f"Failed to generate summary for user {user_id}: {exc}")
+            errors += 1
 
-    return {"sent": sent_count, "total": len(rows)}
+    logger.info(
+        f"Bulk weekly summary: sent={sent_count}, "
+        f"errors={errors}, total={len(rows)}"
+    )
+    return {"sent": sent_count, "errors": errors, "total": len(rows)}
+
+
+async def _lookup_user_email(
+    user_id: str,
+) -> tuple:
+    """Look up user email and name from the profiles table."""
+    profile_rows = await _supabase_get("profiles", f"id=eq.{user_id}&select=email,name")
+    if not profile_rows or not isinstance(profile_rows, list):
+        logger.warning(f"No email for user {user_id}, skipping")
+        return "", ""
+    row = profile_rows[0]
+    email = row.get("email", "")
+    name = row.get("name", email.split("@")[0] if email else "")
+    return email, name
+
+
+async def _fetch_user_timeline(user_id: str, email: str) -> Optional[list]:
+    """Fetch 7-day timeline for a user (system context)."""
+    from .timeline import get_timeline
+
+    mock_user = {"id": user_id, "email": email, "user_type": "system"}
+    return await get_timeline(days=7, current_user=mock_user)
