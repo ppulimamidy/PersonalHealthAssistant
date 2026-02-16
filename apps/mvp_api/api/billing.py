@@ -109,7 +109,9 @@ async def _upsert_subscription(  # pylint: disable=too-many-arguments
     if current_period_end:
         body["current_period_end"] = current_period_end
 
+    logger.info(f"_upsert_subscription: user_id={user_id}, tier={tier}, body={body}")
     await _supabase_upsert("subscriptions", body)
+    logger.info(f"_upsert_subscription: SUCCESS for user_id={user_id}")
 
 
 # --- Endpoints ---
@@ -244,6 +246,9 @@ async def get_subscription(
 
     sub = rows[0] if rows else {}
 
+    # Debug logging
+    logger.info(f"GET /subscription - user_id={user_id}, tier={tier}, sub_row={sub}")
+
     return {
         "tier": tier,
         "status": sub.get("status", "active" if tier == "free" else "unknown"),
@@ -328,7 +333,9 @@ async def _handle_checkout_completed(session: dict) -> None:
         current_period_start=period_start,
         current_period_end=period_end,
     )
-    logger.info(f"Subscription activated for user {user_id}: tier={tier}")
+    logger.info(
+        f"Subscription activated for user {user_id}: tier={tier}, customer={customer_id}, sub_id={subscription_id}"
+    )
 
 
 async def _handle_subscription_updated(subscription: dict) -> None:

@@ -113,9 +113,13 @@ async def get_user_tier(user_id: str) -> str:
         "subscriptions",
         f"user_id=eq.{user_id}&status=in.(active,trialing)&select=tier&limit=1",
     )
-    if rows and isinstance(rows, list) and rows[0].get("tier"):
-        return rows[0]["tier"]
-    return "free"
+    tier = (
+        rows[0]["tier"]
+        if (rows and isinstance(rows, list) and rows[0].get("tier"))
+        else "free"
+    )
+    logger.info(f"get_user_tier({user_id}) -> {tier}, rows={rows}")
+    return tier
 
 
 async def get_usage_count(user_id: str, feature: str, week_start: str) -> int:
