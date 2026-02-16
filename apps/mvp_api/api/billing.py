@@ -319,9 +319,14 @@ async def _handle_checkout_completed(session: dict) -> None:
     if subscription_id:
         try:
             sub = stripe.Subscription.retrieve(subscription_id)
-            period_start = datetime.fromtimestamp(sub.current_period_start).isoformat()
-            period_end = datetime.fromtimestamp(sub.current_period_end).isoformat()
-        except (stripe.error.StripeError, KeyError, TypeError) as exc:
+            # Safely extract period dates - they may not exist in test mode
+            if hasattr(sub, "current_period_start") and sub.current_period_start:
+                period_start = datetime.fromtimestamp(
+                    sub.current_period_start
+                ).isoformat()
+            if hasattr(sub, "current_period_end") and sub.current_period_end:
+                period_end = datetime.fromtimestamp(sub.current_period_end).isoformat()
+        except (stripe.error.StripeError, KeyError, TypeError, AttributeError) as exc:
             logger.warning(f"Failed to fetch subscription details: {exc}")
 
     await _upsert_subscription(
