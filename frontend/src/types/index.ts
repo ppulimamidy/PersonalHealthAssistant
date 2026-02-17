@@ -810,6 +810,58 @@ export interface ResearchInsightRequest {
   article_ids?: string[];
 }
 
+// AI Agents types
+export interface AgentInfo {
+  id: string;
+  agent_type: string;
+  agent_name: string;
+  agent_description: string;
+  capabilities: string[];
+  is_active: boolean;
+}
+
+export interface ChatMessage {
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  agent_id?: string;
+  timestamp: string;
+  metadata: Record<string, any>;
+}
+
+export interface AgentConversation {
+  id: string;
+  title?: string;
+  conversation_type: string;
+  primary_agent_id: string;
+  primary_agent_name: string;
+  participating_agents: string[];
+  status: string;
+  messages: ChatMessage[];
+  created_at: string;
+  updated_at: string;
+  last_message_at: string;
+}
+
+export interface SendMessageRequest {
+  conversation_id?: string;
+  message: string;
+  agent_type?: string;
+  conversation_type?: string;
+}
+
+export interface AgentAction {
+  id: string;
+  agent_id: string;
+  agent_name: string;
+  action_type: string;
+  action_description: string;
+  action_data: Record<string, any>;
+  priority: string;
+  category?: string;
+  status: string;
+  created_at: string;
+}
+
 // Beta signup
 export interface BetaSignupResponse {
   success: boolean;
