@@ -15,6 +15,7 @@ import {
   Pill,
   ClipboardList,
   BookOpen,
+  Sparkles,
   Settings,
   LogOut,
 } from 'lucide-react';
@@ -35,6 +36,7 @@ const navigation = [
   { name: 'Medications', href: '/medications', icon: Pill },
   { name: 'Symptom Journal', href: '/symptoms', icon: ClipboardList },
   { name: 'Research', href: '/research', icon: BookOpen },
+  { name: 'AI Agents', href: '/agents', icon: Sparkles },
   { name: 'Doctor Prep', href: '/doctor-prep', icon: FileText },
   { name: 'Settings', href: '/settings', icon: Settings },
 ];
