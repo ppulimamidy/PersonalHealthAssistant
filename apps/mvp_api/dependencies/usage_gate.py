@@ -32,6 +32,7 @@ TIER_LIMITS: Dict[str, Dict[str, int]] = {
         "symptom_journal": 0,  # Phase 1: Not available for free tier
         "medical_literature": 0,  # Phase 2: Not available for free tier
         "ai_agents": 0,  # Phase 3: Not available for free tier
+        "predictions": 0,  # Phase 4: Not available for free tier
     },
     "pro": {
         "ai_insights": -1,
@@ -43,6 +44,7 @@ TIER_LIMITS: Dict[str, Dict[str, int]] = {
         "symptom_journal": 3,  # Phase 1: 3 entries per week for Pro
         "medical_literature": 20,  # Phase 2: 20 searches per week for Pro
         "ai_agents": 50,  # Phase 3: 50 agent messages per week for Pro
+        "predictions": 5,  # Phase 4: 5 predictions per week for Pro
     },
     "pro_plus": {
         "ai_insights": -1,
@@ -54,6 +56,7 @@ TIER_LIMITS: Dict[str, Dict[str, int]] = {
         "symptom_journal": -1,  # Phase 1: Unlimited for Pro+
         "medical_literature": -1,  # Phase 2: Unlimited for Pro+
         "ai_agents": -1,  # Phase 3: Unlimited for Pro+
+        "predictions": -1,  # Phase 4: Unlimited for Pro+
     },
 }
 
@@ -151,6 +154,35 @@ async def _supabase_patch(table: str, params: str, body: dict) -> Optional[dict]
                 return None
     except (aiohttp.ClientError, TimeoutError) as exc:
         logger.warning(f"Supabase patch {table} failed: {exc}")
+        return None
+
+
+async def _supabase_insert(table: str, body: dict) -> Optional[dict]:
+    """INSERT (POST) to Supabase PostgREST."""
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        return None
+    url = f"{SUPABASE_URL}/rest/v1/{table}"
+    headers = {
+        **_supabase_headers(),
+        "Prefer": "return=representation",
+    }
+    timeout = aiohttp.ClientTimeout(total=5)
+    try:
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.post(url, headers=headers, json=body) as resp:
+                if resp.status in (200, 201):
+                    data = await resp.json()
+                    result = data[0] if isinstance(data, list) and data else data
+                    logger.info(f"Supabase insert {table} succeeded")
+                    return result
+
+                error_text = await resp.text()
+                logger.error(
+                    f"Supabase insert {table} failed: status={resp.status}, error={error_text}"
+                )
+                return None
+    except (aiohttp.ClientError, TimeoutError) as exc:
+        logger.warning(f"Supabase insert {table} failed: {exc}")
         return None
 
 

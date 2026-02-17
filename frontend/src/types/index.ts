@@ -868,6 +868,136 @@ export interface BetaSignupResponse {
   message: string;
 }
 
+// Predictive Health types (Phase 4)
+export interface PredictionRange {
+  lower: number;
+  upper: number;
+}
+
+export interface HealthPrediction {
+  id: string;
+  prediction_type: string; // sleep_score, readiness_score, hrv_forecast, etc.
+  metric_name: string;
+  prediction_date: string;
+  prediction_horizon_days: number;
+  predicted_value: number;
+  confidence_score: number;
+  prediction_range?: PredictionRange;
+  actual_value?: number;
+  prediction_error?: number;
+  model_type: string; // statistical, ml, hybrid
+  model_version: string;
+  features_used: string[];
+  contributing_factors: Array<{
+    factor: string;
+    value: string | number;
+  }>;
+  recommendations: Array<{
+    priority: string;
+    action: string;
+    rationale?: string;
+  }>;
+  status: string; // pending, confirmed, inaccurate
+  created_at: string;
+}
+
+export interface PredictionsResponse {
+  predictions: HealthPrediction[];
+  generated_at: string;
+  days_of_data: number;
+  data_quality_score: number;
+}
+
+export interface RiskFactor {
+  factor: string;
+  impact_score: number; // 0-1
+  description: string;
+}
+
+export interface HealthRiskAssessment {
+  id: string;
+  risk_type: string; // symptom_flare, sleep_decline, recovery_decline, burnout
+  risk_category: string; // cardiovascular, metabolic, mental_health, sleep, recovery
+  risk_score: number; // 0-1
+  risk_level: string; // low, moderate, high, critical
+  risk_window_start: string;
+  risk_window_end: string;
+  contributing_factors: RiskFactor[];
+  protective_factors: RiskFactor[];
+  recommendations: Array<{
+    priority: string;
+    action: string;
+    rationale: string;
+  }>;
+  early_warning_signs: string[];
+  historical_patterns: Array<{
+    date?: string;
+    description?: string;
+  }>;
+  confidence_score: number;
+  user_acknowledged: boolean;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface RisksResponse {
+  risks: HealthRiskAssessment[];
+  overall_risk_level: string;
+  generated_at: string;
+}
+
+export interface HealthTrend {
+  id: string;
+  metric_name: string;
+  trend_type: string; // improving, declining, stable, fluctuating
+  analysis_start_date: string;
+  analysis_end_date: string;
+  window_days: number;
+  slope: number; // rate of change
+  r_squared: number; // trend strength
+  average_value: number;
+  std_deviation: number;
+  percent_change: number;
+  absolute_change: number;
+  detected_patterns: string[];
+  anomalies: Array<{
+    date: string;
+    value: number;
+    z_score: number;
+  }>;
+  forecast_7d?: number;
+  forecast_14d?: number;
+  forecast_30d?: number;
+  interpretation: string;
+  significance: string; // clinically_significant, notable, minor, noise
+  created_at: string;
+}
+
+export interface TrendsResponse {
+  trends: HealthTrend[];
+  generated_at: string;
+}
+
+export interface PersonalizedHealthScore {
+  id: string;
+  score_date: string;
+  score_type: string; // overall_health, recovery_capacity, resilience, metabolic_health
+  score_value: number; // 0-100
+  percentile?: number;
+  component_scores: {
+    [key: string]: number;
+  };
+  positive_factors: string[];
+  negative_factors: string[];
+  trend_7d: string; // up, down, stable
+  change_7d: number;
+  improvement_recommendations: Array<{
+    priority: string;
+    action: string;
+  }>;
+  created_at: string;
+}
+
 // API response types
 export interface ApiResponse<T> {
   data: T;
