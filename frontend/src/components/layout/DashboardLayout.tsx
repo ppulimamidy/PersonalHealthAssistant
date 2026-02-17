@@ -19,6 +19,8 @@ import {
   Settings,
   LogOut,
   LineChart,
+  FlaskConical,
+  Users,
 } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
 import { useSubscriptionStore } from '@/stores/subscriptionStore';
@@ -39,6 +41,8 @@ const navigation = [
   { name: 'Research', href: '/research', icon: BookOpen },
   { name: 'AI Agents', href: '/agents', icon: Sparkles },
   { name: 'Predictions', href: '/predictions', icon: LineChart },
+  { name: 'Lab Results', href: '/lab-results', icon: FlaskConical },
+  { name: 'Health Twin', href: '/health-twin', icon: Users },
   { name: 'Doctor Prep', href: '/doctor-prep', icon: FileText },
   { name: 'Settings', href: '/settings', icon: Settings },
 ];

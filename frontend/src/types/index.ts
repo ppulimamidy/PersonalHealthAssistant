@@ -998,6 +998,213 @@ export interface PersonalizedHealthScore {
   created_at: string;
 }
 
+// Lab Results types (Phase 5)
+export interface BiomarkerReference {
+  id: string;
+  biomarker_code: string;
+  biomarker_name: string;
+  unit: string;
+  reference_range_min: number;
+  reference_range_max: number;
+  optimal_range_min?: number;
+  optimal_range_max?: number;
+  age_group?: string;
+  gender?: string;
+  interpretation_low?: string;
+  interpretation_normal?: string;
+  interpretation_high?: string;
+}
+
+export interface Biomarker {
+  biomarker_code: string;
+  biomarker_name: string;
+  value: number;
+  unit: string;
+  reference_range: string;
+  status: 'normal' | 'borderline' | 'abnormal' | 'critical';
+  interpretation?: string;
+}
+
+export interface LabResult {
+  id: string;
+  test_date: string;
+  test_type: string;
+  test_category?: string;
+  lab_name?: string;
+  ordering_provider?: string;
+  biomarkers: Biomarker[];
+  pdf_url?: string;
+  notes?: string;
+  ai_summary?: string;
+  flags?: string[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface BiomarkerTrend {
+  biomarker_code: string;
+  biomarker_name: string;
+  unit: string;
+  data_points: Array<{
+    test_date: string;
+    value: number;
+    status: string;
+  }>;
+  trend_direction: 'improving' | 'declining' | 'stable';
+  slope?: number;
+  r_squared?: number;
+  percent_change?: number;
+  statistical_significance?: number;
+}
+
+export interface LabInsight {
+  id: string;
+  insight_type: 'trend' | 'anomaly' | 'recommendation' | 'alert';
+  priority: 'high' | 'medium' | 'low';
+  title: string;
+  description: string;
+  biomarkers_involved: string[];
+  recommendations: string[];
+  sources: string[];
+  created_at: string;
+  is_acknowledged: boolean;
+}
+
+export interface LabTestCategory {
+  category_code: string;
+  category_name: string;
+  description?: string;
+  common_biomarkers: string[];
+  test_frequency_recommendation?: string;
+}
+
+export interface CreateLabResultRequest {
+  test_date: string;
+  test_type: string;
+  test_category?: string;
+  lab_name?: string;
+  ordering_provider?: string;
+  biomarkers: Array<{
+    biomarker_code: string;
+    biomarker_name: string;
+    value: number;
+    unit: string;
+  }>;
+  notes?: string;
+}
+
+export interface LabResultsResponse {
+  lab_results: LabResult[];
+  total: number;
+}
+
+export interface BiomarkerTrendsResponse {
+  trends: BiomarkerTrend[];
+}
+
+export interface LabInsightsResponse {
+  insights: LabInsight[];
+  total: number;
+}
+
+// Health Twin types (Phase 5)
+export interface HealthTwinProfile {
+  id: string;
+  health_age: number;
+  chronological_age: number;
+  health_age_trend: 'improving' | 'declining' | 'stable';
+  resilience_score: number;
+  adaptability_score: number;
+  recovery_capacity: number;
+  metabolic_age: number;
+  biological_age_factors: {
+    [key: string]: number;
+  };
+  recent_changes: Array<{
+    date: string;
+    metric: string;
+    change: string;
+  }>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface HealthTwinSimulation {
+  id: string;
+  simulation_name: string;
+  simulation_type: 'lifestyle_change' | 'intervention' | 'risk_scenario' | 'goal_projection';
+  parameters: {
+    [key: string]: any;
+  };
+  predicted_outcomes: {
+    [key: string]: number;
+  };
+  timeline_predictions: Array<{
+    days_from_now: number;
+    predicted_health_age: number;
+    predicted_scores: {
+      [key: string]: number;
+    };
+  }>;
+  confidence_score: number;
+  recommendations: string[];
+  warnings: string[];
+  status: 'draft' | 'active' | 'completed';
+  created_at: string;
+  updated_at: string;
+}
+
+export interface HealthTwinSnapshot {
+  id: string;
+  snapshot_date: string;
+  health_age: number;
+  resilience_score: number;
+  key_metrics: {
+    [key: string]: number;
+  };
+  notes?: string;
+  created_at: string;
+}
+
+export interface HealthTwinGoal {
+  id: string;
+  goal_type: string;
+  goal_description: string;
+  target_metric: string;
+  target_value: number;
+  current_value: number;
+  target_date?: string;
+  strategies: string[];
+  success_probability: number;
+  estimated_timeline_days?: number;
+  milestones: Array<{
+    milestone: string;
+    target_value: number;
+    target_date?: string;
+    completed: boolean;
+  }>;
+  status: 'active' | 'achieved' | 'abandoned';
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateSimulationRequest {
+  simulation_name: string;
+  simulation_type: 'lifestyle_change' | 'intervention' | 'risk_scenario' | 'goal_projection';
+  parameters: {
+    [key: string]: any;
+  };
+}
+
+export interface CreateHealthTwinGoalRequest {
+  goal_type: string;
+  goal_description: string;
+  target_metric: string;
+  target_value: number;
+  target_date?: string;
+  strategies?: string[];
+}
+
 // API response types
 export interface ApiResponse<T> {
   data: T;
