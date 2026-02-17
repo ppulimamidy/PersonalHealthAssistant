@@ -30,6 +30,7 @@ from .api.health_questionnaire import router as health_questionnaire_router
 from .api.medications_supplements import router as medications_supplements_router
 from .api.symptom_journal import router as symptom_journal_router
 from .api.medical_literature import router as medical_literature_router
+from .api.ai_agents import router as ai_agents_router
 
 logger = get_logger(__name__)
 settings = get_settings()
@@ -124,6 +125,11 @@ app.include_router(
     medical_literature_router,
     prefix="/api/v1/research",
     tags=["Medical Literature"],
+)
+app.include_router(
+    ai_agents_router,
+    prefix="/api/v1/agents",
+    tags=["AI Agents"],
 )
 
 
