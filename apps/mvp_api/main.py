@@ -31,6 +31,7 @@ from .api.medications_supplements import router as medications_supplements_route
 from .api.symptom_journal import router as symptom_journal_router
 from .api.medical_literature import router as medical_literature_router
 from .api.ai_agents import router as ai_agents_router
+from .api.predictive_health import router as predictive_health_router
 
 logger = get_logger(__name__)
 settings = get_settings()
@@ -130,6 +131,11 @@ app.include_router(
     ai_agents_router,
     prefix="/api/v1/agents",
     tags=["AI Agents"],
+)
+app.include_router(
+    predictive_health_router,
+    prefix="/api/v1/predictions",
+    tags=["Predictive Health"],
 )
 
 

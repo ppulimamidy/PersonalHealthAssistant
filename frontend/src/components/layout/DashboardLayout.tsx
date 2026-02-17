@@ -18,6 +18,7 @@ import {
   Sparkles,
   Settings,
   LogOut,
+  LineChart,
 } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
 import { useSubscriptionStore } from '@/stores/subscriptionStore';
@@ -37,6 +38,7 @@ const navigation = [
   { name: 'Symptom Journal', href: '/symptoms', icon: ClipboardList },
   { name: 'Research', href: '/research', icon: BookOpen },
   { name: 'AI Agents', href: '/agents', icon: Sparkles },
+  { name: 'Predictions', href: '/predictions', icon: LineChart },
   { name: 'Doctor Prep', href: '/doctor-prep', icon: FileText },
   { name: 'Settings', href: '/settings', icon: Settings },
 ];
