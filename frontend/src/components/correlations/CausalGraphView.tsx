@@ -102,14 +102,14 @@ export function CausalGraphView() {
         </div>
         <div className="flex gap-2">
           <Button
-            variant={days === 7 ? 'default' : 'outline'}
+            variant={days === 7 ? 'primary' : 'outline'}
             size="sm"
             onClick={() => setDays(7)}
           >
             7 Days
           </Button>
           <Button
-            variant={days === 14 ? 'default' : 'outline'}
+            variant={days === 14 ? 'primary' : 'outline'}
             size="sm"
             onClick={() => setDays(14)}
           >
