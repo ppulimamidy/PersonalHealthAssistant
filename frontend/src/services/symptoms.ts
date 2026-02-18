@@ -9,14 +9,16 @@ import type {
 } from '@/types';
 
 export const symptomsService = {
-  // Journal entries
+  // Journal entries (API returns array; normalize to { symptoms } for UI)
   getSymptoms: async (params?: {
     days?: number;
     symptom_type?: string;
     min_severity?: number;
   }): Promise<{ symptoms: SymptomJournalEntry[] }> => {
     const response = await api.get('/api/v1/symptoms/journal', { params });
-    return response.data;
+    const data = response.data;
+    const symptoms = Array.isArray(data) ? data : (data?.symptoms ?? []);
+    return { symptoms };
   },
 
   createSymptom: async (payload: CreateSymptomRequest): Promise<SymptomJournalEntry> => {
@@ -41,10 +43,12 @@ export const symptomsService = {
     return response.data;
   },
 
-  // Patterns
+  // Patterns (API returns array; normalize to { patterns } for UI)
   getPatterns: async (): Promise<{ patterns: SymptomPattern[] }> => {
     const response = await api.get('/api/v1/symptoms/patterns');
-    return response.data;
+    const data = response.data;
+    const patterns = Array.isArray(data) ? data : (data?.patterns ?? []);
+    return { patterns };
   },
 
   detectPatterns: async (): Promise<{ message: string; detected_count: number }> => {
