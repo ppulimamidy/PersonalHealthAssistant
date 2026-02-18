@@ -640,6 +640,83 @@ export interface CreateSupplementRequest {
   notes?: string;
 }
 
+// Medication Intelligence types
+export interface InteractionSource {
+  title: string;
+  url?: string;
+  pubmed_id?: string;
+}
+
+export interface MedicationInteraction {
+  id: string;
+  medication_name: string;
+  medication_generic_name?: string;
+  medication_class?: string;
+  interaction_type: string;
+  interacts_with: string;
+  interacts_with_category?: string;
+  severity: 'critical' | 'high' | 'moderate' | 'low';
+  evidence_level: 'strong' | 'moderate' | 'limited' | 'theoretical';
+  mechanism?: string;
+  clinical_significance?: string;
+  recommendation: string;
+  timing_recommendation?: string;
+  sources: InteractionSource[];
+}
+
+export interface UserMedicationAlert {
+  id: string;
+  user_id: string;
+  interaction_id?: string;
+  medication_id?: string;
+  supplement_id?: string;
+  nutrition_item?: string;
+  alert_type: 'drug_nutrient' | 'drug_supplement' | 'drug_food' | 'supplement_nutrient';
+  severity: 'critical' | 'high' | 'moderate' | 'low';
+  title: string;
+  description: string;
+  recommendation: string;
+  is_acknowledged: boolean;
+  is_dismissed: boolean;
+  detected_at: string;
+  medication_name?: string;
+  interacts_with?: string;
+}
+
+export interface InteractionAlertsResponse {
+  alerts: UserMedicationAlert[];
+  total_critical: number;
+  total_high: number;
+  total_unacknowledged: number;
+}
+
+export interface MedicationVitalsCorrelation {
+  id: string;
+  medication_id: string;
+  medication_name: string;
+  vital_metric: string;
+  vital_label: string;
+  correlation_coefficient: number;
+  p_value: number;
+  sample_size: number;
+  lag_hours: number;
+  optimal_timing_window?: string;
+  effect_type: 'positive' | 'negative' | 'neutral';
+  effect_magnitude?: 'large' | 'moderate' | 'small';
+  effect_description: string;
+  clinical_significance?: string;
+  recommendation?: string;
+  data_quality_score: number;
+  days_analyzed: number;
+  computed_at: string;
+}
+
+export interface MedicationCorrelationsResponse {
+  correlations: MedicationVitalsCorrelation[];
+  total_significant: number;
+  data_quality_score: number;
+}
+
 // Symptom Journal types
 export type SymptomType = 'pain' | 'fatigue' | 'nausea' | 'headache' | 'digestive' | 'mental_health' | 'respiratory' | 'skin' | 'other';
 export type MoodType = 'happy' | 'anxious' | 'stressed' | 'sad' | 'neutral' | 'irritable' | 'energetic';

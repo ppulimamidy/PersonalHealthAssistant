@@ -34,6 +34,7 @@ from .api.ai_agents import router as ai_agents_router
 from .api.predictive_health import router as predictive_health_router
 from .api.lab_results import router as lab_results_router
 from .api.health_twin import router as health_twin_router
+from .api.medication_intelligence import router as medication_intelligence_router
 
 logger = get_logger(__name__)
 settings = get_settings()
@@ -148,6 +149,11 @@ app.include_router(
     health_twin_router,
     prefix="/api/v1/health-twin",
     tags=["Health Twin"],
+)
+app.include_router(
+    medication_intelligence_router,
+    prefix="/api/v1",
+    tags=["Medication Intelligence"],
 )
 
 
