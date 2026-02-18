@@ -24,10 +24,17 @@ RUN apt-get update \
 # Note: Copying from current directory (repo root)
 COPY requirements.txt .
 COPY apps/mvp_api/requirements.txt ./mvp_api_requirements.txt
-RUN pip install --no-cache-dir -r requirements.txt -r mvp_api_requirements.txt
+COPY apps/auth/requirements.txt ./auth_requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt -r mvp_api_requirements.txt -r auth_requirements.txt
 
 # Copy common directory
 COPY common/ ./common/
+
+# Copy apps __init__.py to make it a proper package
+COPY apps/__init__.py ./apps/__init__.py
+
+# Copy auth module (required by MVP API dependencies)
+COPY apps/auth/ ./apps/auth/
 
 # Copy device_data for Oura client
 COPY apps/device_data/ ./apps/device_data/

@@ -1,6 +1,10 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  generateBuildId: () => null,
+  // Custom build ID to work around crypto.randomUUID issues
+  generateBuildId: async () => {
+    // Return null to use default nanoid-based ID
+    return null;
+  },
   reactStrictMode: true,
   // Enable standalone output for Docker deployment
   output: 'standalone',

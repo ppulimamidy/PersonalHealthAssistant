@@ -18,7 +18,7 @@ supabase>=2.0.0
 
 # Security
 cryptography>=41.0.8
-bcrypt==3.2.2
+bcrypt>=4.0.0
 
 # Monitoring & Logging
 structlog>=23.2.0
@@ -66,4 +66,4 @@ safety>=2.3.0
 
 # Additional Dependencies
 asyncpg>=0.27.0
-greenlet>=3.0.0 
+greenlet>=3.0.0
