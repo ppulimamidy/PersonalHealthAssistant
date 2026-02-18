@@ -10,10 +10,12 @@ import type {
 } from '@/types';
 
 export const medicationsService = {
-  // Medications
+  // Medications (API returns array; normalize to { medications } for UI)
   getMedications: async (): Promise<{ medications: Medication[] }> => {
     const response = await api.get('/api/v1/medications');
-    return response.data;
+    const data = response.data;
+    const medications = Array.isArray(data) ? data : (data?.medications ?? []);
+    return { medications };
   },
 
   createMedication: async (payload: CreateMedicationRequest): Promise<Medication> => {
@@ -30,10 +32,12 @@ export const medicationsService = {
     await api.delete(`/api/v1/medications/${id}`);
   },
 
-  // Supplements
+  // Supplements (API may return array; normalize to { supplements } for UI)
   getSupplements: async (): Promise<{ supplements: Supplement[] }> => {
     const response = await api.get('/api/v1/supplements');
-    return response.data;
+    const data = response.data;
+    const supplements = Array.isArray(data) ? data : (data?.supplements ?? []);
+    return { supplements };
   },
 
   createSupplement: async (payload: CreateSupplementRequest): Promise<Supplement> => {
