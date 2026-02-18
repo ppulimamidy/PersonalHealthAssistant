@@ -1,5 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  generateBuildId: () => null,
   reactStrictMode: true,
   // Enable standalone output for Docker deployment
   output: 'standalone',
