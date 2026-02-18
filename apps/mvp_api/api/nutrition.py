@@ -6,6 +6,7 @@ Thin proxy endpoints to the Nutrition service for the MVP frontend.
 
 # pylint: disable=broad-except,line-too-long
 
+import json
 import os
 import asyncio
 from typing import Any, Dict, Optional
@@ -35,9 +36,14 @@ router = APIRouter()
 NUTRITION_SERVICE_URL = os.environ.get(
     "NUTRITION_SERVICE_URL", "http://localhost:8007"
 ).rstrip("/")
-TIMEOUT_S = float(os.environ.get("NUTRITION_SERVICE_TIMEOUT_S", "8.0"))
+# 60s default: Render free tier cold start can take 50–60s
+TIMEOUT_S = float(os.environ.get("NUTRITION_SERVICE_TIMEOUT_S", "60.0"))
 RECOGNIZE_TIMEOUT_S = float(
     os.environ.get("NUTRITION_SERVICE_RECOGNIZE_TIMEOUT_S", "30.0")
+)
+NUTRITION_SERVICE_RETRIES = int(os.environ.get("NUTRITION_SERVICE_RETRIES", "3"))
+NUTRITION_SERVICE_RETRY_DELAY_S = float(
+    os.environ.get("NUTRITION_SERVICE_RETRY_DELAY_S", "5.0")
 )
 
 
@@ -55,49 +61,75 @@ async def _request_json(
     json_body: Optional[Dict[str, Any]] = None,
 ) -> Any:
     timeout = aiohttp.ClientTimeout(total=TIMEOUT_S)
-    try:
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            method_upper = method.upper()
-            if method_upper == "GET":
-                req = session.get(url, headers=headers)
-            elif method_upper == "POST":
-                req = session.post(url, headers=headers, json=json_body or {})
-            elif method_upper == "PUT":
-                req = session.put(url, headers=headers, json=json_body or {})
-            elif method_upper == "DELETE":
-                req = session.delete(url, headers=headers)
-            else:
-                raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail="Unsupported nutrition proxy method",
-                )
+    last_exc = None
+    for attempt in range(NUTRITION_SERVICE_RETRIES + 1):
+        try:
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                method_upper = method.upper()
+                if method_upper == "GET":
+                    req = session.get(url, headers=headers)
+                elif method_upper == "POST":
+                    req = session.post(url, headers=headers, json=json_body or {})
+                elif method_upper == "PUT":
+                    req = session.put(url, headers=headers, json=json_body or {})
+                elif method_upper == "DELETE":
+                    req = session.delete(url, headers=headers)
+                else:
+                    raise HTTPException(
+                        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                        detail="Unsupported nutrition proxy method",
+                    )
 
-            async with req as resp:
-                text = await resp.text()
-                if resp.status >= 400:
-                    logger.warning(
-                        "Nutrition upstream error %s: %s", resp.status, text[:500]
-                    )
-                    raise HTTPException(
-                        status_code=status.HTTP_502_BAD_GATEWAY,
-                        detail="Nutrition service error",
-                    )
-                try:
-                    return await resp.json()
-                except Exception:
-                    logger.warning(
-                        "Nutrition upstream returned non-JSON: %s", text[:500]
-                    )
-                    raise HTTPException(
-                        status_code=status.HTTP_502_BAD_GATEWAY,
-                        detail="Nutrition service returned invalid response",
-                    )
-    except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
-        logger.warning("Nutrition upstream request failed: %s", exc)
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Nutrition service unreachable",
-        ) from exc
+                async with req as resp:
+                    text = await resp.text()
+                    if resp.status >= 400:
+                        logger.warning(
+                            "Nutrition upstream error %s: %s", resp.status, text[:500]
+                        )
+                        if (
+                            resp.status in (502, 503)
+                            and attempt < NUTRITION_SERVICE_RETRIES
+                        ):
+                            await asyncio.sleep(NUTRITION_SERVICE_RETRY_DELAY_S)
+                            continue
+                        raise HTTPException(
+                            status_code=status.HTTP_502_BAD_GATEWAY,
+                            detail=f"Nutrition service error (upstream {resp.status})",
+                        )
+                    try:
+                        return json.loads(text) if text.strip() else {}
+                    except json.JSONDecodeError:
+                        logger.warning(
+                            "Nutrition upstream returned non-JSON: %s", text[:500]
+                        )
+                        raise HTTPException(
+                            status_code=status.HTTP_502_BAD_GATEWAY,
+                            detail="Nutrition service returned invalid response",
+                        )
+        except HTTPException:
+            raise
+        except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
+            last_exc = exc
+            logger.warning(
+                "Nutrition service unreachable attempt %s/%s: %s",
+                attempt + 1,
+                NUTRITION_SERVICE_RETRIES + 1,
+                exc,
+            )
+            if attempt < NUTRITION_SERVICE_RETRIES:
+                await asyncio.sleep(NUTRITION_SERVICE_RETRY_DELAY_S)
+                continue
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=(
+                    "Nutrition service unreachable (cold start can take ~60s on free tier). "
+                    "Retry in a moment or set NUTRITION_SERVICE_TIMEOUT_S=90 and redeploy."
+                ),
+            ) from last_exc
+    raise HTTPException(
+        status_code=status.HTTP_502_BAD_GATEWAY,
+        detail="Nutrition service error",
+    )
 
 
 async def _request_multipart(
