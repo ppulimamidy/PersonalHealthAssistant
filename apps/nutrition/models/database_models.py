@@ -70,13 +70,13 @@ class FoodRecognitionResult(Base):
     )
     meal_logs = relationship("MealLog", back_populates="recognition_result")
 
-    # Indexes and schema
+    # Indexes and schema (public to match Supabase migration tables)
     __table_args__ = (
         Index("idx_food_recognition_user_timestamp", "user_id", "timestamp"),
         Index("idx_food_recognition_recognition_id", "recognition_id"),
         Index("idx_food_recognition_meal_type", "meal_type"),
         Index("idx_food_recognition_is_corrected", "is_corrected"),
-        {"schema": "nutrition"},
+        {"schema": "public"},
     )
 
 
@@ -88,7 +88,7 @@ class UserCorrection(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     recognition_result_id = Column(
         UUID(as_uuid=True),
-        ForeignKey("nutrition.food_recognition_results.id"),
+        ForeignKey("public.food_recognition_results.id"),
         nullable=False,
     )
     user_id = Column(String(50), nullable=False, index=True)
@@ -111,12 +111,12 @@ class UserCorrection(Base):
         "FoodRecognitionResult", back_populates="corrections"
     )
 
-    # Indexes and schema
+    # Indexes and schema (public to match Supabase)
     __table_args__ = (
         Index("idx_user_correction_user_timestamp", "user_id", "timestamp"),
         Index("idx_user_correction_recognition_result", "recognition_result_id"),
         Index("idx_user_correction_type", "correction_type"),
-        {"schema": "nutrition"},
+        {"schema": "public"},
     )
 
 
