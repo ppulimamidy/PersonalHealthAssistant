@@ -153,36 +153,35 @@ The specialist agents should detect:
 
 First, create the demo user in your authentication system (Supabase Auth):
 
-```sql
--- This is a placeholder - you'll need to create the user via Supabase Auth UI or API
--- User email: sarah.chen.demo@example.com
--- User password: Demo123!@#
--- After creation, get the user_id from auth.users table
-```
+1. Go to Supabase Dashboard → Authentication → Users
+2. Click "Add user" → "Create new user"
+3. Email: `sarah.chen.demo@example.com`
+4. Password: `Demo123!@#`
+5. After creation, copy the user's UUID from the users table
 
-### Step 2: Update SQL Files
+### Step 2: Generate SQL Files with Actual UUID
 
-Replace all instances of `'demo_user_sarah_chen'` with the actual user_id:
+Use the provided bash script to automatically replace the placeholder UUID:
 
 ```bash
-# Get the actual user_id from Supabase
-# Then run:
-sed -i '' 's/demo_user_sarah_chen/ACTUAL-USER-ID-HERE/g' demo_data_seed.sql
-sed -i '' 's/demo_user_sarah_chen/ACTUAL-USER-ID-HERE/g' demo_data_seed_part2.sql
-sed -i '' 's/demo_user_sarah_chen/ACTUAL-USER-ID-HERE/g' demo_data_seed_symptoms.sql
+# Run the loader script with your actual user UUID
+./load_demo_data.sh YOUR-ACTUAL-UUID-HERE
+
+# Example:
+./load_demo_data.sh 22144dc2-f352-48aa-b34b-aebfa9f7e638
 ```
+
+This will create processed SQL files in the `sarah/` directory with your actual UUID.
 
 ### Step 3: Load Data in Order
 
 Execute the SQL files in the Supabase SQL Editor in this order:
 
-1. **demo_data_seed.sql** - User profile, conditions, medications, adherence logs
-2. **demo_data_seed_part2.sql** - Nutrition meals (30 days)
-3. **demo_data_seed_symptoms.sql** - Symptom journal (30 days)
+1. **sarah/demo_data_seed.sql** - User profile, conditions, medications, adherence logs
+2. **sarah/demo_data_seed_part2.sql** - Nutrition meals (30 days)
+3. **sarah/demo_data_seed_symptoms.sql** - Symptom journal (30 days)
 
-```sql
--- In Supabase SQL Editor, run each file sequentially
-```
+Copy and paste each file's contents into the Supabase SQL Editor and run sequentially.
 
 ### Step 4: Verify Data
 
@@ -277,23 +276,40 @@ This dataset mirrors patterns from:
 - **Meta-analysis will take 30-60 seconds** (calling all specialist agents)
 - **Expected insights documented above** - use for validation
 
-## Cleanup
+## Cleanup & Reloading
 
-To remove demo data:
+To remove demo data and reload fresh (useful for testing):
 
-```sql
--- Remove all demo user data
-DELETE FROM medication_adherence_logs WHERE user_id = 'YOUR-USER-ID';
-DELETE FROM nutrition_meals WHERE user_id = 'YOUR-USER-ID';
-DELETE FROM symptom_journal WHERE user_id = 'YOUR-USER-ID';
-DELETE FROM lab_results WHERE user_id = 'YOUR-USER-ID';
-DELETE FROM medications WHERE user_id = 'YOUR-USER-ID';
-DELETE FROM supplements WHERE user_id = 'YOUR-USER-ID';
-DELETE FROM health_conditions WHERE user_id = 'YOUR-USER-ID';
-DELETE FROM user_health_profile WHERE user_id = 'YOUR-USER-ID';
+### Step 1: Generate Cleanup SQL
 
--- Then delete user from auth.users in Supabase Auth
+```bash
+# Run the cleanup script with the demo user's UUID
+./cleanup_demo_data.sh YOUR-USER-UUID
+
+# Example:
+./cleanup_demo_data.sh 22144dc2-f352-48aa-b34b-aebfa9f7e638
 ```
+
+This generates `sarah/cleanup_demo_data.sql` with your actual UUID.
+
+### Step 2: Run Cleanup in Supabase
+
+1. Copy the contents of `sarah/cleanup_demo_data.sql`
+2. Paste into Supabase SQL Editor
+3. Run the script
+4. Verify all record counts show 0
+
+### Step 3: Reload Fresh Data (Optional)
+
+After cleanup, you can reload fresh demo data:
+
+```bash
+./load_demo_data.sh YOUR-USER-UUID
+```
+
+Then repeat Step 3 from Installation Instructions to load the three SQL files.
+
+**Note:** The cleanup script does NOT delete the user from `auth.users`. If you want to completely remove the demo user, delete it manually from Supabase Auth UI.
 
 ---
 
