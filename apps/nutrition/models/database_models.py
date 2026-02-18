@@ -121,15 +121,26 @@ class UserCorrection(Base):
 
 
 class MealLog(Base):
-    """Model for storing meal logs."""
+    """Model for storing meal logs. Uses public schema so Supabase public.meal_logs is used."""
 
     __tablename__ = "meal_logs"
+    __table_args__ = (
+        Index("idx_meal_log_user_timestamp", "user_id", "timestamp"),
+        Index("idx_meal_log_meal_type", "meal_type"),
+        Index("idx_meal_log_recognition_result", "recognition_result_id"),
+        Index(
+            "idx_meal_log_synced_flags",
+            "synced_to_health_tracking",
+            "synced_to_medical_analysis",
+        ),
+        {"schema": "public"},
+    )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(String(50), nullable=False, index=True)
     recognition_result_id = Column(
         UUID(as_uuid=True),
-        ForeignKey("nutrition.food_recognition_results.id"),
+        ForeignKey("public.food_recognition_results.id"),
         nullable=True,
     )
     timestamp = Column(DateTime, default=datetime.utcnow, nullable=False)
@@ -164,19 +175,6 @@ class MealLog(Base):
     # Relationships
     recognition_result = relationship(
         "FoodRecognitionResult", back_populates="meal_logs"
-    )
-
-    # Indexes and schema
-    __table_args__ = (
-        Index("idx_meal_log_user_timestamp", "user_id", "timestamp"),
-        Index("idx_meal_log_meal_type", "meal_type"),
-        Index("idx_meal_log_recognition_result", "recognition_result_id"),
-        Index(
-            "idx_meal_log_synced_flags",
-            "synced_to_health_tracking",
-            "synced_to_medical_analysis",
-        ),
-        {"schema": "nutrition"},
     )
 
 
