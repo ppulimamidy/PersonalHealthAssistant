@@ -35,6 +35,7 @@ TIER_LIMITS: Dict[str, Dict[str, int]] = {
         "predictions": 0,  # Phase 4: Not available for free tier
         "lab_results": 0,  # Phase 5: Not available for free tier
         "health_twin": 0,  # Phase 5: Not available for free tier
+        "medication_vitals_correlations": 0,  # Medication Intelligence: Not available for free tier
     },
     "pro": {
         "ai_insights": -1,
@@ -49,6 +50,7 @@ TIER_LIMITS: Dict[str, Dict[str, int]] = {
         "predictions": 5,  # Phase 4: 5 predictions per week for Pro
         "lab_results": 0,  # Phase 5: Not available for Pro tier
         "health_twin": 0,  # Phase 5: Not available for Pro tier
+        "medication_vitals_correlations": 0,  # Medication Intelligence: Not available for Pro tier
     },
     "pro_plus": {
         "ai_insights": -1,
@@ -63,6 +65,7 @@ TIER_LIMITS: Dict[str, Dict[str, int]] = {
         "predictions": -1,  # Phase 4: Unlimited for Pro+
         "lab_results": -1,  # Phase 5: Unlimited for Pro+
         "health_twin": -1,  # Phase 5: Unlimited for Pro+
+        "medication_vitals_correlations": -1,  # Medication Intelligence: Unlimited for Pro+
     },
 }
 
