@@ -1353,3 +1353,81 @@ export interface PaginatedResponse<T> {
   per_page: number;
   has_more: boolean;
 }
+
+// Specialist Agents & Meta-Analysis types
+export interface SpecialistInsight {
+  specialist_name: string;
+  findings: string[];
+  concerns: string[];
+  recommendations: EvidenceBasedRecommendation[];
+  confidence_score: number;
+  data_quality: number;
+}
+
+export interface EvidenceBasedRecommendation {
+  action: string;
+  rationale: string;
+  priority: 'critical' | 'high' | 'medium' | 'low';
+  evidence_level: 'strong' | 'moderate' | 'limited' | 'theoretical';
+  citations: string[];
+  expected_benefit: string;
+  implementation_difficulty: 'easy' | 'moderate' | 'difficult';
+  estimated_impact: number;
+}
+
+export interface CrossSystemPattern {
+  pattern_type: 'causal_chain' | 'feedback_loop' | 'synergistic_effect' | 'antagonistic_interaction';
+  systems_involved: string[];
+  pattern_description: string;
+  clinical_significance: string;
+  strength: 'strong' | 'moderate' | 'weak';
+}
+
+export interface PredictedOutcome {
+  metric: string;
+  current_value: number;
+  predicted_value: number;
+  timeframe_days: number;
+  success_probability: number;
+  confidence_interval: {
+    lower: number;
+    upper: number;
+  };
+}
+
+export interface MetaAnalysisReport {
+  report_id: string;
+  user_id: string;
+  analysis_period_days: number;
+  generated_at: string;
+
+  // Specialist insights
+  specialist_insights: SpecialistInsight[];
+
+  // Integration agent synthesis
+  primary_diagnosis: {
+    diagnosis: string;
+    systems_involved: string[];
+    confidence: number;
+    causal_chain: string[];
+  };
+  secondary_diagnoses: Array<{
+    diagnosis: string;
+    systems_involved: string[];
+    confidence: number;
+  }>;
+
+  // Cross-system patterns
+  cross_system_patterns: CrossSystemPattern[];
+
+  // Recommendations
+  recommended_protocol: EvidenceBasedRecommendation[];
+
+  // Outcomes
+  predicted_outcomes: PredictedOutcome[];
+
+  // Quality metrics
+  overall_confidence: number;
+  data_completeness: number;
+  evidence_quality: string;
+}

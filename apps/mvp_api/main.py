@@ -36,6 +36,7 @@ from .api.lab_results import router as lab_results_router
 from .api.health_twin import router as health_twin_router
 from .api.medication_intelligence import router as medication_intelligence_router
 from .api.symptom_correlations import router as symptom_correlations_router
+from .api.specialist_agents import router as specialist_agents_router
 
 logger = get_logger(__name__)
 settings = get_settings()
@@ -160,6 +161,11 @@ app.include_router(
     symptom_correlations_router,
     prefix="/api/v1",
     tags=["Symptom Correlations"],
+)
+app.include_router(
+    specialist_agents_router,
+    prefix="/api/v1/specialist-agents",
+    tags=["AI Agents"],
 )
 
 
