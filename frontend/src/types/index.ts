@@ -717,6 +717,63 @@ export interface MedicationCorrelationsResponse {
   data_quality_score: number;
 }
 
+// Symptom Correlation types
+export interface SymptomCorrelation {
+  id: string;
+  symptom_type: string;
+  symptom_metric: string;
+  correlation_type: 'symptom_nutrition' | 'symptom_oura' | 'symptom_medication' | 'symptom_symptom';
+  correlated_variable: string;
+  correlated_variable_label: string;
+  correlation_coefficient: number;
+  p_value: number;
+  sample_size: number;
+  lag_days: number;
+  effect_type: 'positive' | 'negative' | 'neutral';
+  effect_magnitude?: 'large' | 'moderate' | 'small';
+  effect_description: string;
+  clinical_significance?: string;
+  recommendation?: string;
+  trigger_identified: boolean;
+  trigger_confidence?: number;
+  data_quality_score: number;
+  days_analyzed: number;
+  computed_at: string;
+}
+
+export interface TriggerVariable {
+  variable: string;
+  label: string;
+  coefficient: number;
+  p_value: number;
+}
+
+export interface SymptomTriggerPattern {
+  id: string;
+  symptom_type: string;
+  pattern_type: 'food_trigger' | 'medication_side_effect' | 'stress_trigger' | 'sleep_trigger' | 'activity_trigger' | 'weather_trigger' | 'multi_factor';
+  trigger_variables: TriggerVariable[];
+  pattern_strength: number;
+  confidence_score: number;
+  pattern_description: string;
+  trigger_threshold?: Record<string, any>;
+  recommendations: string[];
+  times_observed: number;
+  times_validated: number;
+  last_observed_at?: string;
+  is_active: boolean;
+  user_acknowledged: boolean;
+  created_at: string;
+}
+
+export interface SymptomCorrelationsResponse {
+  correlations: SymptomCorrelation[];
+  trigger_patterns: SymptomTriggerPattern[];
+  total_significant: number;
+  data_quality_score: number;
+  analysis_summary?: string;
+}
+
 // Symptom Journal types
 export type SymptomType = 'pain' | 'fatigue' | 'nausea' | 'headache' | 'digestive' | 'mental_health' | 'respiratory' | 'skin' | 'other';
 export type MoodType = 'happy' | 'anxious' | 'stressed' | 'sad' | 'neutral' | 'irritable' | 'energetic';
