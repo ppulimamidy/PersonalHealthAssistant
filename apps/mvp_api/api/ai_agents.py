@@ -270,6 +270,20 @@ async def _get_user_context(user_id: str) -> Dict[str, Any]:
     return context
 
 
+def _parse_messages(raw: Any) -> List[Dict[str, Any]]:
+    """Parse messages from DB: may be JSON string or already a list (Supabase JSONB)."""
+    if raw is None:
+        return []
+    if isinstance(raw, list):
+        return raw
+    if isinstance(raw, str):
+        try:
+            return json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            return []
+    return []
+
+
 async def _create_conversation(
     user_id: str, agent_id: str, conversation_type: str, initial_message: str
 ) -> str:
@@ -292,20 +306,23 @@ async def _create_conversation(
 
 
 async def _add_message(
-    conversation_id: str, role: str, content: str, agent_id: Optional[str] = None
+    conversation_id: str,
+    user_id: str,
+    role: str,
+    content: str,
+    agent_id: Optional[str] = None,
 ):
-    """Add message to conversation."""
-    # Get current conversation
+    """Add message to conversation. Uses PATCH so the update is applied correctly."""
     rows = await _supabase_get(
-        "agent_conversations", f"id=eq.{conversation_id}&limit=1"
+        "agent_conversations",
+        f"id=eq.{conversation_id}&user_id=eq.{user_id}&limit=1",
     )
     if not rows:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
     conv = rows[0]
-    messages: List[Dict[str, Any]] = json.loads(conv.get("messages", "[]"))
+    messages: List[Dict[str, Any]] = _parse_messages(conv.get("messages"))
 
-    # Add new message
     message: Dict[str, Any] = {
         "role": role,
         "content": content,
@@ -315,16 +332,18 @@ async def _add_message(
     }
     messages.append(message)
 
-    # Update conversation
-    await _supabase_upsert(
+    # PATCH so we only update these columns (avoids upsert/insert confusion)
+    updated = await _supabase_patch(
         "agent_conversations",
+        f"id=eq.{conversation_id}&user_id=eq.{user_id}",
         {
-            "id": conversation_id,
-            "messages": json.dumps(messages),
+            "messages": messages,  # PostgREST accepts list for JSONB
             "last_message_at": datetime.now(timezone.utc).isoformat(),
             "updated_at": datetime.now(timezone.utc).isoformat(),
         },
     )
+    if not updated:
+        logger.warning("_add_message: PATCH agent_conversations did not return a row")
 
 
 # ============================================================================
@@ -402,14 +421,14 @@ async def send_message(
         conversation_id = request.conversation_id
 
     # Add user message
-    await _add_message(conversation_id, "user", request.message)
+    await _add_message(conversation_id, user_id, "user", request.message)
 
     # Get conversation history
     conv_rows = await _supabase_get(
         "agent_conversations", f"id=eq.{conversation_id}&limit=1"
     )
     conv_data = conv_rows[0]
-    messages = json.loads(conv_data.get("messages", "[]"))
+    messages = _parse_messages(conv_data.get("messages"))
 
     # Get user context
     context = await _get_user_context(user_id)
@@ -418,7 +437,9 @@ async def send_message(
     response_content = await agent.generate_response(request.message, context, messages)
 
     # Add agent response
-    await _add_message(conversation_id, "assistant", response_content, agent.id)
+    await _add_message(
+        conversation_id, user_id, "assistant", response_content, agent.id
+    )
 
     # Return updated conversation
     return await get_conversation(conversation_id, current_user)
@@ -442,7 +463,7 @@ async def list_conversations(current_user: dict = Depends(get_current_user)):
         )
         agent_name = agent_rows[0]["agent_name"] if agent_rows else "Assistant"
 
-        messages = json.loads(row.get("messages", "[]"))
+        messages = _parse_messages(row.get("messages"))
 
         conversations.append(
             Conversation(
@@ -483,7 +504,7 @@ async def get_conversation(
     agent_rows = await _supabase_get("ai_agents", f"id=eq.{row['primary_agent_id']}")
     agent_name = agent_rows[0]["agent_name"] if agent_rows else "Assistant"
 
-    messages = json.loads(row.get("messages", "[]"))
+    messages = _parse_messages(row.get("messages"))
 
     return Conversation(
         id=row["id"],
@@ -491,7 +512,7 @@ async def get_conversation(
         conversation_type=row["conversation_type"],
         primary_agent_id=row["primary_agent_id"],
         primary_agent_name=agent_name,
-        participating_agents=row.get("participating_agents", []),
+        participating_agents=row.get("participating_agents") or [],
         status=row["status"],
         messages=[ChatMessage(**msg) for msg in messages],
         created_at=row["created_at"],
