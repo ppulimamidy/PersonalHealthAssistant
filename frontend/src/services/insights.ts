@@ -1,5 +1,5 @@
 import { api } from './api';
-import type { AIInsight } from '@/types';
+import type { AIInsight, CorrelatedInsight } from '@/types';
 
 export const insightsService = {
   // Get AI-generated insights (max 5)
@@ -7,6 +7,12 @@ export const insightsService = {
     const response = await api.get('/api/v1/insights', {
       params: { limit: 5 },
     });
+    return response.data;
+  },
+
+  // Get unified correlated insights (supplements, symptoms, trends, meds, profile, recommendation + evidence)
+  getCorrelatedInsights: async (): Promise<CorrelatedInsight[]> => {
+    const response = await api.get('/api/v1/insights/correlated');
     return response.data;
   },
 

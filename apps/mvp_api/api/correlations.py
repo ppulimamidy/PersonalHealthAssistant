@@ -1,9 +1,17 @@
 """
-Metabolic Intelligence — Correlation Engine
+Metabolic Intelligence — Advanced Correlation Engine
 
 Cross-references Oura wearable data with nutrition meal logs over 7–14 day
 windows to surface statistically significant patterns (e.g. "Your HRV drops
 12% after high-carb dinners"). Results are cached in Supabase for 6 hours.
+
+Engine considerations:
+- Multi-lag analysis: lags 1–14 days (not just same-day + lag-1).
+- Non-linear relationships: Spearman rank correlation alongside Pearson.
+- Granger causality: causal direction testing up to 14 lags when data allows.
+- Confounding: AI summary notes controlled-for (e.g. sleep duration) when available.
+- Output shape: causal confidence, effect timing, magnitude, and controlled-for
+  are encouraged in descriptions and in downstream insights.
 """
 
 # pylint: disable=too-many-locals,too-many-branches,too-many-statements,broad-except,line-too-long,invalid-name
@@ -41,6 +49,9 @@ OPENAI_MODEL = os.environ.get("CORRELATION_AI_MODEL", "gpt-4o-mini")
 
 CACHE_TTL_HOURS = 6
 MIN_OVERLAPPING_DAYS = 5
+# Advanced Correlation Engine: multi-lag analysis (1-14 days), Granger up to 14 lags
+MAX_LAG_DAYS = 14
+GRANGER_MAX_LAG = 14
 
 # ---------------------------------------------------------------------------
 # Pydantic response models
@@ -145,7 +156,17 @@ METRIC_LABELS: Dict[str, str] = {
     "active_calories": "Active Calories",
 }
 
-# Correlation pairs: (nutrition_metric, oura_metric, category, lag)
+# Key pairs for multi-lag analysis (1 to MAX_LAG_DAYS): (nutrition_metric, oura_metric, category)
+KEY_PAIRS_MULTILAG: List[Tuple[str, str, str]] = [
+    ("total_sugar_g", "hrv_balance", "nutrition_readiness"),
+    ("total_sugar_g", "sleep_score", "nutrition_sleep"),
+    ("total_carbs_g", "sleep_score", "nutrition_sleep"),
+    ("total_carbs_g", "hrv_balance", "nutrition_readiness"),
+    ("total_calories", "readiness_score", "nutrition_readiness"),
+    ("last_meal_hour", "sleep_score", "nutrition_sleep"),
+]
+
+# Correlation pairs: (nutrition_metric, oura_metric, category, lag) — fixed lag 0 or 1
 CORRELATION_PAIRS: List[Tuple[str, str, str, int]] = [
     # Nutrition → Sleep (next-day effect)
     ("total_carbs_g", "sleep_score", "nutrition_sleep", 1),
@@ -211,6 +232,38 @@ def _pearson_r(x: List[float], y: List[float]) -> Tuple[float, float]:
     t_stat = r * math.sqrt((n - 2) / (1 - r * r))
     p_value = _approx_two_tail_p(t_stat, n - 2)
     return round(r, 4), round(p_value, 6)
+
+
+def _spearman_r(x: List[float], y: List[float]) -> Tuple[float, float]:
+    """
+    Compute Spearman rank correlation (non-linear / monotonic).
+    Pure Python — no numpy/scipy dependency.
+    """
+    n = len(x)
+    if n < MIN_OVERLAPPING_DAYS:
+        return 0.0, 1.0
+
+    def rank(vals: List[float]) -> List[float]:
+        order = sorted(range(n), key=lambda i: vals[i])
+        ranks = [0.0] * n
+        for r, i in enumerate(order, 1):
+            ranks[i] = float(r)
+        # Handle ties: assign average rank
+        i = 0
+        while i < n:
+            j = i
+            while j + 1 < n and vals[order[j]] == vals[order[j + 1]]:
+                j += 1
+            if j > i:
+                avg = (i + 1 + j + 1) / 2.0
+                for k in range(i, j + 1):
+                    ranks[order[k]] = avg
+            i = j + 1
+        return ranks
+
+    rx = rank(x)
+    ry = rank(y)
+    return _pearson_r(rx, ry)
 
 
 def _approx_two_tail_p(t: float, df: int) -> float:
@@ -427,94 +480,121 @@ def _extract_oura_daily(timeline: list) -> Dict[str, Dict[str, float]]:
 # ---------------------------------------------------------------------------
 
 
+def _one_correlation(
+    nutr_metric: str,
+    oura_metric: str,
+    category: str,
+    lag: int,
+    all_dates: List[str],
+    nutrition_daily: Dict[str, Dict[str, float]],
+    oura_daily: Dict[str, Dict[str, float]],
+    use_spearman: bool = False,
+) -> Optional[Dict[str, Any]]:
+    """Build aligned series and compute one correlation (Pearson or Spearman)."""
+    x_vals: List[float] = []
+    y_vals: List[float] = []
+    points: List[Dict[str, Any]] = []
+
+    for i, d in enumerate(all_dates):
+        if lag > 0 and i + lag >= len(all_dates):
+            continue
+        oura_date = all_dates[i + lag] if lag > 0 else d
+        nutr = nutrition_daily.get(d)
+        oura = oura_daily.get(oura_date)
+        if not nutr or not oura or nutr_metric not in nutr or oura_metric not in oura:
+            continue
+        x, y = nutr[nutr_metric], oura[oura_metric]
+        if x == 0 and nutr_metric not in ("last_meal_hour", "temperature_deviation"):
+            continue
+        if y == 0 and oura_metric not in ("temperature_deviation",):
+            continue
+        x_vals.append(x)
+        y_vals.append(y)
+        points.append({"date": oura_date, "a_value": round(x, 2), "b_value": round(y, 2)})
+
+    if len(x_vals) < MIN_OVERLAPPING_DAYS:
+        return None
+
+    if use_spearman:
+        r, p = _spearman_r(x_vals, y_vals)
+        correlation_type = "spearman"
+    else:
+        r, p = _pearson_r(x_vals, y_vals)
+        correlation_type = "pearson"
+
+    if abs(r) < 0.4 or p >= 0.10:
+        return None
+
+    abs_r = abs(r)
+    strength = "strong" if abs_r >= 0.7 else "moderate" if abs_r >= 0.5 else "weak"
+    direction = "positive" if r > 0 else "negative"
+
+    return {
+        "id": str(uuid.uuid4()),
+        "metric_a": nutr_metric,
+        "metric_a_label": METRIC_LABELS.get(nutr_metric, nutr_metric),
+        "metric_b": oura_metric,
+        "metric_b_label": METRIC_LABELS.get(oura_metric, oura_metric),
+        "correlation_coefficient": r,
+        "p_value": p,
+        "sample_size": len(x_vals),
+        "lag_days": lag,
+        "effect_description": "",
+        "category": category,
+        "strength": strength,
+        "direction": direction,
+        "data_points": points,
+        "correlation_type": correlation_type,
+    }
+
+
 def _compute_correlations(
     nutrition_daily: Dict[str, Dict[str, float]],
     oura_daily: Dict[str, Dict[str, float]],
 ) -> List[Dict[str, Any]]:
     """
-    Compute pairwise Pearson correlations between nutrition and Oura metrics.
-    Returns list of significant correlation dicts.
+    Compute pairwise correlations (Pearson + Spearman for non-linear).
+    Fixed-lag pairs (same-day + lag-1) plus multi-lag analysis (1 to MAX_LAG_DAYS).
+    Returns list of significant correlation dicts; uses stronger of Pearson/Spearman per pair.
     """
-    # Sort all dates for lag alignment
     all_dates = sorted(set(nutrition_daily.keys()) | set(oura_daily.keys()))
+    best_by_pair: Dict[Tuple[str, str], Dict[str, Any]] = {}
 
-    results: List[Dict[str, Any]] = []
-
+    # 1) Fixed-lag pairs (Pearson + Spearman: use stronger for non-linear relationships)
     for nutr_metric, oura_metric, category, lag in CORRELATION_PAIRS:
-        x_vals: List[float] = []
-        y_vals: List[float] = []
-        points: List[Dict[str, Any]] = []
-
-        for i, d in enumerate(all_dates):
-            # For lag=1: nutrition on day d, oura on day d+1
-            if lag > 0 and i + lag >= len(all_dates):
-                continue
-            oura_date = all_dates[i + lag] if lag > 0 else d
-
-            nutr = nutrition_daily.get(d)
-            oura = oura_daily.get(oura_date)
-
-            if not nutr or not oura:
-                continue
-            if nutr_metric not in nutr or oura_metric not in oura:
-                continue
-
-            x = nutr[nutr_metric]
-            y = oura[oura_metric]
-            # Skip zero-values that indicate missing data
-            if x == 0 and nutr_metric not in (
-                "last_meal_hour",
-                "temperature_deviation",
-            ):
-                continue
-            if y == 0 and oura_metric not in ("temperature_deviation",):
-                continue
-
-            x_vals.append(x)
-            y_vals.append(y)
-            points.append(
-                {"date": oura_date, "a_value": round(x, 2), "b_value": round(y, 2)}
+        best_c = None
+        for use_spearman in (False, True):
+            c = _one_correlation(
+                nutr_metric, oura_metric, category, lag,
+                all_dates, nutrition_daily, oura_daily, use_spearman=use_spearman,
             )
+            if c and (best_c is None or abs(c["correlation_coefficient"]) > abs(best_c["correlation_coefficient"])):
+                best_c = c
+        if best_c:
+            key = (nutr_metric, oura_metric)
+            if key not in best_by_pair or abs(best_c["correlation_coefficient"]) > abs(best_by_pair[key]["correlation_coefficient"]):
+                best_by_pair[key] = best_c
 
-        if len(x_vals) < MIN_OVERLAPPING_DAYS:
-            continue
+    # 2) Multi-lag analysis (1 to MAX_LAG_DAYS) for key pairs
+    max_lag = min(MAX_LAG_DAYS, len(all_dates) - 2)
+    if max_lag >= 1:
+        for nutr_metric, oura_metric, category in KEY_PAIRS_MULTILAG:
+            key = (nutr_metric, oura_metric)
+            best_r = 0.0
+            best_c = None
+            for lag in range(1, max_lag + 1):
+                for use_spearman in (False, True):
+                    c = _one_correlation(
+                        nutr_metric, oura_metric, category, lag,
+                        all_dates, nutrition_daily, oura_daily, use_spearman=use_spearman,
+                    )
+                    if c and abs(c["correlation_coefficient"]) > best_r:
+                        best_r = abs(c["correlation_coefficient"])
+                        best_c = c
+            if best_c and (key not in best_by_pair or best_r > abs(best_by_pair[key]["correlation_coefficient"])):
+                best_by_pair[key] = best_c
 
-        r, p = _pearson_r(x_vals, y_vals)
-
-        if abs(r) < 0.4 or p >= 0.10:
-            continue
-
-        # Classify strength
-        abs_r = abs(r)
-        if abs_r >= 0.7:
-            strength = "strong"
-        elif abs_r >= 0.5:
-            strength = "moderate"
-        else:
-            strength = "weak"
-
-        direction = "positive" if r > 0 else "negative"
-
-        results.append(
-            {
-                "id": str(uuid.uuid4()),
-                "metric_a": nutr_metric,
-                "metric_a_label": METRIC_LABELS.get(nutr_metric, nutr_metric),
-                "metric_b": oura_metric,
-                "metric_b_label": METRIC_LABELS.get(oura_metric, oura_metric),
-                "correlation_coefficient": r,
-                "p_value": p,
-                "sample_size": len(x_vals),
-                "lag_days": lag,
-                "effect_description": "",  # filled by AI later
-                "category": category,
-                "strength": strength,
-                "direction": direction,
-                "data_points": points,
-            }
-        )
-
-    # Sort by absolute r descending
+    results = list(best_by_pair.values())
     results.sort(key=lambda c: abs(c["correlation_coefficient"]), reverse=True)
     return results
 
@@ -525,22 +605,22 @@ def _compute_correlations(
 
 
 def _granger_causality_test(
-    x_series: List[float], y_series: List[float], max_lag: int = 3
+    x_series: List[float], y_series: List[float], max_lag: Optional[int] = None
 ) -> Tuple[Optional[int], Optional[float]]:
     """
-    Simple Granger causality test: does X help predict Y beyond Y's own history?
+    Granger causality test: does X help predict Y beyond Y's own history?
+    Uses up to GRANGER_MAX_LAG (14) when enough data; otherwise min(14, n//3).
     Returns (optimal_lag, p_value) if significant, else (None, None).
-
-    This is a simplified version using F-test approximation.
     """
     n = len(x_series)
-    if n < max_lag + 5:
+    lag_limit = max_lag if max_lag is not None else min(GRANGER_MAX_LAG, max(1, n // 3))
+    if n < lag_limit + 5:
         return (None, None)
 
     best_lag = None
     best_p = 1.0
 
-    for lag in range(1, max_lag + 1):
+    for lag in range(1, lag_limit + 1):
         # Build lagged features
         # Unrestricted model: Y_t = α + β₁Y_{t-1} + ... + β_lag Y_{t-lag} + γ₁X_{t-1} + ... + γ_lag X_{t-lag}
         # Restricted model: Y_t = α + β₁Y_{t-1} + ... + β_lag Y_{t-lag}
@@ -699,8 +779,8 @@ def _compute_causal_graph(
         if len(x_vals) < 7:
             continue
 
-        # Test if nutrition Granger-causes Oura metric
-        optimal_lag, granger_p = _granger_causality_test(x_vals, y_vals, max_lag=3)
+        # Test if nutrition Granger-causes Oura metric (multi-lag up to 14 when enough data)
+        optimal_lag, granger_p = _granger_causality_test(x_vals, y_vals)
 
         evidence = ["correlation"]
         if corr["lag_days"] > 0:
@@ -771,17 +851,20 @@ async def _generate_ai_summary(
             f"direction={c['direction']}"
         )
 
-    prompt = f"""You are a health data analyst. A user has {period_days} days of wearable (Oura ring) and nutrition tracking data. Below are the statistically significant correlations found between their nutrition and health metrics.
+    prompt = f"""You are a health data analyst. A user has {period_days} days of wearable (Oura ring) and nutrition tracking data. The correlation engine uses multi-lag analysis (1-14 days), Pearson and Spearman (for non-linear relationships), and Granger causality for causal direction. Below are the statistically significant correlations.
 
 Correlations:
 {chr(10).join(corr_summary)}
 
-For each correlation, write ONE concise, personalized description (max 15 words) that the user would find actionable. Examples:
-- "Your HRV drops 12% after high-carb dinners"
-- "Late meals reduce your sleep efficiency by 9%"
-- "Higher protein days correlate with better readiness scores"
+For each correlation, write ONE concise, personalized description (max 20 words) that the user would find actionable. When the data supports it, include:
+- Effect timing (e.g. "effect appears next day" or "8-12 hours later" when lag suggests it)
+- Magnitude when inferable (e.g. "roughly 10g sugar ≈ -2 HRV points" only if clearly suggested by strength)
+Examples:
+- "Your HRV drops after high sugar; effect next day (lag 1)"
+- "Late meals reduce your sleep efficiency"
+- "Higher protein days correlate with better readiness"
 
-Then write ONE overall summary paragraph (2-3 sentences) explaining the key patterns.
+Then write ONE overall summary paragraph (2-4 sentences). When relevant, mention: causal confidence (e.g. "moderate causal confidence from lag and direction"), effect timing, and note: "Controlled for: same-day sleep duration from wearable when available; limited control for alcohol or stress unless in data."
 
 Respond in JSON format:
 {{

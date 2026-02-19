@@ -18,9 +18,12 @@ from pydantic import BaseModel
 
 from common.middleware.auth import get_current_user
 from common.utils.logging import get_logger
-from ..dependencies.usage_gate import UsageGate
+from ..dependencies.usage_gate import UsageGate, _supabase_get
 
 logger = get_logger(__name__)
+
+# OpenAI for correlated insights synthesis
+OPENAI_API_KEY_INSIGHTS = os.environ.get("OPENAI_API_KEY", "")
 
 router = APIRouter()
 
@@ -97,6 +100,17 @@ class AIInsight(BaseModel):
 class InsightsResponse(BaseModel):
     insights: List[AIInsight]
     generated_at: datetime
+
+
+# Correlated insights: recommendation + evidence, multi-source (age, gender, meds, symptoms, etc.)
+class CorrelatedInsight(BaseModel):
+    id: str
+    insight_type: str  # correlation | causation | medication_alert | pattern | supplement | general
+    title: str
+    recommendation: str
+    evidence: str
+    factors_considered: List[str] = []
+    confidence: float = 0.0
 
 
 def _safe_uuid_from_user_id(user_id: str) -> UUID:
@@ -716,6 +730,476 @@ async def get_insights(
         )
 
     return insights[:limit]
+
+
+# ---------------------------------------------------------------------------
+# Correlated insights: aggregate symptoms, meds, supplements, trends, research
+# ---------------------------------------------------------------------------
+
+
+async def _gather_correlated_context(current_user: dict) -> dict:
+    """Gather timeline, correlations, medications, supplements, symptoms, profile for unified insights."""
+    user_id = str(current_user.get("id", ""))
+    token_payload = current_user.get("token_payload") or {}
+    user_metadata = token_payload.get("user_metadata") or {}
+    if not isinstance(user_metadata, dict):
+        user_metadata = {}
+
+    context = {
+        "profile": {},
+        "timeline_summary": "",
+        "wearable_summary": "",
+        "correlation_summary": "",
+        "causal_edges": [],
+        "medications": [],
+        "supplements": [],
+        "medication_alerts": [],
+        "symptom_summary": "",
+        "health_conditions": [],
+        "lab_summary": "",
+        "goals_summary": "",
+        "doctor_relevant_notes": "",
+        "saved_research_summary": "",
+        "on_demand_research_summary": "",
+        "symptom_correlations_summary": "",
+        "medication_vitals_summary": "",
+    }
+
+    # Profile: age, gender
+    context["profile"] = {
+        "age": user_metadata.get("age"),
+        "gender": user_metadata.get("gender"),
+        "weight_kg": user_metadata.get("weight_kg"),
+    }
+
+    # Timeline + wearable (Oura: HRV, resting heart rate, physical activity, sleep)
+    try:
+        from .timeline import get_timeline
+        timeline = await get_timeline(days=14, current_user=current_user)
+        if timeline:
+            sleep_entries = [e for e in timeline if getattr(e, "sleep", None)]
+            activity_entries = [e for e in timeline if getattr(e, "activity", None)]
+            readiness_entries = [e for e in timeline if getattr(e, "readiness", None)]
+            context["timeline_summary"] = (
+                f"Last 14 days: {len(sleep_entries)} sleep days, {len(activity_entries)} activity days, "
+                f"{len(readiness_entries)} readiness days."
+            )
+
+            # Wearable (Oura) metrics for correlation/causation insights
+            wearable_parts = []
+            if readiness_entries:
+                hrv = [e.readiness.hrv_balance for e in readiness_entries if getattr(e.readiness, "hrv_balance", None) is not None]
+                rhr = [e.readiness.resting_heart_rate for e in readiness_entries if getattr(e.readiness, "resting_heart_rate", None) is not None]
+                if hrv:
+                    wearable_parts.append("HRV balance (avg): %.1f (n=%d days)" % (sum(hrv) / len(hrv), len(hrv)))
+                if rhr:
+                    wearable_parts.append("Resting heart rate (avg): %d bpm (n=%d days)" % (round(sum(rhr) / len(rhr)), len(rhr)))
+                scores = [e.readiness.readiness_score for e in readiness_entries if getattr(e.readiness, "readiness_score", None) is not None]
+                if scores:
+                    wearable_parts.append("Readiness score (avg): %.1f" % (sum(scores) / len(scores)))
+            if activity_entries:
+                steps = [e.activity.steps for e in activity_entries if getattr(e.activity, "steps", None) is not None]
+                if steps:
+                    avg_steps = sum(steps) / len(steps)
+                    wearable_parts.append("Daily steps (avg): %d (n=%d days)" % (round(avg_steps), len(steps)))
+                active_cal = [e.activity.active_calories for e in activity_entries if getattr(e.activity, "active_calories", None) is not None]
+                if active_cal:
+                    wearable_parts.append("Active calories (avg): %d kcal" % round(sum(active_cal) / len(active_cal)))
+                scores = [e.activity.activity_score for e in activity_entries if getattr(e.activity, "activity_score", None) is not None]
+                if scores:
+                    wearable_parts.append("Activity score (avg): %.1f" % (sum(scores) / len(scores)))
+            if sleep_entries:
+                sleep_scores = [e.sleep.sleep_score for e in sleep_entries if getattr(e.sleep, "sleep_score", None) is not None]
+                if sleep_scores:
+                    wearable_parts.append("Sleep score (avg): %.1f (n=%d nights)" % (sum(sleep_scores) / len(sleep_scores), len(sleep_scores)))
+                deep = [e.sleep.deep_sleep_duration for e in sleep_entries if getattr(e.sleep, "deep_sleep_duration", None) is not None]
+                if deep:
+                    avg_deep_min = (sum(deep) / len(deep)) / 60
+                    wearable_parts.append("Deep sleep (avg): %.0f min" % avg_deep_min)
+                total = [e.sleep.total_sleep_duration for e in sleep_entries if getattr(e.sleep, "total_sleep_duration", None) is not None]
+                if total:
+                    avg_hrs = (sum(total) / len(total)) / 3600
+                    wearable_parts.append("Total sleep (avg): %.1f h" % avg_hrs)
+            if wearable_parts:
+                context["wearable_summary"] = "Wearable (Oura) data: " + "; ".join(wearable_parts)
+    except Exception as e:
+        logger.warning("Timeline fetch for correlated insights: %s", e)
+
+    # Correlation cache (nutrition + vitals); engine uses multi-lag 1-14, Spearman, Granger causality
+    try:
+        from .correlations import _get_cached_results
+        cached = await _get_cached_results(user_id, 14) or await _get_cached_results(user_id, 7)
+        if cached:
+            context["correlation_summary"] = (cached.get("summary") or "")[:800]
+            # Pass causal/lag detail so insights can cite effect timing, magnitude, controlled-for
+            corr_data = cached.get("correlations", "[]")
+            if isinstance(corr_data, str):
+                try:
+                    corr_data = json.loads(corr_data)
+                except Exception:
+                    corr_data = []
+            if isinstance(corr_data, list) and corr_data:
+                edges = []
+                for c in corr_data[:10]:
+                    a = c.get("metric_a_label") or c.get("metric_a") or "X"
+                    b = c.get("metric_b_label") or c.get("metric_b") or "Y"
+                    r = c.get("correlation_coefficient")
+                    lag = c.get("lag_days", 0)
+                    edges.append("%s→%s lag %d r=%s" % (a, b, lag, round(r, 2) if r is not None else "?"))
+                context["causal_edges"] = edges
+    except Exception as e:
+        logger.warning("Correlation cache fetch for correlated insights: %s", e)
+
+    # Medications and supplements
+    try:
+        meds = await _supabase_get("medications", f"user_id=eq.{user_id}&select=medication_name,dosage,frequency&limit=20")
+        sups = await _supabase_get("supplements", f"user_id=eq.{user_id}&select=supplement_name,dosage,frequency,brand&limit=20")
+        context["medications"] = [
+            "%s (%s, %s)" % (m.get("medication_name") or "", m.get("dosage") or "", m.get("frequency") or "")
+            for m in (meds or []) if m.get("medication_name")
+        ]
+        context["supplements"] = [
+            "%s (%s, %s)" % (s.get("supplement_name") or "", s.get("dosage") or "", s.get("frequency") or "")
+            for s in (sups or []) if s.get("supplement_name")
+        ]
+    except Exception as e:
+        logger.warning("Meds/supplements fetch for correlated insights: %s", e)
+
+    # Medication interaction alerts
+    try:
+        alerts = await _supabase_get(
+            "user_medication_alerts",
+            f"user_id=eq.{user_id}&is_dismissed=eq.false&select=title,description,severity&limit=10",
+        )
+        context["medication_alerts"] = [
+            {"title": a.get("title"), "description": a.get("description"), "severity": a.get("severity")}
+            for a in (alerts or [])
+        ]
+    except Exception as e:
+        logger.warning("Medication alerts fetch for correlated insights: %s", e)
+
+    # Symptom journal summary (count by type)
+    try:
+        from datetime import date, timedelta
+        start = (date.today() - timedelta(days=14)).isoformat()
+        rows = await _supabase_get(
+            "symptom_journal",
+            f"user_id=eq.{user_id}&symptom_date=gte.{start}&select=symptom_type,severity&limit=100",
+        )
+        if rows:
+            from collections import Counter
+            types = Counter(r.get("symptom_type") for r in rows if r.get("symptom_type"))
+            context["symptom_summary"] = "; ".join(f"{t}: {c} entries" for t, c in types.most_common(5))
+    except Exception as e:
+        logger.warning("Symptom fetch for correlated insights: %s", e)
+
+    # Health conditions (for specificity and causation)
+    try:
+        cond_rows = await _supabase_get(
+            "health_conditions",
+            f"user_id=eq.{user_id}&is_active=eq.true&select=condition_name,severity,condition_category&limit=20",
+        )
+        if cond_rows:
+            context["health_conditions"] = [
+                "%s (%s)" % (c.get("condition_name", ""), c.get("severity", ""))
+                for c in cond_rows if c.get("condition_name")
+            ]
+            context["doctor_relevant_notes"] = "Conditions on file: " + "; ".join(context["health_conditions"])
+    except Exception as e:
+        logger.warning("Health conditions fetch for correlated insights: %s", e)
+
+    # Lab results summary (recent tests and key biomarkers)
+    try:
+        lab_rows = await _supabase_get(
+            "lab_results",
+            f"user_id=eq.{user_id}&order=test_date.desc&select=test_type,test_date,biomarkers&limit=10",
+        )
+        if lab_rows:
+            parts = []
+            for row in lab_rows[:5]:
+                t = row.get("test_type") or "Lab"
+                d = row.get("test_date") or ""
+                b = row.get("biomarkers")
+                if isinstance(b, str):
+                    try:
+                        b = json.loads(b) if b else {}
+                    except Exception:
+                        b = {}
+                if isinstance(b, dict) and b:
+                    parts.append("%s (%s): %s" % (t, d[:10] if d else "", str(b)[:200]))
+                else:
+                    parts.append("%s (%s)" % (t, d[:10] if d else ""))
+            context["lab_summary"] = "Recent labs: " + "; ".join(parts)
+    except Exception as e:
+        logger.warning("Lab results fetch for correlated insights: %s", e)
+
+    # Goals (health twin goals and/or nutrition goals)
+    try:
+        twin_goals = await _supabase_get(
+            "health_twin_goals",
+            f"user_id=eq.{user_id}&is_active=eq.true&select=goal_name,goal_type&limit=10",
+        )
+        if twin_goals:
+            context["goals_summary"] = "Goals: " + ", ".join(
+                g.get("goal_name") or g.get("goal_type") or "" for g in twin_goals
+            )
+    except Exception as e:
+        logger.warning("Goals fetch for correlated insights: %s", e)
+
+    # Saved research (user's bookmarked articles) — use for evidence when relevant
+    try:
+        bookmarks = await _supabase_get(
+            "article_bookmarks",
+            f"user_id=eq.{user_id}&order=bookmarked_at.desc&select=article_id&limit=10",
+        )
+        if bookmarks:
+            aids = [str(b["article_id"]) for b in bookmarks if b.get("article_id")]
+            if aids:
+                ids_param = ",".join(aids[:5])
+                articles = await _supabase_get(
+                    "research_articles",
+                    f"id=in.({ids_param})&select=title,abstract",
+                )
+                if articles:
+                    saved_parts = []
+                    for a in articles[:3]:
+                        title = (a.get("title") or "")[:120]
+                        abstract = (a.get("abstract") or "")[:200]
+                        saved_parts.append("[%s] %s" % (title, abstract))
+                    context["saved_research_summary"] = "User saved/bookmarked research: " + " | ".join(saved_parts)
+    except Exception as e:
+        logger.warning("Saved research fetch for correlated insights: %s", e)
+
+    # On-demand research: narrow PubMed query from meds + conditions + symptoms
+    try:
+        from .medical_literature import _pubmed_search, _pubmed_fetch_articles, _cache_article
+        query_parts = []
+        if context.get("medications"):
+            query_parts.append(" ".join(context["medications"][:2]))
+        if context.get("health_conditions"):
+            query_parts.append(context["health_conditions"][0].split("(")[0].strip())
+        if context.get("symptom_summary"):
+            query_parts.append(context["symptom_summary"].split(";")[0].strip()[:50])
+        if query_parts:
+            on_demand_query = " ".join(query_parts)[:100]
+            pmids = await _pubmed_search(on_demand_query, max_results=2)
+            if pmids:
+                articles = await _pubmed_fetch_articles(pmids)
+                for art in articles[:2]:
+                    await _cache_article(art)
+                on_demand_parts = [
+                    "[%s] %s" % ((art.get("title") or "")[:100], (art.get("abstract") or "")[:300])
+                    for art in articles[:2]
+                ]
+                if on_demand_parts:
+                    context["on_demand_research_summary"] = "On-demand research (PubMed) for '%s': " % on_demand_query + " | ".join(on_demand_parts)
+    except Exception as e:
+        logger.warning("On-demand research for correlated insights: %s", e)
+
+    # Symptom–nutrition and symptom–Oura correlations (e.g. headaches vs deep sleep, digestive vs high-fat)
+    try:
+        from datetime import datetime as _dt, timezone as _tz
+        now_iso = _dt.now(_tz.utc).isoformat()
+        sym_rows = await _supabase_get(
+            "symptom_correlations",
+            f"user_id=eq.{user_id}&expires_at=gt.{now_iso}&order=computed_at.desc&select=symptom_type,correlation_type,correlated_variable_label,correlation_coefficient,p_value,effect_description&limit=15",
+        )
+        if sym_rows:
+            parts = []
+            for r in sym_rows[:10]:
+                st = r.get("symptom_type") or "symptom"
+                var = r.get("correlated_variable_label") or r.get("correlated_variable") or "metric"
+                coef = r.get("correlation_coefficient")
+                p = r.get("p_value")
+                desc = (r.get("effect_description") or "")[:80]
+                parts.append("%s↔%s (r=%s, p=%s): %s" % (st, var, round(coef, 2) if coef is not None else "?", round(p, 3) if p is not None else "?", desc))
+            if parts:
+                context["symptom_correlations_summary"] = "Symptom correlations: " + "; ".join(parts)
+    except Exception as e:
+        logger.warning("Symptom correlations fetch for correlated insights: %s", e)
+
+    # Medication–vitals correlations (e.g. HRV drops within 2h of medication)
+    try:
+        from datetime import datetime as _dt2, timezone as _tz2
+        now_iso2 = _dt2.now(_tz2.utc).isoformat()
+        med_rows = await _supabase_get(
+            "medication_vitals_correlations",
+            f"user_id=eq.{user_id}&expires_at=gt.{now_iso2}&order=computed_at.desc&select=medication_name,vital_label,lag_hours,optimal_timing_window,effect_description,effect_type&limit=10",
+        )
+        if med_rows:
+            parts = []
+            for r in med_rows[:6]:
+                med = r.get("medication_name") or "Medication"
+                vital = r.get("vital_label") or r.get("vital_metric") or "vital"
+                lag = r.get("lag_hours")
+                win = r.get("optimal_timing_window") or ""
+                desc = (r.get("effect_description") or "")[:80]
+                timing = win or (("%d h after dose" % lag) if lag is not None else "")
+                parts.append("%s→%s (%s): %s" % (med, vital, timing, desc))
+            if parts:
+                context["medication_vitals_summary"] = "Medication–vitals: " + "; ".join(parts)
+    except Exception as e:
+        logger.warning("Medication vitals fetch for correlated insights: %s", e)
+
+    return context
+
+
+async def _generate_correlated_insights_ai(context: dict) -> List[dict]:
+    """Call OpenAI to synthesize 3-5 correlated insights (recommendation + evidence)."""
+    if not OPENAI_API_KEY_INSIGHTS or not OPENAI_API_KEY_INSIGHTS.strip():
+        return []
+
+    profile = context.get("profile") or {}
+    parts = [
+        "Profile (use for context): age=%s, gender=%s, weight_kg=%s"
+        % (profile.get("age"), profile.get("gender"), profile.get("weight_kg")),
+        "Timeline: %s" % (context.get("timeline_summary") or "No timeline data"),
+        "Wearable (Oura) metrics — use these for physical activity, HRV, resting heart rate, sleep when relevant: %s"
+        % (context.get("wearable_summary") or "No wearable data"),
+        "Correlation summary: %s" % (context.get("correlation_summary") or "None"),
+        "Causal/lag detail (from correlation engine): %s"
+        % ("; ".join(context.get("causal_edges") or []) or "None"),
+        "Medications: %s" % ", ".join(context.get("medications") or []),
+        "Supplements: %s" % ", ".join(context.get("supplements") or []),
+        "Recent symptoms: %s" % (context.get("symptom_summary") or "None"),
+        "Health conditions: %s" % (", ".join(context.get("health_conditions") or []) or "None"),
+        "Labs (recent): %s" % (context.get("lab_summary") or "None"),
+        "Goals: %s" % (context.get("goals_summary") or "None"),
+        "Doctor-relevant / condition notes: %s" % (context.get("doctor_relevant_notes") or "None"),
+        "User saved research (bookmarks): %s" % (context.get("saved_research_summary") or "None"),
+        "On-demand research (PubMed): %s" % (context.get("on_demand_research_summary") or "None"),
+        "Symptom correlations (e.g. headache vs deep sleep, digestive vs nutrition): %s"
+        % (context.get("symptom_correlations_summary") or "None"),
+        "Medication–vitals (e.g. HRV drops within 2h of medication): %s"
+        % (context.get("medication_vitals_summary") or "None"),
+    ]
+    for a in context.get("medication_alerts") or []:
+        parts.append("Alert: %s - %s" % (a.get("title"), a.get("description")))
+
+    prompt = (
+        "Using ONLY the following aggregated health data, produce 3-5 short insights. "
+        "Use EVERY available signal: profile, wearable (Oura), medications (dosage, timing, frequency), supplements, symptoms (severity, duration, triggers), health conditions, labs, goals, doctor/condition notes, saved research, on-demand research, symptom correlations (e.g. headache↔deep sleep), medication–vitals (e.g. HRV drops within 2h of medication). "
+        "When mentioning medications and side effects: users can track side effects as symptoms in the symptom journal; correlate with medication timing when data exists. For drug–nutrient insights (e.g. Metformin and B12) cite a study when possible. "
+        "When you HAVE relevant personal data for an insight: start the recommendation with 'Given your [specific data, e.g. labs/conditions/meds]...' and be specific. "
+        "When you do NOT have relevant personal data for that topic: start with 'We don't have enough personal data in this area; here is general guidance:' then give generic, evidence-based advice and be explicit it is general. "
+        "Each insight must have: title (short), recommendation (actionable; first line personalized or explicitly generic as above), "
+        "evidence (one sentence: causation, correlation, or study/pattern; cite saved or on-demand research when relevant). "
+        "For correlation/causation insights when data supports it: state causal confidence (e.g. 78%%), effect timing (e.g. 8-12 hours or next day from lag), magnitude when possible (e.g. 10g sugar ≈ -3 HRV points), and 'Controlled for: sleep duration, alcohol, stress' when relevant. "
+        "insight_type (one of: correlation, causation, medication_alert, pattern, supplement, general), "
+        "factors_considered (list of strings, e.g. age, medication, sleep, labs, conditions, goals, symptoms, hrv, activity). "
+        "End every recommendation with exactly: 'This is not medical advice. If you have questions, follow up with your doctor.' "
+        "Output valid JSON only, array of objects with keys: title, recommendation, evidence, insight_type, factors_considered.\n\n"
+        "Data:\n" + "\n".join(parts)
+    )
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers={
+                    "Authorization": "Bearer %s" % OPENAI_API_KEY_INSIGHTS,
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": "gpt-4o-mini",
+                    "messages": [
+                        {"role": "system", "content": "You are a health insights synthesizer. Output only valid JSON."},
+                        {"role": "user", "content": prompt},
+                    ],
+                    "max_tokens": 1024,
+                },
+                timeout=aiohttp.ClientTimeout(total=45),
+            ) as resp:
+                if resp.status != 200:
+                    return []
+                data = await resp.json()
+                content = (data.get("choices") or [{}])[0].get("message", {}).get("content") or ""
+    except Exception as e:
+        logger.warning("Correlated insights OpenAI call failed: %s", e)
+        return []
+
+    import json
+    try:
+        # Strip markdown code block if present
+        if "```" in content:
+            content = content.split("```")[1]
+            if content.startswith("json"):
+                content = content[4:]
+        insights = json.loads(content.strip())
+        if not isinstance(insights, list):
+            return []
+        return insights[:5]
+    except json.JSONDecodeError:
+        return []
+
+
+@router.get("/correlated", response_model=List[CorrelatedInsight])
+async def get_correlated_insights(
+    current_user: dict = Depends(UsageGate("ai_insights")),
+):
+    """
+    Unified correlated insights: supplements, symptoms, trends, nutrition, health profile,
+    medications, research-style evidence. Uses correlation, causation, and patterns.
+    Returns recommendation + evidence per insight with factors_considered (age, gender, etc.).
+    """
+    context = await _gather_correlated_context(current_user)
+    raw = await _generate_correlated_insights_ai(context)
+
+    disclaimer = " This is not medical advice. If you have questions, follow up with your doctor."
+    out = []
+    for i, item in enumerate(raw):
+        if not isinstance(item, dict):
+            continue
+        title = (item.get("title") or "Insight").strip()[:200]
+        rec = (item.get("recommendation") or "").strip()[:500]
+        if rec and disclaimer.strip() not in rec:
+            rec = (rec + disclaimer)[:600]
+        ev = (item.get("evidence") or "").strip()[:600]
+        itype = (item.get("insight_type") or "general").strip()[:50]
+        factors = item.get("factors_considered")
+        if not isinstance(factors, list):
+            factors = []
+        factors = [str(f)[:50] for f in factors][:8]
+        out.append(
+            CorrelatedInsight(
+                id=str(uuid.uuid4()),
+                insight_type=itype,
+                title=title,
+                recommendation=rec,
+                evidence=ev,
+                factors_considered=factors,
+                confidence=0.8,
+            )
+        )
+
+    # Fallback: if no AI insights, return 1–2 from raw context
+    if not out and context.get("medication_alerts"):
+        for a in context["medication_alerts"][:2]:
+            out.append(
+                CorrelatedInsight(
+                    id=str(uuid.uuid4()),
+                    insight_type="medication_alert",
+                    title=(a.get("title") or "Medication alert")[:200],
+                    recommendation="Discuss with your doctor or pharmacist.",
+                    evidence=(a.get("description") or "")[:600],
+                    factors_considered=["medication"],
+                    confidence=0.9,
+                )
+            )
+    if not out and context.get("correlation_summary"):
+        out.append(
+            CorrelatedInsight(
+                id=str(uuid.uuid4()),
+                insight_type="correlation",
+                title="Pattern from your data",
+                recommendation="Review your correlation trends in the Metabolic Intelligence section.",
+                evidence=context["correlation_summary"][:600],
+                factors_considered=["nutrition", "vitals"],
+                confidence=0.7,
+            )
+        )
+
+    return out[:5]
 
 
 @router.get("/{insight_id}", response_model=AIInsight)

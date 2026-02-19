@@ -2,7 +2,12 @@
 Medical Literature RAG API
 
 Pro+ feature for searching medical literature, RAG conversations,
-and AI-powered research insights.
+and AI-powered research insights. When AI generates recommendations
+it cites specific studies [Author et al. Journal Year] and shows
+evidence hierarchy: Meta-analysis > RCT > Observational > Other.
+
+Indexed: PubMed. Cochrane Database and clinical guidelines are planned
+(no ChromaDB/Pinecone; semantic search uses cached article embeddings when available).
 
 Phase 2 of Health Intelligence Features
 """
@@ -502,16 +507,27 @@ async def _fetch_articles_by_ids(article_ids: List[str]) -> List[Dict]:
 
 
 def _build_articles_context(article_rows: List[Dict]) -> str:
-    """Build a single context string from article rows for RAG/insights."""
+    """Build a single context string from article rows for RAG/insights.
+    Includes authors and evidence_level so AI can cite as [FirstAuthor et al. Journal Year].
+    Evidence hierarchy: Meta-analysis > RCT > Observational > Other.
+    """
     parts = []
     for i, r in enumerate(article_rows, 1):
         title = r.get("title") or "No title"
         abstract = r.get("abstract") or ""
         pub = r.get("publication_date") or ""
         journal = r.get("journal") or ""
+        authors = r.get("authors") or []
+        first_author = ""
+        if authors:
+            first = authors[0] if isinstance(authors[0], str) else str(authors[0])
+            first_author = first.split()[0] if first and first.split() else ""  # Last name (first token)
+        ev_level = r.get("evidence_level") or "other"
+        ev_label = {"meta_analysis": "Meta-analysis", "rct": "RCT", "observational": "Observational"}.get(ev_level, "Other")
+        cite_hint = f" (Cite as: [{first_author} et al. {journal or 'N/A'} {str(pub)[:4] if pub else 'n.d.'}])" if first_author or journal or pub else ""
         parts.append(
             f"[Article {i}] {title}\n"
-            + (f"Journal: {journal}. Date: {pub}.\n" if journal or pub else "")
+            + (f"Evidence: {ev_label}. Journal: {journal}. Date: {pub}.{cite_hint}\n" if journal or pub else f"Evidence: {ev_label}.{cite_hint}\n")
             + (f"Abstract: {abstract}\n" if abstract else "")
         )
     return "\n".join(parts)
@@ -921,15 +937,17 @@ async def _openai_generate_insight(
     prompt = (
         f"Topic: {topic}. Insight type: {insight_type}.\n\n"
         "Using ONLY the following research articles, produce a short structured insight.\n"
-        "Cite articles by number, e.g. [Article 1].\n\n"
+        "Cite articles by number, e.g. [Article 1], and when possible add a proper citation: [FirstAuthor et al. Journal Year].\n"
+        "Show evidence hierarchy: prefer Meta-analysis > RCT > Observational > Other when stating strength of evidence.\n"
+        "For recommendations, include effect sizes and confidence intervals when the abstract provides them (e.g. 'CRP -0.4 mg/L, 95%% CI: -0.6 to -0.2').\n\n"
         "Respond with exactly this format (plain text, no markdown):\n"
         "SUMMARY: <2-4 sentences>\n"
-        "KEY_FINDINGS:\n- <finding 1 with citation>\n- <finding 2>\n- <finding 3>\n"
-        "RECOMMENDATIONS:\n- <recommendation 1>\n- <recommendation 2>\n\n"
+        "KEY_FINDINGS:\n- <finding 1 with citation [Author et al. Journal Year]>\n- <finding 2>\n- <finding 3>\n"
+        "RECOMMENDATIONS:\n- <recommendation 1 with effect size/CI if available>\n- <recommendation 2>\n\n"
         "---\nCONTEXT:\n\n" + context_text
     )
     content = await _openai_chat_completion(
-        "You are a medical research synthesizer. Output only the requested format.",
+        "You are a medical research synthesizer. Cite specific studies [Author et al. Journal Year]. Include effect sizes and 95% CI when in the text. Output only the requested format.",
         prompt,
         model="gpt-4o-mini",
     )

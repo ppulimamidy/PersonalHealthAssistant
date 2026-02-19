@@ -226,6 +226,17 @@ export interface DataPoint {
   trend: 'up' | 'down' | 'stable';
 }
 
+/** Unified correlated insight: recommendation + evidence, multi-source (age, gender, meds, symptoms, etc.) */
+export interface CorrelatedInsight {
+  id: string;
+  insight_type: string;
+  title: string;
+  recommendation: string;
+  evidence: string;
+  factors_considered: string[];
+  confidence: number;
+}
+
 // Doctor Visit Prep types
 export interface HealthIntelligenceIndicators {
   sleep_score_trend: 'improving' | 'declining' | 'stable';
