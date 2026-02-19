@@ -523,7 +523,8 @@ async def _openai_chat_completion(
     model: str = "gpt-4o-mini",
 ) -> Optional[str]:
     """Call OpenAI chat and return assistant content."""
-    if not OPENAI_API_KEY:
+    if not OPENAI_API_KEY or not OPENAI_API_KEY.strip():
+        logger.warning("OpenAI chat skipped: OPENAI_API_KEY is not set")
         return None
     async with aiohttp.ClientSession() as session:
         try:
@@ -544,6 +545,12 @@ async def _openai_chat_completion(
                 timeout=aiohttp.ClientTimeout(total=60),
             ) as resp:
                 if resp.status != 200:
+                    body = await resp.text()
+                    logger.warning(
+                        "OpenAI chat failed: status=%s body=%s",
+                        resp.status,
+                        body[:500] if body else "",
+                    )
                     return None
                 data = await resp.json()
                 choice = (data.get("choices") or [{}])[0]
@@ -908,7 +915,8 @@ async def _openai_generate_insight(
     context_text: str,
 ) -> Optional[Dict]:
     """Call OpenAI to synthesize insight from article context. Returns dict with summary, key_findings, recommendations."""
-    if not OPENAI_API_KEY:
+    if not OPENAI_API_KEY or not OPENAI_API_KEY.strip():
+        logger.warning("Insight generation skipped: OPENAI_API_KEY is not set")
         return None
     prompt = (
         f"Topic: {topic}. Insight type: {insight_type}.\n\n"
@@ -1013,11 +1021,19 @@ async def generate_insight(
         context_text,
     )
     if not result:
+        reason = (
+            "OPENAI_API_KEY is not set or invalid. Set it in the API environment to enable insight generation."
+            if not (OPENAI_API_KEY and OPENAI_API_KEY.strip())
+            else "OpenAI API request failed. Check server logs for details (e.g. invalid key, rate limit, or network error)."
+        )
+        logger.warning(
+            "Insight generation failed for topic=%s: %s", request.topic, reason
+        )
         return ResearchInsight(
             id="generation_failed",
             insight_type=request.insight_type,
             topic=request.topic,
-            summary="Insight generation is temporarily unavailable.",
+            summary=f"Insight generation is temporarily unavailable. {reason}",
             key_findings=[],
             recommendations=[],
             source_article_ids=article_ids,
