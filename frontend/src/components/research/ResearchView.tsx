@@ -2,19 +2,22 @@
 
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
+import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { researchService } from '@/services/research';
 import { useAuth } from '@/hooks/useAuth';
-import { Search, BookOpen, ExternalLink, Bookmark, AlertCircle } from 'lucide-react';
-import type { SearchResultsResponse, ResearchArticle } from '@/types';
+import { Search, BookOpen, ExternalLink, Bookmark, AlertCircle, Sparkles } from 'lucide-react';
+import type { SearchResultsResponse, ResearchArticle, ResearchInsight } from '@/types';
 
 export function ResearchView() {
-  const { user, isLoading: isAuthLoading } = useAuth(true);
+  const { isLoading: isAuthLoading } = useAuth(true);
   const [query, setQuery] = useState('');
   const [searchResults, setSearchResults] = useState<SearchResultsResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedArticle, setSelectedArticle] = useState<ResearchArticle | null>(null);
+  const [selectedForInsight, setSelectedForInsight] = useState<Set<string>>(new Set());
+  const [insightTopic, setInsightTopic] = useState('');
+  const [generatedInsight, setGeneratedInsight] = useState<ResearchInsight | null>(null);
 
   const searchMutation = useMutation({
     mutationFn: (searchQuery: string) =>
@@ -22,6 +25,7 @@ export function ResearchView() {
     onSuccess: (data) => {
       setSearchResults(data);
       setError(null);
+      setGeneratedInsight(null);
     },
     onError: (e: unknown) => {
       const msg = e instanceof Error ? e.message : 'Search failed';
@@ -35,13 +39,38 @@ export function ResearchView() {
       researchService.bookmarkArticle({ article_id: articleId }),
     onSuccess: () => {
       setError(null);
-      // Could show success toast here
     },
     onError: (e: unknown) => {
       const msg = e instanceof Error ? e.message : 'Failed to bookmark article';
       setError(msg);
     },
   });
+
+  const insightMutation = useMutation({
+    mutationFn: () =>
+      researchService.generateInsight({
+        topic: insightTopic || 'Selected research',
+        insight_type: 'literature_summary',
+        article_ids: Array.from(selectedForInsight),
+      }),
+    onSuccess: (data) => {
+      setGeneratedInsight(data);
+      setError(null);
+    },
+    onError: (e: unknown) => {
+      const msg = e instanceof Error ? e.message : 'Failed to generate insight';
+      setError(msg);
+    },
+  });
+
+  const toggleForInsight = (articleId: string) => {
+    setSelectedForInsight((prev) => {
+      const next = new Set(prev);
+      if (next.has(articleId)) next.delete(articleId);
+      else next.add(articleId);
+      return next;
+    });
+  };
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -104,9 +133,48 @@ export function ResearchView() {
       {/* Search Results */}
       {searchResults && (
         <div>
-          <div className="text-sm text-slate-600 dark:text-slate-400 mb-4">
-            Found {searchResults.total_results} results for "{searchResults.query}"
+          <div className="flex flex-wrap items-center gap-4 mb-4">
+            <span className="text-sm text-slate-600 dark:text-slate-400">
+              Found {searchResults.total_results} results for &quot;{searchResults.query}&quot;
+            </span>
+            <span className="text-xs text-slate-500 dark:text-slate-500">
+              Evidence: <span className="text-emerald-600 dark:text-emerald-400">Meta-analysis</span> &gt;{' '}
+              <span className="text-blue-600 dark:text-blue-400">RCT</span> &gt;{' '}
+              <span className="text-amber-600 dark:text-amber-400">Observational</span>
+            </span>
           </div>
+
+          {selectedForInsight.size > 0 && (
+            <Card className="mb-4 border-primary-200 dark:border-primary-800 bg-primary-50/50 dark:bg-primary-900/10">
+              <CardContent className="pt-4">
+                <div className="flex flex-wrap items-end gap-3">
+                  <div className="flex-1 min-w-[200px]">
+                    <label htmlFor="insight-topic" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+                      Topic for synthesis
+                    </label>
+                    <input
+                      id="insight-topic"
+                      type="text"
+                      value={insightTopic}
+                      onChange={(e) => setInsightTopic(e.target.value)}
+                      placeholder="e.g. omega-3 and inflammation"
+                      className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 text-sm"
+                    />
+                  </div>
+                  <Button
+                    onClick={() => insightMutation.mutate()}
+                    disabled={insightMutation.isPending || selectedForInsight.size === 0}
+                  >
+                    <Sparkles className="w-4 h-4 mr-2" />
+                    {insightMutation.isPending ? 'Generating...' : 'Generate insight'}
+                  </Button>
+                </div>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-2">
+                  {selectedForInsight.size} article(s) selected. AI will synthesize recommendations with evidence and citations.
+                </p>
+              </CardContent>
+            </Card>
+          )}
 
           {searchResults.articles.length === 0 ? (
             <Card>
@@ -131,6 +199,41 @@ export function ResearchView() {
                           <div className="text-sm text-slate-600 dark:text-slate-400 mb-2">
                             {article.authors.slice(0, 3).join(', ')}
                             {article.authors.length > 3 && ` et al.`}
+                          </div>
+                        )}
+
+                        {(article.evidence_level || (article.publication_types && article.publication_types.length > 0)) && (
+                          <div className="flex flex-wrap items-center gap-2 mb-2">
+                            {article.evidence_level && (
+                              <span
+                                className={`px-2 py-0.5 text-xs font-medium rounded ${
+                                  article.evidence_level === 'meta_analysis'
+                                    ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300'
+                                    : article.evidence_level === 'rct'
+                                      ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300'
+                                      : article.evidence_level === 'observational'
+                                        ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300'
+                                        : 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-400'
+                                }`}
+                                title="Evidence hierarchy: Meta-analysis > RCT > Observational"
+                              >
+                                {article.evidence_level === 'meta_analysis'
+                                  ? 'Meta-analysis'
+                                  : article.evidence_level === 'rct'
+                                    ? 'RCT'
+                                    : article.evidence_level === 'observational'
+                                      ? 'Observational'
+                                      : 'Other'}
+                              </span>
+                            )}
+                            {article.publication_types?.slice(0, 3).map((pt, i) => (
+                              <span
+                                key={i}
+                                className="px-2 py-0.5 text-xs text-slate-600 dark:text-slate-400 bg-slate-100 dark:bg-slate-700 rounded"
+                              >
+                                {pt}
+                              </span>
+                            ))}
                           </div>
                         )}
 
@@ -194,6 +297,14 @@ export function ResearchView() {
                           Details
                         </Button>
                         <Button
+                          variant={selectedForInsight.has(article.id) ? 'primary' : 'outline'}
+                          size="sm"
+                          onClick={() => toggleForInsight(article.id)}
+                        >
+                          <Sparkles className="w-4 h-4 mr-1" />
+                          {selectedForInsight.has(article.id) ? 'In selection' : 'Add to insight'}
+                        </Button>
+                        <Button
                           variant="outline"
                           size="sm"
                           onClick={() => bookmarkMutation.mutate(article.id)}
@@ -207,6 +318,47 @@ export function ResearchView() {
                 </Card>
               ))}
             </div>
+          )}
+
+          {/* Example output: Recommendation + Evidence (from generated insight) */}
+          {generatedInsight && (
+            <Card className="mt-6 border-slate-200 dark:border-slate-700">
+              <CardContent className="pt-6">
+                <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-1">
+                  Example output
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
+                  Recommendations with evidence hierarchy and citations from the selected articles.
+                </p>
+                {generatedInsight.summary && (
+                  <div className="mb-4 p-3 rounded-lg bg-slate-100 dark:bg-slate-800 text-sm text-slate-700 dark:text-slate-300">
+                    {generatedInsight.summary}
+                  </div>
+                )}
+                {generatedInsight.recommendations.map((rec, idx) => (
+                  <div
+                    key={`rec-${idx}-${generatedInsight.generated_at}`}
+                    className="mb-4 p-4 rounded-lg bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700"
+                  >
+                    <div className="text-sm font-medium text-slate-900 dark:text-slate-100 mb-1">
+                      Recommendation:
+                    </div>
+                    <p className="text-slate-700 dark:text-slate-300 mb-3">{rec}</p>
+                    <div className="text-sm font-medium text-slate-900 dark:text-slate-100 mb-1">
+                      Evidence:
+                    </div>
+                    <p className="text-sm text-slate-600 dark:text-slate-400">
+                      {generatedInsight.key_findings[idx] ?? generatedInsight.summary ?? '—'}
+                    </p>
+                  </div>
+                ))}
+                {generatedInsight.source_article_ids.length > 0 && (
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-3">
+                    Based on {generatedInsight.source_article_ids.length} source article(s).
+                  </p>
+                )}
+              </CardContent>
+            </Card>
           )}
         </div>
       )}
@@ -256,6 +408,43 @@ export function ResearchView() {
                   {selectedArticle.publication_date && (
                     <> • {new Date(selectedArticle.publication_date).toLocaleDateString()}</>
                   )}
+                </div>
+              )}
+
+              {(selectedArticle.evidence_level || (selectedArticle.publication_types && selectedArticle.publication_types.length > 0)) && (
+                <div className="mb-3">
+                  <strong className="text-sm text-slate-600 dark:text-slate-400">Evidence level</strong>
+                  <div className="flex flex-wrap items-center gap-2 mt-1">
+                    {selectedArticle.evidence_level && (
+                      <span
+                        className={`px-2.5 py-1 text-sm font-medium rounded ${
+                          selectedArticle.evidence_level === 'meta_analysis'
+                            ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300'
+                            : selectedArticle.evidence_level === 'rct'
+                              ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300'
+                              : selectedArticle.evidence_level === 'observational'
+                                ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300'
+                                : 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-400'
+                        }`}
+                      >
+                        {selectedArticle.evidence_level === 'meta_analysis'
+                          ? 'Meta-analysis'
+                          : selectedArticle.evidence_level === 'rct'
+                            ? 'RCT'
+                            : selectedArticle.evidence_level === 'observational'
+                              ? 'Observational'
+                              : 'Other'}
+                      </span>
+                    )}
+                    {selectedArticle.publication_types?.map((pt, i) => (
+                      <span
+                        key={i}
+                        className="px-2.5 py-1 text-sm text-slate-600 dark:text-slate-400 bg-slate-100 dark:bg-slate-700 rounded"
+                      >
+                        {pt}
+                      </span>
+                    ))}
+                  </div>
                 </div>
               )}
 
