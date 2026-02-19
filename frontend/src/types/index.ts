@@ -871,6 +871,10 @@ export interface ResearchArticle {
   citation_count: number;
   source_url?: string;
   fetched_at: string;
+  /** Evidence hierarchy: meta_analysis > rct > observational > other */
+  evidence_level?: string;
+  /** PubMed publication types (e.g. Meta-Analysis, Randomized Controlled Trial) */
+  publication_types?: string[];
 }
 
 export interface PubMedSearchRequest {
