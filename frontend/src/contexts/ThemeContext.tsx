@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState, useMemo, ReactNode } from 'react';
 
 type Theme = 'light' | 'dark';
 
@@ -12,18 +12,15 @@ interface ThemeContextType {
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
-export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [theme, setThemeState] = useState<Theme>('light');
+export function ThemeProvider({ children }: Readonly<{ children: ReactNode }>) {
+  const [theme, setTheme] = useState<Theme>('dark');
 
-  // Load theme from localStorage on mount
+  // Load theme from localStorage on mount — default to dark
   useEffect(() => {
-    const savedTheme = localStorage.getItem('theme') as Theme;
-    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    const savedTheme = localStorage.getItem('theme') as Theme | null;
+    const initialTheme: Theme = savedTheme ?? 'dark';
+    setTheme(initialTheme);
 
-    const initialTheme = savedTheme || (prefersDark ? 'dark' : 'light');
-    setThemeState(initialTheme);
-
-    // Apply theme to document
     if (initialTheme === 'dark') {
       document.documentElement.classList.add('dark');
     } else {
@@ -31,10 +28,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const setTheme = (newTheme: Theme) => {
-    setThemeState(newTheme);
+  const applyTheme = (newTheme: Theme) => {
+    setTheme(newTheme);
     localStorage.setItem('theme', newTheme);
-
     if (newTheme === 'dark') {
       document.documentElement.classList.add('dark');
     } else {
@@ -42,12 +38,18 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const toggleTheme = () => {
-    setTheme(theme === 'light' ? 'dark' : 'light');
-  };
+  const ctx = useMemo<ThemeContextType>(
+    () => ({
+      theme,
+      setTheme: applyTheme,
+      toggleTheme: () => applyTheme(theme === 'light' ? 'dark' : 'light'),
+    }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [theme]
+  );
 
   return (
-    <ThemeContext.Provider value={{ theme, toggleTheme, setTheme }}>
+    <ThemeContext.Provider value={ctx}>
       {children}
     </ThemeContext.Provider>
   );
