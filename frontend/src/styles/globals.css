@@ -2,42 +2,254 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ─── Google Fonts ─────────────────────────────────────────── */
+@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,400&family=DM+Mono:wght@300;400;500&display=swap');
+
+/* ─── CSS Custom Properties ─────────────────────────────────── */
 @layer base {
   :root {
-    --background: 255 255 255;
-    --foreground: 15 23 42;
+    /* Light mode surfaces */
+    --bg-base:      #F4F6F9;
+    --bg-surface:   #FFFFFF;
+    --bg-raised:    #F8FAFC;
+    --bg-overlay:   #EFF2F7;
+    --border:       rgba(0, 0, 0, 0.09);
+    --border-strong: rgba(0, 0, 0, 0.15);
+
+    /* Light mode text */
+    --text-primary:   #0F172A;
+    --text-secondary: #475569;
+    --text-tertiary:  #94A3B8;
+
+    /* Accent */
+    --accent:       #00B894;
+    --accent-light: rgba(0, 212, 170, 0.12);
+    --accent-glow:  rgba(0, 212, 170, 0.2);
+
+    /* Sidebar */
+    --sidebar-bg:   #080B10;
+    --sidebar-text: #8B97A8;
+    --sidebar-active-bg: rgba(0, 212, 170, 0.12);
+    --sidebar-active-text: #00D4AA;
+    --sidebar-hover-bg: rgba(255, 255, 255, 0.05);
+    --sidebar-border: rgba(255, 255, 255, 0.06);
   }
 
   .dark {
-    --background: 15 23 42;
-    --foreground: 248 250 252;
+    /* Dark mode surfaces */
+    --bg-base:      #080B10;
+    --bg-surface:   #12161D;
+    --bg-raised:    #161B24;
+    --bg-overlay:   #1A1F29;
+    --border:       rgba(255, 255, 255, 0.06);
+    --border-strong: rgba(255, 255, 255, 0.10);
+
+    /* Dark mode text */
+    --text-primary:   #E8EDF5;
+    --text-secondary: #8B97A8;
+    --text-tertiary:  #526380;
+
+    /* Accent */
+    --accent:       #00D4AA;
+    --accent-light: rgba(0, 212, 170, 0.10);
+    --accent-glow:  rgba(0, 212, 170, 0.20);
   }
 }
 
+/* ─── Base Reset & Body ─────────────────────────────────────── */
 @layer base {
+  *, *::before, *::after {
+    box-sizing: border-box;
+  }
+
+  html {
+    font-family: 'DM Sans', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
   body {
-    @apply bg-slate-50 text-slate-900 antialiased;
+    background-color: var(--bg-base);
+    color: var(--text-primary);
+    font-family: 'DM Sans', system-ui, sans-serif;
+    font-size: 0.9375rem;
+    line-height: 1.6;
+    transition: background-color 0.2s ease, color 0.2s ease;
+    /* Subtle noise layer */
+    background-image:
+      radial-gradient(ellipse 80% 50% at 50% -10%, rgba(0, 212, 170, 0.04) 0%, transparent 60%);
+  }
+
+  .dark body {
+    background-image:
+      radial-gradient(ellipse 80% 50% at 50% -10%, rgba(0, 212, 170, 0.05) 0%, transparent 60%);
+  }
+
+  h1, h2, h3 {
+    font-family: 'Syne', system-ui, sans-serif;
+    letter-spacing: -0.02em;
+  }
+
+  /* Monospace for data/numbers */
+  .font-data {
+    font-family: 'DM Mono', ui-monospace, monospace;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.02em;
+  }
+
+  /* Scrollbar styling */
+  ::-webkit-scrollbar {
+    width: 5px;
+    height: 5px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(139, 151, 168, 0.25);
+    border-radius: 9999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(139, 151, 168, 0.45);
   }
 }
 
+/* ─── Component Primitives ──────────────────────────────────── */
 @layer components {
+  /* Buttons */
   .btn-primary {
-    @apply bg-primary-600 text-white px-4 py-2 rounded-lg font-medium
-           hover:bg-primary-700 transition-colors focus:outline-none
-           focus:ring-2 focus:ring-primary-500 focus:ring-offset-2;
+    @apply inline-flex items-center justify-center font-medium rounded-lg
+           bg-primary-500 text-obsidian-900 px-4 py-2 text-sm
+           hover:bg-primary-400 active:bg-primary-600
+           transition-all duration-150
+           focus:outline-none focus:ring-2 focus:ring-primary-500/40 focus:ring-offset-2 focus:ring-offset-transparent
+           disabled:opacity-40 disabled:cursor-not-allowed;
+    letter-spacing: -0.01em;
   }
 
   .btn-secondary {
-    @apply bg-slate-200 text-slate-900 px-4 py-2 rounded-lg font-medium
-           hover:bg-slate-300 transition-colors focus:outline-none
-           focus:ring-2 focus:ring-slate-500 focus:ring-offset-2;
+    @apply inline-flex items-center justify-center font-medium rounded-lg
+           bg-surface-overlay text-obsidian-50 px-4 py-2 text-sm
+           border border-surface-border
+           hover:bg-surface-raised hover:border-obsidian-400
+           transition-all duration-150
+           focus:outline-none focus:ring-2 focus:ring-obsidian-400/30
+           disabled:opacity-40 disabled:cursor-not-allowed;
   }
 
+  .btn-ghost {
+    @apply inline-flex items-center justify-center font-medium rounded-lg
+           text-obsidian-100 px-3 py-2 text-sm
+           hover:bg-white/5
+           transition-all duration-150
+           focus:outline-none focus:ring-1 focus:ring-obsidian-400/30;
+  }
+
+  /* Cards */
   .card {
-    @apply bg-white rounded-xl shadow-sm border border-slate-200 p-6;
+    @apply rounded-xl border p-6;
+    background-color: var(--bg-surface);
+    border-color: var(--border);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+    transition: box-shadow 0.15s ease, border-color 0.15s ease;
   }
 
+  .card:hover {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    border-color: var(--border-strong);
+  }
+
+  /* Stat values */
+  .stat-value {
+    font-family: 'DM Mono', ui-monospace, monospace;
+    font-variant-numeric: tabular-nums;
+    @apply text-2xl font-medium tracking-tight;
+    color: var(--text-primary);
+  }
+
+  .stat-label {
+    @apply text-xs font-medium uppercase tracking-widest;
+    color: var(--text-tertiary);
+  }
+
+  /* Accent pill */
+  .pill {
+    @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium;
+  }
+
+  .pill-teal {
+    @apply pill bg-primary-500/10 text-primary-400;
+  }
+
+  .pill-amber {
+    @apply pill bg-amber-500/10 text-amber-400;
+  }
+
+  /* Section header */
+  .section-title {
+    font-family: 'Syne', system-ui, sans-serif;
+    @apply text-lg font-semibold tracking-tight;
+    color: var(--text-primary);
+  }
+
+  /* Input fields */
+  .input-field {
+    @apply w-full rounded-lg px-3 py-2 text-sm
+           border transition-all duration-150
+           focus:outline-none focus:ring-2 focus:ring-primary-500/30;
+    background-color: var(--bg-surface);
+    border-color: var(--border-strong);
+    color: var(--text-primary);
+  }
+
+  .input-field::placeholder {
+    color: var(--text-tertiary);
+  }
+
+  .input-field:focus {
+    border-color: var(--accent);
+  }
+
+  /* Teal glow effect for active/highlighted elements */
+  .glow-teal {
+    box-shadow: 0 0 0 1px rgba(0, 212, 170, 0.3), 0 0 12px rgba(0, 212, 170, 0.12);
+  }
+
+  /* Health score ring */
   .health-score-ring {
     @apply relative inline-flex items-center justify-center;
   }
+
+  /* Page header */
+  .page-header {
+    @apply mb-8;
+  }
+
+  .page-title {
+    font-family: 'Syne', system-ui, sans-serif;
+    @apply text-2xl font-bold tracking-tight;
+    color: var(--text-primary);
+  }
+
+  .page-subtitle {
+    @apply text-sm mt-1;
+    color: var(--text-secondary);
+  }
+
+  /* Divider */
+  .divider {
+    border-color: var(--border);
+    @apply border-t;
+  }
+}
+
+/* ─── Utility Overrides ─────────────────────────────────────── */
+@layer utilities {
+  .text-primary-css   { color: var(--text-primary); }
+  .text-secondary-css { color: var(--text-secondary); }
+  .text-tertiary-css  { color: var(--text-tertiary); }
+  .bg-surface-css     { background-color: var(--bg-surface); }
+  .bg-base-css        { background-color: var(--bg-base); }
+  .border-css         { border-color: var(--border); }
 }
