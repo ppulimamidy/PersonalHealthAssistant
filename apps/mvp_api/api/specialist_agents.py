@@ -110,23 +110,26 @@ CONFIDENCE: [0-1 score]
 
 NUTRITION_AGENT_PROMPT = """You are a Nutrition Specialist Agent analyzing dietary data.
 
+USER PREFERENCES (personalise your analysis accordingly):
+{user_preferences}
+
 Analyze the following nutrition data and provide insights:
 
 Data Summary:
 {data_summary}
 
 Your analysis should include:
-1. Macronutrient balance (protein, carbs, fats)
+1. Macronutrient balance vs. the user's goals (protein, carbs, fats)
 2. Micronutrient adequacy (vitamins, minerals)
-3. Meal timing and frequency
-4. Food quality and variety
-5. Any deficiencies or excesses
+3. Meal timing and frequency relative to their stated meal timing preference
+4. Food quality and variety — flag any allergens or restriction violations found in the data
+5. Any deficiencies or excesses relative to their personal targets
 
-Identify nutritional gaps and provide evidence-based recommendations.
+Identify nutritional gaps and provide evidence-based, personalised recommendations.
 Format your response as:
 FINDINGS: [bullet list]
 CONCERNS: [bullet list]
-RECOMMENDATIONS: [bullet list with citations]
+RECOMMENDATIONS: [bullet list with citations, tailored to user goals and restrictions]
 CONFIDENCE: [0-1 score]
 """
 
@@ -292,10 +295,38 @@ async def _gather_sleep_data(user_id: str, days: int, supabase) -> Dict[str, Any
     }
 
 
+def _fmt_pref(value) -> str:
+    """Format a preference value for display in a prompt."""
+    if isinstance(value, list):
+        return ", ".join(str(v) for v in value) if value else "none"
+    return str(value) if value else "not specified"
+
+
+def _build_preferences_summary(prefs: Dict[str, Any]) -> str:
+    """Build a human-readable preferences summary for the nutrition agent prompt."""
+    if not prefs:
+        return "No user preferences on file."
+    lines = [
+        f"- Goals: {_fmt_pref(prefs.get('goals'))}",
+        f"- Allergies (strict): {_fmt_pref(prefs.get('allergies'))}",
+        f"- Dietary restrictions: {_fmt_pref(prefs.get('dietary_restrictions'))}",
+        f"- Dislikes: {_fmt_pref(prefs.get('dislikes'))}",
+        f"- Favourite foods/cuisines: {_fmt_pref(prefs.get('food_preferences'))} / "
+        f"{_fmt_pref(prefs.get('cuisine_preferences'))}",
+        f"- Health conditions: {_fmt_pref(prefs.get('health_conditions'))}",
+        f"- Meal timing: {_fmt_pref(prefs.get('meal_timing'))}",
+        f"- Cooking skill: {_fmt_pref(prefs.get('cooking_skill'))}",
+        f"- Budget: {_fmt_pref(prefs.get('budget'))}",
+    ]
+    if prefs.get("notes"):
+        lines.append(f"- Notes: {prefs['notes']}")
+    return "\n".join(lines)
+
+
 async def _gather_nutrition_data(  # pylint: disable=too-many-locals
     user_id: str, days: int, supabase
 ) -> Dict[str, Any]:
-    """Gather nutrition data for analysis"""
+    """Gather nutrition data and user preferences for analysis."""
     end_date = datetime.utcnow()
     start_date = end_date - timedelta(days=days)
 
@@ -309,8 +340,23 @@ async def _gather_nutrition_data(  # pylint: disable=too-many-locals
 
     meals = meals_result.data if meals_result.data else []
 
+    # Fetch user preferences from the nutrition analyst prefs table
+    user_prefs: Dict[str, Any] = {}
+    try:
+        prefs_result = (
+            supabase.table("nutrition_analyst_prefs")
+            .select("preferences")
+            .eq("user_id", user_id)
+            .limit(1)
+            .execute()
+        )
+        if prefs_result.data:
+            user_prefs = prefs_result.data[0].get("preferences") or {}
+    except Exception:  # pylint: disable=broad-except
+        pass  # Non-fatal — proceed without preferences
+
     if not meals:
-        return {"available": False}
+        return {"available": False, "user_preferences": user_prefs}
 
     # Aggregate by day
     daily_totals = {}
@@ -356,6 +402,7 @@ async def _gather_nutrition_data(  # pylint: disable=too-many-locals
         "fat_percent": round(
             (avg_fat * 9 / avg_calories * 100) if avg_calories > 0 else 0, 1
         ),
+        "user_preferences": user_prefs,
     }
 
 
@@ -708,8 +755,16 @@ async def generate_meta_analysis(  # pylint: disable=too-many-locals
             specialist_insights.append(sleep_insight)
 
         if nutrition_data.get("available"):
+            # Build a personalised prompt with user preferences injected
+            prefs_summary = _build_preferences_summary(
+                nutrition_data.get("user_preferences") or {}
+            )
+            nutrition_prompt = NUTRITION_AGENT_PROMPT.format(
+                user_preferences=prefs_summary,
+                data_summary="{data_summary}",  # left for _call_specialist_agent
+            )
             nutrition_insight = await _call_specialist_agent(
-                "nutrition", NUTRITION_AGENT_PROMPT, nutrition_data, openai_client
+                "nutrition", nutrition_prompt, nutrition_data, openai_client
             )
             specialist_insights.append(nutrition_insight)
 
