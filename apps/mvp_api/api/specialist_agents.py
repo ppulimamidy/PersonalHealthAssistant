@@ -10,7 +10,7 @@ from pydantic import BaseModel  # pylint: disable=too-few-public-methods
 
 from common.utils.logging import get_logger
 from common.database.supabase_client import get_supabase_client
-from common.ai.openai_client import get_openai_client
+from common.ai.anthropic_client import get_anthropic_client
 from ..dependencies.auth import get_current_user
 from ..dependencies.usage_gate import UsageGate
 
@@ -531,26 +531,22 @@ async def _call_specialist_agent(  # pylint: disable=too-many-locals
     specialist_name: str,
     prompt_template: str,
     data_summary: Dict[str, Any],
-    openai_client,
+    anthropic_client,
 ) -> SpecialistInsight:
     """Call a specialist agent and parse response"""
 
     prompt = prompt_template.format(data_summary=str(data_summary))
 
     try:
-        response = await openai_client.chat.completions.create(
-            model="gpt-4",
-            messages=[
-                {
-                    "role": "system",
-                    "content": "You are a medical specialist providing evidence-based analysis.",
-                },
-                {"role": "user", "content": prompt},
-            ],
+        response = await anthropic_client.messages.create(
+            model="claude-sonnet-4-6",
+            system="You are a medical specialist providing evidence-based analysis.",
+            messages=[{"role": "user", "content": prompt}],
             temperature=0.3,
+            max_tokens=1500,
         )
 
-        content = response.choices[0].message.content
+        content = response.content[0].text
 
         # Parse the structured response
         findings = []
@@ -622,7 +618,7 @@ async def _call_specialist_agent(  # pylint: disable=too-many-locals
 async def _call_integration_agent(
     specialist_insights: List[SpecialistInsight],
     correlation_data: str,
-    openai_client,
+    anthropic_client,
 ) -> Dict[str, Any]:
     """Call the integration agent to synthesize all specialist insights"""
 
@@ -642,22 +638,18 @@ async def _call_integration_agent(
     )
 
     try:
-        response = await openai_client.chat.completions.create(
-            model="gpt-4",
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "You are an Integration Agent synthesizing specialist "
-                        "insights into holistic diagnosis."
-                    ),
-                },
-                {"role": "user", "content": prompt},
-            ],
+        response = await anthropic_client.messages.create(
+            model="claude-sonnet-4-6",
+            system=(
+                "You are an Integration Agent synthesizing specialist "
+                "insights into holistic diagnosis."
+            ),
+            messages=[{"role": "user", "content": prompt}],
             temperature=0.3,
+            max_tokens=2000,
         )
 
-        content = response.choices[0].message.content
+        content = response.content[0].text
 
         # Parse response
         primary_diagnosis = ""
@@ -735,7 +727,7 @@ async def generate_meta_analysis(  # pylint: disable=too-many-locals
     """
     try:
         supabase = get_supabase_client()
-        openai_client = get_openai_client()
+        anthropic_client = get_anthropic_client()
         user_id = current_user["sub"]
 
         # Gather data for all specialists
@@ -750,7 +742,7 @@ async def generate_meta_analysis(  # pylint: disable=too-many-locals
 
         if sleep_data.get("available"):
             sleep_insight = await _call_specialist_agent(
-                "sleep", SLEEP_AGENT_PROMPT, sleep_data, openai_client
+                "sleep", SLEEP_AGENT_PROMPT, sleep_data, anthropic_client
             )
             specialist_insights.append(sleep_insight)
 
@@ -764,7 +756,7 @@ async def generate_meta_analysis(  # pylint: disable=too-many-locals
                 data_summary="{data_summary}",  # left for _call_specialist_agent
             )
             nutrition_insight = await _call_specialist_agent(
-                "nutrition", nutrition_prompt, nutrition_data, openai_client
+                "nutrition", nutrition_prompt, nutrition_data, anthropic_client
             )
             specialist_insights.append(nutrition_insight)
 
@@ -773,13 +765,13 @@ async def generate_meta_analysis(  # pylint: disable=too-many-locals
                 "cardiovascular",
                 CARDIOVASCULAR_AGENT_PROMPT,
                 cardiovascular_data,
-                openai_client,
+                anthropic_client,
             )
             specialist_insights.append(cardio_insight)
 
         if activity_data.get("available"):
             movement_insight = await _call_specialist_agent(
-                "movement", MOVEMENT_AGENT_PROMPT, activity_data, openai_client
+                "movement", MOVEMENT_AGENT_PROMPT, activity_data, anthropic_client
             )
             specialist_insights.append(movement_insight)
 
@@ -788,7 +780,7 @@ async def generate_meta_analysis(  # pylint: disable=too-many-locals
                 "mental_health",
                 MENTAL_HEALTH_AGENT_PROMPT,
                 symptom_data,
-                openai_client,
+                anthropic_client,
             )
             specialist_insights.append(mental_health_insight)
 
@@ -801,7 +793,7 @@ async def generate_meta_analysis(  # pylint: disable=too-many-locals
 
         # Call integration agent
         integration_result = await _call_integration_agent(
-            specialist_insights, correlation_summary, openai_client
+            specialist_insights, correlation_summary, anthropic_client
         )
 
         # Build recommendations
