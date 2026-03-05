@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field
 
 from common.middleware.auth import get_current_user
 from common.utils.logging import get_logger
-from ..dependencies.usage_gate import UsageGate, _supabase_get, _supabase_upsert
+from ..dependencies.usage_gate import UsageGate, _supabase_get, _supabase_upsert, _supabase_patch
 
 logger = get_logger(__name__)
 router = APIRouter()
@@ -187,6 +187,280 @@ class Agent:
         return "\n".join(parts) if parts else ""
 
 
+# ============================================================================
+# NUTRITION ANALYST — Preference-Aware Specialist
+# ============================================================================
+
+_NUTRITION_PREFERENCE_KEYS = (
+    "goals", "allergies", "dietary_restrictions",
+    "dislikes", "food_preferences", "health_conditions",
+    "cuisine_preferences", "meal_timing", "cooking_skill",
+    "budget", "notes",
+)
+
+# System prompt injected when user has stored preferences
+_NUTRITION_PERSONALIZED_PROMPT = """You are the Nutrition Analyst, a personalized AI nutritionist.
+
+USER PROFILE (apply these to every response — never suggest anything that violates allergies or restrictions):
+- Goals: {goals}
+- Allergies (STRICT — never include): {allergies}
+- Dietary restrictions: {dietary_restrictions}
+- Disliked foods (avoid unless requested): {dislikes}
+- Favorite foods / cuisines: {food_preferences} | {cuisine_preferences}
+- Health conditions: {health_conditions}
+- Meal timing preference: {meal_timing}
+- Cooking skill: {cooking_skill}
+- Budget: {budget}
+- Notes: {notes}
+
+Guidelines:
+1. Every recommendation must respect allergies absolutely — check ingredients for hidden allergens.
+2. Align meals with dietary restrictions and goals.
+3. Favor preferred foods and cuisines when possible.
+4. Tailor portions and calorie density to goals.
+5. When relevant, cite evidence-based nutritional science.
+6. Offer 2–3 concrete, practical options instead of generic advice.
+7. Occasionally remind the user how a suggestion connects to their personal goals.
+"""
+
+# System prompt when no preferences exist — initiates onboarding
+_NUTRITION_ONBOARDING_PROMPT = """You are the Nutrition Analyst, a personalized AI nutritionist.
+
+This is the user's FIRST interaction. Before giving any nutrition advice, you MUST collect their preferences so every future recommendation is tailored specifically to them.
+
+Ask the following in a warm, conversational tone (don't use a numbered list — make it feel like a natural conversation):
+1. Their primary dietary goals (e.g. weight loss, muscle gain, energy, disease management)
+2. Any food allergies that must be strictly avoided
+3. Dietary restrictions or philosophy (vegetarian, vegan, gluten-free, keto, etc.)
+4. Foods or ingredients they strongly dislike
+5. Favourite foods, cuisines, or ingredients they love
+
+Keep it friendly and encouraging. Explain that this helps personalise all future advice just for them.
+Do NOT provide any nutrition advice yet — just collect preferences.
+"""
+
+# Prompt used to extract structured preferences from user's free-text answer
+_PREFERENCE_EXTRACTION_PROMPT = """Extract nutritional preferences from the following user message.
+Return ONLY a valid JSON object (no markdown fences, no extra text) with these keys:
+{{
+  "goals": [],
+  "allergies": [],
+  "dietary_restrictions": [],
+  "dislikes": [],
+  "food_preferences": [],
+  "health_conditions": [],
+  "cuisine_preferences": [],
+  "meal_timing": "",
+  "cooking_skill": "",
+  "budget": "",
+  "notes": ""
+}}
+
+User message: {user_message}
+"""
+
+_PREFERENCE_COLLECTION_PHRASES = (
+    "dietary goals",
+    "food allergies",
+    "dietary restrictions",
+    "personalis",  # covers personalise/personalize
+    "allergies",
+    "before i give",
+    "before giving",
+    "first interaction",
+    "collect your preferences",
+    "tailor",
+)
+
+
+async def _get_nutrition_prefs(user_id: str) -> Optional[Dict[str, Any]]:
+    """Fetch stored nutrition analyst preferences for a user."""
+    rows = await _supabase_get(
+        "nutrition_analyst_prefs",
+        f"user_id=eq.{user_id}&limit=1",
+    )
+    if rows:
+        prefs = rows[0].get("preferences")
+        if isinstance(prefs, dict):
+            return prefs
+    return None
+
+
+async def _save_nutrition_prefs(user_id: str, prefs: Dict[str, Any]) -> None:
+    """Upsert nutrition analyst preferences for a user."""
+    await _supabase_upsert(
+        "nutrition_analyst_prefs",
+        {
+            "user_id": user_id,
+            "preferences": prefs,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        },
+    )
+
+
+def _prefs_are_set(prefs: Optional[Dict[str, Any]]) -> bool:
+    """Return True if the user has provided at least goals or restrictions."""
+    if not prefs:
+        return False
+    return bool(
+        prefs.get("goals") or
+        prefs.get("dietary_restrictions") or
+        prefs.get("allergies") or
+        prefs.get("food_preferences")
+    )
+
+
+def _last_assistant_was_onboarding(history: List[Dict[str, Any]]) -> bool:
+    """Return True if the most recent assistant message was collecting preferences."""
+    for msg in reversed(history):
+        if msg.get("role") == "assistant":
+            content = (msg.get("content") or "").lower()
+            return any(phrase in content for phrase in _PREFERENCE_COLLECTION_PHRASES)
+    return False
+
+
+async def _extract_prefs_from_message(
+    user_message: str,
+) -> Optional[Dict[str, Any]]:
+    """Call OpenAI to extract structured preferences from a free-text user reply."""
+    if not OPENAI_API_KEY:
+        return None
+    extraction_prompt = _PREFERENCE_EXTRACTION_PROMPT.format(
+        user_message=user_message
+    )
+    try:
+        timeout = aiohttp.ClientTimeout(total=20)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.post(
+                OPENAI_API_URL,
+                headers={
+                    "Authorization": f"Bearer {OPENAI_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": "gpt-4o-mini",
+                    "messages": [
+                        {"role": "user", "content": extraction_prompt}
+                    ],
+                    "temperature": 0.1,
+                    "max_tokens": 400,
+                },
+            ) as resp:
+                if resp.status != 200:
+                    return None
+                result = await resp.json()
+                raw = result["choices"][0]["message"]["content"].strip()
+                return json.loads(raw)
+    except Exception as exc:
+        logger.warning(f"Preference extraction failed: {exc}")
+        return None
+
+
+class NutritionAnalystAgent(Agent):
+    """
+    Nutrition Analyst agent with skill-driven preference management.
+
+    First interaction: collects dietary preferences via guided conversation.
+    Subsequent interactions: personalises every response using stored preferences.
+    If the user is replying to an onboarding question, parses and saves their prefs.
+    """
+
+    async def generate_response(
+        self,
+        user_message: str,
+        context: Dict[str, Any],
+        conversation_history: List[Dict],
+        user_id: Optional[str] = None,
+    ) -> str:
+        # ── 1. Load stored preferences ───────────────────────────────────────
+        prefs: Optional[Dict[str, Any]] = None
+        if user_id:
+            prefs = await _get_nutrition_prefs(user_id)
+
+        # ── 2. Were we collecting preferences last turn? ─────────────────────
+        if user_id and not _prefs_are_set(prefs) and _last_assistant_was_onboarding(
+            conversation_history
+        ):
+            extracted = await _extract_prefs_from_message(user_message)
+            if extracted and _prefs_are_set(extracted):
+                await _save_nutrition_prefs(user_id, extracted)
+                prefs = extracted
+                # Confirm and then answer the original question
+                user_message = (
+                    f"[Preferences saved] {user_message}\n\n"
+                    "Now provide personalised nutrition advice based on these preferences."
+                )
+
+        # ── 3. Build system prompt ───────────────────────────────────────────
+        if _prefs_are_set(prefs):
+            def _fmt(v: Any) -> str:
+                if isinstance(v, list):
+                    return ", ".join(str(x) for x in v) if v else "none specified"
+                return str(v) if v else "not specified"
+
+            system_prompt = _NUTRITION_PERSONALIZED_PROMPT.format(
+                goals=_fmt(prefs.get("goals")),
+                allergies=_fmt(prefs.get("allergies")),
+                dietary_restrictions=_fmt(prefs.get("dietary_restrictions")),
+                dislikes=_fmt(prefs.get("dislikes")),
+                food_preferences=_fmt(prefs.get("food_preferences")),
+                cuisine_preferences=_fmt(prefs.get("cuisine_preferences")),
+                health_conditions=_fmt(prefs.get("health_conditions")),
+                meal_timing=_fmt(prefs.get("meal_timing")),
+                cooking_skill=_fmt(prefs.get("cooking_skill")),
+                budget=_fmt(prefs.get("budget")),
+                notes=_fmt(prefs.get("notes")),
+            )
+        else:
+            system_prompt = _NUTRITION_ONBOARDING_PROMPT
+
+        # ── 4. Call OpenAI with preference-aware prompt ──────────────────────
+        if not OPENAI_API_KEY:
+            return (
+                f"I'm {self.agent_name}, your personalised nutritionist. "
+                "(OpenAI API key not configured)"
+            )
+
+        messages: List[Dict[str, str]] = [
+            {"role": "system", "content": system_prompt}
+        ]
+
+        if context:
+            ctx_summary = self._build_context_summary(context)
+            if ctx_summary:
+                messages.append({"role": "system", "content": f"Health Context:\n{ctx_summary}"})
+
+        for msg in conversation_history[-10:]:
+            messages.append({"role": msg["role"], "content": msg["content"]})
+
+        messages.append({"role": "user", "content": user_message})
+
+        try:
+            timeout = aiohttp.ClientTimeout(total=30)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.post(
+                    OPENAI_API_URL,
+                    headers={
+                        "Authorization": f"Bearer {OPENAI_API_KEY}",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "model": self.model,
+                        "messages": messages,
+                        "temperature": self.temperature,
+                        "max_tokens": self.max_tokens,
+                    },
+                ) as resp:
+                    if resp.status != 200:
+                        logger.error(f"OpenAI API error: {resp.status}")
+                        return "I'm having trouble generating a response right now. Please try again."
+                    result = await resp.json()
+                    return result["choices"][0]["message"]["content"]
+        except Exception as exc:
+            logger.error(f"NutritionAnalystAgent OpenAI error: {exc}")
+            return "I'm experiencing technical difficulties. Please try again shortly."
+
+
 class AgentOrchestrator:
     """Orchestrates multi-agent conversations."""
 
@@ -198,7 +472,10 @@ class AgentOrchestrator:
         agents_data = await _supabase_get("ai_agents", "is_active=eq.true")
 
         for agent_data in agents_data:
-            agent = Agent(agent_data)
+            if agent_data["agent_type"] == "nutrition_analyst":
+                agent: Agent = NutritionAnalystAgent(agent_data)
+            else:
+                agent = Agent(agent_data)
             self.agents[agent_data["agent_type"]] = agent
 
         logger.info(f"Loaded {len(self.agents)} AI agents")
@@ -433,8 +710,13 @@ async def send_message(
     # Get user context
     context = await _get_user_context(user_id)
 
-    # Generate agent response
-    response_content = await agent.generate_response(request.message, context, messages)
+    # Generate agent response — pass user_id for preference-aware agents
+    if isinstance(agent, NutritionAnalystAgent):
+        response_content = await agent.generate_response(
+            request.message, context, messages, user_id=user_id
+        )
+    else:
+        response_content = await agent.generate_response(request.message, context, messages)
 
     # Add agent response
     await _add_message(
