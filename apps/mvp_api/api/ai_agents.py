@@ -18,13 +18,18 @@ from pydantic import BaseModel, Field
 
 from common.middleware.auth import get_current_user
 from common.utils.logging import get_logger
-from ..dependencies.usage_gate import UsageGate, _supabase_get, _supabase_upsert, _supabase_patch
+from ..dependencies.usage_gate import (
+    UsageGate,
+    _supabase_get,
+    _supabase_upsert,
+    _supabase_patch,
+)
 
 logger = get_logger(__name__)
 router = APIRouter()
 
-# OpenAI configuration
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+# OpenAI configuration (set OPENAI_API_KEY in your deployment environment, e.g. Render dashboard)
+OPENAI_API_KEY = (os.environ.get("OPENAI_API_KEY") or "").strip()
 OPENAI_API_URL = "https://api.openai.com/v1/chat/completions"
 
 # ============================================================================
@@ -115,9 +120,12 @@ class Agent:
     ) -> str:
         """Generate AI response using OpenAI."""
         if not OPENAI_API_KEY:
+            logger.info(
+                "AI agent response skipped: OPENAI_API_KEY not set (set it in server environment, e.g. Render)"
+            )
             return (
                 f"I'm {self.agent_name}, your {self.agent_description}. "
-                "I'm here to help! (OpenAI API key not configured)"
+                "I'm here to help! (OpenAI API key not configured on the server. Set OPENAI_API_KEY in your deployment environment, e.g. Render → Environment.)"
             )
 
         # Build messages for OpenAI
@@ -192,10 +200,17 @@ class Agent:
 # ============================================================================
 
 _NUTRITION_PREFERENCE_KEYS = (
-    "goals", "allergies", "dietary_restrictions",
-    "dislikes", "food_preferences", "health_conditions",
-    "cuisine_preferences", "meal_timing", "cooking_skill",
-    "budget", "notes",
+    "goals",
+    "allergies",
+    "dietary_restrictions",
+    "dislikes",
+    "food_preferences",
+    "health_conditions",
+    "cuisine_preferences",
+    "meal_timing",
+    "cooking_skill",
+    "budget",
+    "notes",
 )
 
 # System prompt injected when user has stored preferences
@@ -303,10 +318,10 @@ def _prefs_are_set(prefs: Optional[Dict[str, Any]]) -> bool:
     if not prefs:
         return False
     return bool(
-        prefs.get("goals") or
-        prefs.get("dietary_restrictions") or
-        prefs.get("allergies") or
-        prefs.get("food_preferences")
+        prefs.get("goals")
+        or prefs.get("dietary_restrictions")
+        or prefs.get("allergies")
+        or prefs.get("food_preferences")
     )
 
 
@@ -325,9 +340,7 @@ async def _extract_prefs_from_message(
     """Call OpenAI to extract structured preferences from a free-text user reply."""
     if not OPENAI_API_KEY:
         return None
-    extraction_prompt = _PREFERENCE_EXTRACTION_PROMPT.format(
-        user_message=user_message
-    )
+    extraction_prompt = _PREFERENCE_EXTRACTION_PROMPT.format(user_message=user_message)
     try:
         timeout = aiohttp.ClientTimeout(total=20)
         async with aiohttp.ClientSession(timeout=timeout) as session:
@@ -339,9 +352,7 @@ async def _extract_prefs_from_message(
                 },
                 json={
                     "model": "gpt-4o-mini",
-                    "messages": [
-                        {"role": "user", "content": extraction_prompt}
-                    ],
+                    "messages": [{"role": "user", "content": extraction_prompt}],
                     "temperature": 0.1,
                     "max_tokens": 400,
                 },
@@ -378,8 +389,10 @@ class NutritionAnalystAgent(Agent):
             prefs = await _get_nutrition_prefs(user_id)
 
         # ── 2. Were we collecting preferences last turn? ─────────────────────
-        if user_id and not _prefs_are_set(prefs) and _last_assistant_was_onboarding(
-            conversation_history
+        if (
+            user_id
+            and not _prefs_are_set(prefs)
+            and _last_assistant_was_onboarding(conversation_history)
         ):
             extracted = await _extract_prefs_from_message(user_message)
             if extracted and _prefs_are_set(extracted):
@@ -393,6 +406,7 @@ class NutritionAnalystAgent(Agent):
 
         # ── 3. Build system prompt ───────────────────────────────────────────
         if _prefs_are_set(prefs):
+
             def _fmt(v: Any) -> str:
                 if isinstance(v, list):
                     return ", ".join(str(x) for x in v) if v else "none specified"
@@ -416,19 +430,22 @@ class NutritionAnalystAgent(Agent):
 
         # ── 4. Call OpenAI with preference-aware prompt ──────────────────────
         if not OPENAI_API_KEY:
+            logger.info(
+                "Nutrition Analyst skipped: OPENAI_API_KEY not set (set in server environment, e.g. Render)"
+            )
             return (
                 f"I'm {self.agent_name}, your personalised nutritionist. "
-                "(OpenAI API key not configured)"
+                "(OpenAI API key not configured on the server. Set OPENAI_API_KEY in your deployment environment, e.g. Render → Environment.)"
             )
 
-        messages: List[Dict[str, str]] = [
-            {"role": "system", "content": system_prompt}
-        ]
+        messages: List[Dict[str, str]] = [{"role": "system", "content": system_prompt}]
 
         if context:
             ctx_summary = self._build_context_summary(context)
             if ctx_summary:
-                messages.append({"role": "system", "content": f"Health Context:\n{ctx_summary}"})
+                messages.append(
+                    {"role": "system", "content": f"Health Context:\n{ctx_summary}"}
+                )
 
         for msg in conversation_history[-10:]:
             messages.append({"role": msg["role"], "content": msg["content"]})
@@ -716,7 +733,9 @@ async def send_message(
             request.message, context, messages, user_id=user_id
         )
     else:
-        response_content = await agent.generate_response(request.message, context, messages)
+        response_content = await agent.generate_response(
+            request.message, context, messages
+        )
 
     # Add agent response
     await _add_message(
