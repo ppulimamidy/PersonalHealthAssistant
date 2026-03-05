@@ -28,9 +28,13 @@ from ..dependencies.usage_gate import (
 logger = get_logger(__name__)
 router = APIRouter()
 
-# OpenAI configuration (set OPENAI_API_KEY in your deployment environment, e.g. Render dashboard)
-OPENAI_API_KEY = (os.environ.get("OPENAI_API_KEY") or "").strip()
-OPENAI_API_URL = "https://api.openai.com/v1/chat/completions"
+# Anthropic configuration (set ANTHROPIC_API_KEY in your deployment environment, e.g. Render dashboard)
+ANTHROPIC_API_KEY = (os.environ.get("ANTHROPIC_API_KEY") or "").strip()
+ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages"
+ANTHROPIC_VERSION = "2023-06-01"
+_CONTENT_TYPE_HEADER = "Content-Type"
+_CONTENT_TYPE_JSON = "application/json"
+_DEFAULT_MODEL = "claude-sonnet-4-6"
 
 # ============================================================================
 # REQUEST/RESPONSE MODELS
@@ -108,7 +112,7 @@ class Agent:
         self.agent_description = agent_data["agent_description"]
         self.capabilities = agent_data.get("capabilities", [])
         self.system_prompt = agent_data["system_prompt"]
-        self.model = agent_data.get("model", "gpt-4o-mini")
+        self.model = agent_data.get("model", _DEFAULT_MODEL)
         self.temperature = agent_data.get("temperature", 0.7)
         self.max_tokens = agent_data.get("max_tokens", 1000)
 
@@ -118,60 +122,58 @@ class Agent:
         context: Dict[str, Any],
         conversation_history: List[Dict],
     ) -> str:
-        """Generate AI response using OpenAI."""
-        if not OPENAI_API_KEY:
+        """Generate AI response using Anthropic Claude."""
+        if not ANTHROPIC_API_KEY:
             logger.info(
-                "AI agent response skipped: OPENAI_API_KEY not set (set it in server environment, e.g. Render)"
+                "AI agent response skipped: ANTHROPIC_API_KEY not set (set it in server environment, e.g. Render)"
             )
             return (
                 f"I'm {self.agent_name}, your {self.agent_description}. "
-                "I'm here to help! (OpenAI API key not configured on the server. Set OPENAI_API_KEY in your deployment environment, e.g. Render → Environment.)"
+                "I'm here to help! (Anthropic API key not configured on the server. Set ANTHROPIC_API_KEY in your deployment environment, e.g. Render → Environment.)"
             )
 
-        # Build messages for OpenAI
-        messages = [{"role": "system", "content": self.system_prompt}]
-
-        # Add context if available
+        # Build system prompt — Anthropic takes system as a top-level string, not a message role
+        system_prompt = self.system_prompt
         if context:
             context_summary = self._build_context_summary(context)
             if context_summary:
-                messages.append(
-                    {"role": "system", "content": f"User Context:\n{context_summary}"}
-                )
+                system_prompt = f"{system_prompt}\n\nUser Context:\n{context_summary}"
 
-        # Add conversation history (last 10 messages)
+        # Build messages array — only user/assistant roles (no system role)
+        messages = []
         for msg in conversation_history[-10:]:
-            messages.append({"role": msg["role"], "content": msg["content"]})
-
-        # Add user message
+            if msg["role"] in ("user", "assistant"):
+                messages.append({"role": msg["role"], "content": msg["content"]})
         messages.append({"role": "user", "content": user_message})
 
-        # Call OpenAI
+        # Call Anthropic Messages API
         try:
             timeout = aiohttp.ClientTimeout(total=30)
             async with aiohttp.ClientSession(timeout=timeout) as session:
                 async with session.post(
-                    OPENAI_API_URL,
+                    ANTHROPIC_API_URL,
                     headers={
-                        "Authorization": f"Bearer {OPENAI_API_KEY}",
-                        "Content-Type": "application/json",
+                        "x-api-key": ANTHROPIC_API_KEY,
+                        "anthropic-version": ANTHROPIC_VERSION,
+                        _CONTENT_TYPE_HEADER: _CONTENT_TYPE_JSON,
                     },
                     json={
                         "model": self.model,
+                        "system": system_prompt,
                         "messages": messages,
                         "temperature": self.temperature,
                         "max_tokens": self.max_tokens,
                     },
                 ) as resp:
                     if resp.status != 200:
-                        logger.error(f"OpenAI API error: {resp.status}")
+                        logger.error(f"Anthropic API error: {resp.status}")
                         return "I apologize, but I'm having trouble generating a response right now."
 
                     result = await resp.json()
-                    return result["choices"][0]["message"]["content"]
+                    return result["content"][0]["text"]
 
         except Exception as exc:
-            logger.error(f"Error calling OpenAI: {exc}")
+            logger.error(f"Error calling Anthropic: {exc}")
             return "I apologize, but I'm experiencing technical difficulties."
 
     def _build_context_summary(self, context: Dict[str, Any]) -> str:
@@ -334,24 +336,106 @@ def _last_assistant_was_onboarding(history: List[Dict[str, Any]]) -> bool:
     return False
 
 
+async def _call_anthropic_messages(
+    system: str,
+    messages: List[Dict[str, str]],
+    model: str,
+    temperature: float,
+    max_tokens: int,
+) -> str:
+    """Make a single Anthropic Messages API call and return the text content."""
+    timeout = aiohttp.ClientTimeout(total=30)
+    async with aiohttp.ClientSession(timeout=timeout) as session:
+        async with session.post(
+            ANTHROPIC_API_URL,
+            headers={
+                "x-api-key": ANTHROPIC_API_KEY,
+                "anthropic-version": ANTHROPIC_VERSION,
+                _CONTENT_TYPE_HEADER: _CONTENT_TYPE_JSON,
+            },
+            json={
+                "model": model,
+                "system": system,
+                "messages": messages,
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+            },
+        ) as resp:
+            if resp.status != 200:
+                logger.error(f"Anthropic API error: {resp.status}")
+                return "I'm having trouble generating a response right now. Please try again."
+            result = await resp.json()
+            return result["content"][0]["text"]
+
+
+def _fmt_pref_value(v: Any) -> str:
+    """Format a single preference value for prompt injection."""
+    if isinstance(v, list):
+        return ", ".join(str(x) for x in v) if v else "none specified"
+    return str(v) if v else "not specified"
+
+
+def _build_nutrition_system_prompt(prefs: Optional[Dict[str, Any]]) -> str:
+    """Return the appropriate system prompt for the Nutrition Analyst."""
+    if not _prefs_are_set(prefs):
+        return _NUTRITION_ONBOARDING_PROMPT
+    assert prefs is not None  # satisfied by _prefs_are_set guard above
+    return _NUTRITION_PERSONALIZED_PROMPT.format(
+        goals=_fmt_pref_value(prefs.get("goals")),
+        allergies=_fmt_pref_value(prefs.get("allergies")),
+        dietary_restrictions=_fmt_pref_value(prefs.get("dietary_restrictions")),
+        dislikes=_fmt_pref_value(prefs.get("dislikes")),
+        food_preferences=_fmt_pref_value(prefs.get("food_preferences")),
+        cuisine_preferences=_fmt_pref_value(prefs.get("cuisine_preferences")),
+        health_conditions=_fmt_pref_value(prefs.get("health_conditions")),
+        meal_timing=_fmt_pref_value(prefs.get("meal_timing")),
+        cooking_skill=_fmt_pref_value(prefs.get("cooking_skill")),
+        budget=_fmt_pref_value(prefs.get("budget")),
+        notes=_fmt_pref_value(prefs.get("notes")),
+    )
+
+
+async def _maybe_collect_prefs(
+    user_id: str,
+    prefs: Optional[Dict[str, Any]],
+    conversation_history: List[Dict],
+    user_message: str,
+) -> tuple:
+    """
+    If the last assistant turn was onboarding, extract and save preferences.
+    Returns (updated_prefs, updated_user_message).
+    """
+    if _prefs_are_set(prefs) or not _last_assistant_was_onboarding(conversation_history):
+        return prefs, user_message
+    extracted = await _extract_prefs_from_message(user_message)
+    if extracted and _prefs_are_set(extracted):
+        await _save_nutrition_prefs(user_id, extracted)
+        return extracted, (
+            f"[Preferences saved] {user_message}\n\n"
+            "Now provide personalised nutrition advice based on these preferences."
+        )
+    return prefs, user_message
+
+
 async def _extract_prefs_from_message(
     user_message: str,
 ) -> Optional[Dict[str, Any]]:
-    """Call OpenAI to extract structured preferences from a free-text user reply."""
-    if not OPENAI_API_KEY:
+    """Call Anthropic Claude to extract structured preferences from a free-text user reply."""
+    if not ANTHROPIC_API_KEY:
         return None
     extraction_prompt = _PREFERENCE_EXTRACTION_PROMPT.format(user_message=user_message)
     try:
         timeout = aiohttp.ClientTimeout(total=20)
         async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.post(
-                OPENAI_API_URL,
+                ANTHROPIC_API_URL,
                 headers={
-                    "Authorization": f"Bearer {OPENAI_API_KEY}",
-                    "Content-Type": "application/json",
+                    "x-api-key": ANTHROPIC_API_KEY,
+                    "anthropic-version": ANTHROPIC_VERSION,
+                    _CONTENT_TYPE_HEADER: _CONTENT_TYPE_JSON,
                 },
                 json={
-                    "model": "gpt-4o-mini",
+                    "model": "claude-haiku-4-5-20251001",
                     "messages": [{"role": "user", "content": extraction_prompt}],
                     "temperature": 0.1,
                     "max_tokens": 400,
@@ -360,7 +444,7 @@ async def _extract_prefs_from_message(
                 if resp.status != 200:
                     return None
                 result = await resp.json()
-                raw = result["choices"][0]["message"]["content"].strip()
+                raw = result["content"][0]["text"].strip()
                 return json.loads(raw)
     except Exception as exc:
         logger.warning(f"Preference extraction failed: {exc}")
@@ -383,98 +467,40 @@ class NutritionAnalystAgent(Agent):
         conversation_history: List[Dict],
         user_id: Optional[str] = None,
     ) -> str:
-        # ── 1. Load stored preferences ───────────────────────────────────────
-        prefs: Optional[Dict[str, Any]] = None
-        if user_id:
-            prefs = await _get_nutrition_prefs(user_id)
-
-        # ── 2. Were we collecting preferences last turn? ─────────────────────
-        if (
-            user_id
-            and not _prefs_are_set(prefs)
-            and _last_assistant_was_onboarding(conversation_history)
-        ):
-            extracted = await _extract_prefs_from_message(user_message)
-            if extracted and _prefs_are_set(extracted):
-                await _save_nutrition_prefs(user_id, extracted)
-                prefs = extracted
-                # Confirm and then answer the original question
-                user_message = (
-                    f"[Preferences saved] {user_message}\n\n"
-                    "Now provide personalised nutrition advice based on these preferences."
-                )
-
-        # ── 3. Build system prompt ───────────────────────────────────────────
-        if _prefs_are_set(prefs):
-
-            def _fmt(v: Any) -> str:
-                if isinstance(v, list):
-                    return ", ".join(str(x) for x in v) if v else "none specified"
-                return str(v) if v else "not specified"
-
-            system_prompt = _NUTRITION_PERSONALIZED_PROMPT.format(
-                goals=_fmt(prefs.get("goals")),
-                allergies=_fmt(prefs.get("allergies")),
-                dietary_restrictions=_fmt(prefs.get("dietary_restrictions")),
-                dislikes=_fmt(prefs.get("dislikes")),
-                food_preferences=_fmt(prefs.get("food_preferences")),
-                cuisine_preferences=_fmt(prefs.get("cuisine_preferences")),
-                health_conditions=_fmt(prefs.get("health_conditions")),
-                meal_timing=_fmt(prefs.get("meal_timing")),
-                cooking_skill=_fmt(prefs.get("cooking_skill")),
-                budget=_fmt(prefs.get("budget")),
-                notes=_fmt(prefs.get("notes")),
-            )
-        else:
-            system_prompt = _NUTRITION_ONBOARDING_PROMPT
-
-        # ── 4. Call OpenAI with preference-aware prompt ──────────────────────
-        if not OPENAI_API_KEY:
-            logger.info(
-                "Nutrition Analyst skipped: OPENAI_API_KEY not set (set in server environment, e.g. Render)"
-            )
+        if not ANTHROPIC_API_KEY:
+            logger.info("Nutrition Analyst skipped: ANTHROPIC_API_KEY not set")
             return (
                 f"I'm {self.agent_name}, your personalised nutritionist. "
-                "(OpenAI API key not configured on the server. Set OPENAI_API_KEY in your deployment environment, e.g. Render → Environment.)"
+                "(Anthropic API key not configured. Set ANTHROPIC_API_KEY in your deployment environment.)"
             )
 
-        messages: List[Dict[str, str]] = [{"role": "system", "content": system_prompt}]
+        # Load preferences, collecting them if this is the first turn
+        prefs: Optional[Dict[str, Any]] = await _get_nutrition_prefs(user_id) if user_id else None
+        if user_id:
+            prefs, user_message = await _maybe_collect_prefs(
+                user_id, prefs, conversation_history, user_message
+            )
 
-        if context:
-            ctx_summary = self._build_context_summary(context)
-            if ctx_summary:
-                messages.append(
-                    {"role": "system", "content": f"Health Context:\n{ctx_summary}"}
-                )
+        # Build system prompt with optional health context appended
+        system_prompt = _build_nutrition_system_prompt(prefs)
+        ctx_summary = self._build_context_summary(context) if context else ""
+        if ctx_summary:
+            system_prompt = f"{system_prompt}\n\nHealth Context:\n{ctx_summary}"
 
-        for msg in conversation_history[-10:]:
-            messages.append({"role": msg["role"], "content": msg["content"]})
-
+        # Build messages — only user/assistant roles (Anthropic requirement)
+        messages: List[Dict[str, str]] = [
+            {"role": msg["role"], "content": msg["content"]}
+            for msg in conversation_history[-10:]
+            if msg["role"] in ("user", "assistant")
+        ]
         messages.append({"role": "user", "content": user_message})
 
         try:
-            timeout = aiohttp.ClientTimeout(total=30)
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.post(
-                    OPENAI_API_URL,
-                    headers={
-                        "Authorization": f"Bearer {OPENAI_API_KEY}",
-                        "Content-Type": "application/json",
-                    },
-                    json={
-                        "model": self.model,
-                        "messages": messages,
-                        "temperature": self.temperature,
-                        "max_tokens": self.max_tokens,
-                    },
-                ) as resp:
-                    if resp.status != 200:
-                        logger.error(f"OpenAI API error: {resp.status}")
-                        return "I'm having trouble generating a response right now. Please try again."
-                    result = await resp.json()
-                    return result["choices"][0]["message"]["content"]
+            return await _call_anthropic_messages(
+                system_prompt, messages, self.model, self.temperature, self.max_tokens
+            )
         except Exception as exc:
-            logger.error(f"NutritionAnalystAgent OpenAI error: {exc}")
+            logger.error(f"NutritionAnalystAgent Anthropic error: {exc}")
             return "I'm experiencing technical difficulties. Please try again shortly."
 
 
