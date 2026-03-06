@@ -6,16 +6,23 @@ based on their subscription tier. Returns 403 when limit is exceeded.
 """
 
 import os
+import ssl
 from datetime import date, timedelta
 from typing import Any, Dict, Optional
 
 import aiohttp
+import certifi
 from fastapi import HTTPException, Request
 
 from common.middleware.auth import get_current_user
 from common.utils.logging import get_logger
 
 logger = get_logger(__name__)
+
+def _ssl_context() -> ssl.SSLContext:
+    """Return an SSL context using certifi CA bundle (fixes macOS cert verification)."""
+    return ssl.create_default_context(cafile=certifi.where())
+
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
 SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
@@ -95,8 +102,9 @@ async def _supabase_get(table: str, params: str) -> list:
         return []
     url = f"{SUPABASE_URL}/rest/v1/{table}?{params}"
     timeout = aiohttp.ClientTimeout(total=5)
+    connector = aiohttp.TCPConnector(ssl=_ssl_context())
     try:
-        async with aiohttp.ClientSession(timeout=timeout) as session:
+        async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
             async with session.get(url, headers=_supabase_headers()) as resp:
                 if resp.status == 200:
                     return await resp.json()
@@ -116,8 +124,9 @@ async def _supabase_upsert(table: str, body: dict) -> Optional[dict]:
         "Prefer": "resolution=merge-duplicates,return=representation",
     }
     timeout = aiohttp.ClientTimeout(total=5)
+    connector = aiohttp.TCPConnector(ssl=_ssl_context())
     try:
-        async with aiohttp.ClientSession(timeout=timeout) as session:
+        async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
             async with session.post(url, headers=headers, json=body) as resp:
                 if resp.status in (200, 201):
                     data = await resp.json()
@@ -147,8 +156,9 @@ async def _supabase_patch(table: str, params: str, body: dict) -> Optional[dict]
         "Prefer": "return=representation",
     }
     timeout = aiohttp.ClientTimeout(total=5)
+    connector = aiohttp.TCPConnector(ssl=_ssl_context())
     try:
-        async with aiohttp.ClientSession(timeout=timeout) as session:
+        async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
             async with session.patch(url, headers=headers, json=body) as resp:
                 if resp.status == 200:
                     data = await resp.json()
@@ -176,8 +186,9 @@ async def _supabase_insert(table: str, body: dict) -> Optional[dict]:
         "Prefer": "return=representation",
     }
     timeout = aiohttp.ClientTimeout(total=5)
+    connector = aiohttp.TCPConnector(ssl=_ssl_context())
     try:
-        async with aiohttp.ClientSession(timeout=timeout) as session:
+        async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
             async with session.post(url, headers=headers, json=body) as resp:
                 if resp.status in (200, 201):
                     data = await resp.json()
@@ -201,8 +212,9 @@ async def _supabase_delete(table: str, params: str) -> bool:
         return False
     url = f"{SUPABASE_URL}/rest/v1/{table}?{params}"
     timeout = aiohttp.ClientTimeout(total=5)
+    connector = aiohttp.TCPConnector(ssl=_ssl_context())
     try:
-        async with aiohttp.ClientSession(timeout=timeout) as session:
+        async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
             async with session.delete(url, headers=_supabase_headers()) as resp:
                 if resp.status in (200, 204):
                     logger.info(f"Supabase delete {table} succeeded")

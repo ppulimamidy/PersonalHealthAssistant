@@ -236,13 +236,9 @@ class NutritionService:
             nutrition_history: List[Dict[str, Any]] = []
             try:
                 nutrition_history = await self.get_nutrition_history(user_id, start_date, end_date)
-            except (ProgrammingError, OperationalError) as e:
-                # Treat missing tables as "no data yet" for MVP
-                if _looks_like_missing_table(e):
-                    logger.warning("Nutrition tables not found yet; returning empty summary")
-                    nutrition_history = []
-                else:
-                    raise
+            except Exception as e:
+                logger.warning(f"Nutrition history unavailable (returning empty): {e}")
+                nutrition_history = []
             
             # The repository currently returns meal logs, not daily aggregates.
             # For the MVP UI we want:
@@ -374,22 +370,20 @@ class NutritionService:
             
         except Exception as e:
             logger.error(f"Failed to get nutrition summary: {e}")
-            # MVP-friendly: don't hard fail the entire page if nutrition tables aren't ready.
-            if _looks_like_missing_table(e):
-                return {
-                    "user_preferences": {},
-                    "nutrition_summary": {
-                        "period_days": days,
-                        "average_daily_calories": 0,
-                        "average_daily_protein_g": 0,
-                        "average_daily_carbs_g": 0,
-                        "average_daily_fat_g": 0,
-                        "days_with_data": 0,
-                        "recent_nutrition_data": [],
-                    },
-                    "recommendations": [],
-                }
-            raise
+            return {
+                "user_preferences": {},
+                "nutrition_summary": {
+                    "period_days": days,
+                    "average_daily_calories": 0,
+                    "average_daily_protein_g": 0,
+                    "average_daily_carbs_g": 0,
+                    "average_daily_fat_g": 0,
+                    "days_with_data": 0,
+                    "recent_nutrition_data": [],
+                    "daily_breakdown": [],
+                },
+                "recommendations": [],
+            }
 
     async def _fetch_nutrition_data(self, food_item: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -889,10 +883,8 @@ class NutritionService:
             try:
                 return await repository.get_user_meal_logs(user_id, start_date, end_date)
             except (ProgrammingError, OperationalError) as e:
-                if _looks_like_missing_table(e):
-                    logger.warning("Nutrition tables not found yet; returning empty nutrition history")
-                    return []
-                raise
+                logger.warning(f"Nutrition history DB error (returning empty): {e}")
+                return []
 
     async def create_food_item(self, user_id: str, food_data: Dict[str, Any]) -> Any:
         """Create a custom food item for a user."""

@@ -47,6 +47,7 @@ env/
 
 # Logs
 *.log
+*.log.*
 logs/
 traefik/logs/
 
