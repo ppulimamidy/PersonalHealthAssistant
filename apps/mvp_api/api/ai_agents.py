@@ -12,7 +12,7 @@ import os
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-import aiohttp
+import anthropic
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
@@ -30,10 +30,6 @@ router = APIRouter()
 
 # Anthropic configuration (set ANTHROPIC_API_KEY in your deployment environment, e.g. Render dashboard)
 ANTHROPIC_API_KEY = (os.environ.get("ANTHROPIC_API_KEY") or "").strip()
-ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages"
-ANTHROPIC_VERSION = "2023-06-01"
-_CONTENT_TYPE_HEADER = "Content-Type"
-_CONTENT_TYPE_JSON = "application/json"
 _DEFAULT_MODEL = "claude-sonnet-4-6"
 
 # ============================================================================
@@ -148,29 +144,15 @@ class Agent:
 
         # Call Anthropic Messages API
         try:
-            timeout = aiohttp.ClientTimeout(total=30)
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.post(
-                    ANTHROPIC_API_URL,
-                    headers={
-                        "x-api-key": ANTHROPIC_API_KEY,
-                        "anthropic-version": ANTHROPIC_VERSION,
-                        _CONTENT_TYPE_HEADER: _CONTENT_TYPE_JSON,
-                    },
-                    json={
-                        "model": self.model,
-                        "system": system_prompt,
-                        "messages": messages,
-                        "temperature": self.temperature,
-                        "max_tokens": self.max_tokens,
-                    },
-                ) as resp:
-                    if resp.status != 200:
-                        logger.error(f"Anthropic API error: {resp.status}")
-                        return "I apologize, but I'm having trouble generating a response right now."
-
-                    result = await resp.json()
-                    return result["content"][0]["text"]
+            client = anthropic.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
+            result = await client.messages.create(
+                model=self.model,
+                system=system_prompt,
+                messages=messages,
+                temperature=self.temperature,
+                max_tokens=self.max_tokens,
+            )
+            return result.content[0].text
 
         except Exception as exc:
             logger.error(f"Error calling Anthropic: {exc}")
@@ -344,28 +326,15 @@ async def _call_anthropic_messages(
     max_tokens: int,
 ) -> str:
     """Make a single Anthropic Messages API call and return the text content."""
-    timeout = aiohttp.ClientTimeout(total=30)
-    async with aiohttp.ClientSession(timeout=timeout) as session:
-        async with session.post(
-            ANTHROPIC_API_URL,
-            headers={
-                "x-api-key": ANTHROPIC_API_KEY,
-                "anthropic-version": ANTHROPIC_VERSION,
-                _CONTENT_TYPE_HEADER: _CONTENT_TYPE_JSON,
-            },
-            json={
-                "model": model,
-                "system": system,
-                "messages": messages,
-                "temperature": temperature,
-                "max_tokens": max_tokens,
-            },
-        ) as resp:
-            if resp.status != 200:
-                logger.error(f"Anthropic API error: {resp.status}")
-                return "I'm having trouble generating a response right now. Please try again."
-            result = await resp.json()
-            return result["content"][0]["text"]
+    client = anthropic.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
+    result = await client.messages.create(
+        model=model,
+        system=system,
+        messages=messages,
+        temperature=temperature,
+        max_tokens=max_tokens,
+    )
+    return result.content[0].text
 
 
 def _fmt_pref_value(v: Any) -> str:
@@ -425,27 +394,15 @@ async def _extract_prefs_from_message(
         return None
     extraction_prompt = _PREFERENCE_EXTRACTION_PROMPT.format(user_message=user_message)
     try:
-        timeout = aiohttp.ClientTimeout(total=20)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.post(
-                ANTHROPIC_API_URL,
-                headers={
-                    "x-api-key": ANTHROPIC_API_KEY,
-                    "anthropic-version": ANTHROPIC_VERSION,
-                    _CONTENT_TYPE_HEADER: _CONTENT_TYPE_JSON,
-                },
-                json={
-                    "model": "claude-haiku-4-5-20251001",
-                    "messages": [{"role": "user", "content": extraction_prompt}],
-                    "temperature": 0.1,
-                    "max_tokens": 400,
-                },
-            ) as resp:
-                if resp.status != 200:
-                    return None
-                result = await resp.json()
-                raw = result["content"][0]["text"].strip()
-                return json.loads(raw)
+        client = anthropic.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
+        result = await client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            messages=[{"role": "user", "content": extraction_prompt}],
+            temperature=0.1,
+            max_tokens=400,
+        )
+        raw = result.content[0].text.strip()
+        return json.loads(raw)
     except Exception as exc:
         logger.warning(f"Preference extraction failed: {exc}")
         return None
