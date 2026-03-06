@@ -33,6 +33,72 @@ ANTHROPIC_API_KEY = (os.environ.get("ANTHROPIC_API_KEY") or "").strip()
 _DEFAULT_MODEL = "claude-sonnet-4-6"
 
 # ============================================================================
+# DEFAULT AGENTS — used as fallback when Supabase is unavailable or empty
+# ============================================================================
+_DEFAULT_AGENTS = [
+    {
+        "id": "00000000-0000-0000-0000-000000000001",
+        "agent_type": "health_coach",
+        "agent_name": "Health Coach",
+        "agent_description": "Your personal health and wellness guide",
+        "capabilities": ["general_health_advice", "goal_setting", "motivation", "lifestyle_recommendations"],
+        "system_prompt": "You are a compassionate and knowledgeable health coach. Help users set realistic health goals, provide evidence-based wellness advice, and offer motivation and support. Always encourage users to consult healthcare professionals for medical decisions.",
+        "model": _DEFAULT_MODEL,
+        "temperature": 0.7,
+        "max_tokens": 1000,
+        "is_active": True,
+    },
+    {
+        "id": "00000000-0000-0000-0000-000000000002",
+        "agent_type": "nutrition_analyst",
+        "agent_name": "Nutrition Analyst",
+        "agent_description": "Expert in nutrition patterns and meal planning",
+        "capabilities": ["nutrition_analysis", "meal_planning", "dietary_recommendations", "nutrient_tracking"],
+        "system_prompt": "You are a nutrition expert specializing in analyzing eating patterns and providing personalized meal recommendations. Use data from the user's meal logs and health metrics to identify patterns and suggest improvements. Be specific and actionable in your advice.",
+        "model": _DEFAULT_MODEL,
+        "temperature": 0.7,
+        "max_tokens": 1000,
+        "is_active": True,
+    },
+    {
+        "id": "00000000-0000-0000-0000-000000000003",
+        "agent_type": "symptom_investigator",
+        "agent_name": "Symptom Investigator",
+        "agent_description": "Analyzes symptoms and identifies patterns",
+        "capabilities": ["symptom_analysis", "pattern_recognition", "correlation_detection", "medical_information"],
+        "system_prompt": "You are a medical data analyst specializing in symptom pattern recognition. Help users understand their symptoms by analyzing trends, correlations with lifestyle factors, and potential triggers. Always recommend consulting healthcare professionals for diagnosis and treatment.",
+        "model": _DEFAULT_MODEL,
+        "temperature": 0.7,
+        "max_tokens": 1000,
+        "is_active": True,
+    },
+    {
+        "id": "00000000-0000-0000-0000-000000000004",
+        "agent_type": "research_assistant",
+        "agent_name": "Research Assistant",
+        "agent_description": "Finds and synthesizes medical research",
+        "capabilities": ["literature_search", "research_synthesis", "evidence_summary", "study_interpretation"],
+        "system_prompt": "You are a medical research assistant. Help users understand relevant medical research by searching PubMed, synthesizing findings from multiple studies, and explaining complex medical information in accessible language. Always cite sources and explain limitations of research.",
+        "model": _DEFAULT_MODEL,
+        "temperature": 0.7,
+        "max_tokens": 1000,
+        "is_active": True,
+    },
+    {
+        "id": "00000000-0000-0000-0000-000000000005",
+        "agent_type": "medication_advisor",
+        "agent_name": "Medication Advisor",
+        "agent_description": "Provides medication and supplement insights",
+        "capabilities": ["medication_tracking", "interaction_checking", "adherence_support", "side_effect_monitoring"],
+        "system_prompt": "You are a medication information specialist. Help users track medications and supplements, understand potential interactions, monitor for side effects, and improve adherence. Always emphasize the importance of consulting pharmacists and doctors for medical advice.",
+        "model": _DEFAULT_MODEL,
+        "temperature": 0.7,
+        "max_tokens": 1000,
+        "is_active": True,
+    },
+]
+
+# ============================================================================
 # REQUEST/RESPONSE MODELS
 # ============================================================================
 
@@ -468,8 +534,12 @@ class AgentOrchestrator:
         self.agents: Dict[str, Agent] = {}
 
     async def load_agents(self):
-        """Load all active agents from database."""
+        """Load all active agents from database, falling back to defaults if unavailable."""
         agents_data = await _supabase_get("ai_agents", "is_active=eq.true")
+
+        if not agents_data:
+            logger.info("No agents found in Supabase — using built-in default agents")
+            agents_data = _DEFAULT_AGENTS
 
         for agent_data in agents_data:
             if agent_data["agent_type"] == "nutrition_analyst":
@@ -640,6 +710,9 @@ async def list_agents(current_user: dict = Depends(get_current_user)):
     agents_data = await _supabase_get(
         "ai_agents", "is_active=eq.true&order=agent_name.asc"
     )
+
+    if not agents_data:
+        agents_data = _DEFAULT_AGENTS
 
     return [
         AgentInfo(
