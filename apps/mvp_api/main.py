@@ -4,6 +4,13 @@ Consolidated FastAPI service for Personal Health Assistant MVP.
 """
 
 import os
+from pathlib import Path
+from dotenv import load_dotenv
+
+# Load .env files before any module-level os.environ reads
+_base = Path(__file__).parent
+load_dotenv(dotenv_path=_base / ".env", override=False)
+load_dotenv(dotenv_path=Path(__file__).parent.parent.parent / ".env", override=False)
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware

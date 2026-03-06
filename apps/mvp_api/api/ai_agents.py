@@ -29,8 +29,16 @@ logger = get_logger(__name__)
 router = APIRouter()
 
 # Anthropic configuration (set ANTHROPIC_API_KEY in your deployment environment, e.g. Render dashboard)
-ANTHROPIC_API_KEY = (os.environ.get("ANTHROPIC_API_KEY") or "").strip()
 _DEFAULT_MODEL = "claude-sonnet-4-6"
+
+
+def _get_anthropic_key() -> str:
+    """Read the API key at call time so .env loaded after import is picked up."""
+    return (os.environ.get("ANTHROPIC_API_KEY") or "").strip()
+
+
+# Keep module-level alias for backward compat — re-evaluated each reference via the function
+ANTHROPIC_API_KEY = _get_anthropic_key()
 
 # ============================================================================
 # DEFAULT AGENTS — used as fallback when Supabase is unavailable or empty
@@ -97,6 +105,11 @@ _DEFAULT_AGENTS = [
         "is_active": True,
     },
 ]
+
+import uuid as _uuid
+
+# In-memory conversation store — used as fallback when Supabase is unavailable
+_local_conversations: Dict[str, dict] = {}
 
 # ============================================================================
 # REQUEST/RESPONSE MODELS
@@ -185,7 +198,8 @@ class Agent:
         conversation_history: List[Dict],
     ) -> str:
         """Generate AI response using Anthropic Claude."""
-        if not ANTHROPIC_API_KEY:
+        api_key = _get_anthropic_key()
+        if not api_key:
             logger.info(
                 "AI agent response skipped: ANTHROPIC_API_KEY not set (set it in server environment, e.g. Render)"
             )
@@ -210,7 +224,7 @@ class Agent:
 
         # Call Anthropic Messages API
         try:
-            client = anthropic.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
+            client = anthropic.AsyncAnthropic(api_key=api_key)
             result = await client.messages.create(
                 model=self.model,
                 system=system_prompt,
@@ -392,7 +406,7 @@ async def _call_anthropic_messages(
     max_tokens: int,
 ) -> str:
     """Make a single Anthropic Messages API call and return the text content."""
-    client = anthropic.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
+    client = anthropic.AsyncAnthropic(api_key=_get_anthropic_key())
     result = await client.messages.create(
         model=model,
         system=system,
@@ -456,11 +470,12 @@ async def _extract_prefs_from_message(
     user_message: str,
 ) -> Optional[Dict[str, Any]]:
     """Call Anthropic Claude to extract structured preferences from a free-text user reply."""
-    if not ANTHROPIC_API_KEY:
+    api_key = _get_anthropic_key()
+    if not api_key:
         return None
     extraction_prompt = _PREFERENCE_EXTRACTION_PROMPT.format(user_message=user_message)
     try:
-        client = anthropic.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
+        client = anthropic.AsyncAnthropic(api_key=api_key)
         result = await client.messages.create(
             model="claude-haiku-4-5-20251001",
             messages=[{"role": "user", "content": extraction_prompt}],
@@ -490,7 +505,7 @@ class NutritionAnalystAgent(Agent):
         conversation_history: List[Dict],
         user_id: Optional[str] = None,
     ) -> str:
-        if not ANTHROPIC_API_KEY:
+        if not _get_anthropic_key():
             logger.info("Nutrition Analyst skipped: ANTHROPIC_API_KEY not set")
             return (
                 f"I'm {self.agent_name}, your personalised nutritionist. "
@@ -553,6 +568,13 @@ class AgentOrchestrator:
     def get_agent(self, agent_type: str) -> Optional[Agent]:
         """Get agent by type."""
         return self.agents.get(agent_type)
+
+    def get_agent_by_id(self, agent_id: str) -> Optional[Agent]:
+        """Get agent by its UUID."""
+        for agent in self.agents.values():
+            if agent.id == agent_id:
+                return agent
+        return None
 
     def get_default_agent(self) -> Agent:
         """Get default agent (health_coach)."""
@@ -634,7 +656,8 @@ def _parse_messages(raw: Any) -> List[Dict[str, Any]]:
 async def _create_conversation(
     user_id: str, agent_id: str, conversation_type: str, initial_message: str
 ) -> str:
-    """Create a new conversation."""
+    """Create a new conversation, falling back to in-memory when Supabase is unavailable."""
+    now = datetime.now(timezone.utc).isoformat()
     payload = {
         "user_id": user_id,
         "conversation_type": conversation_type,
@@ -643,13 +666,32 @@ async def _create_conversation(
         "status": "active",
         "messages": json.dumps([]),
         "conversation_context": json.dumps({}),
-        "last_message_at": datetime.now(timezone.utc).isoformat(),
+        "last_message_at": now,
     }
 
     result = await _supabase_upsert("agent_conversations", payload)
     if result:
         return result["id"]
-    raise HTTPException(status_code=500, detail="Failed to create conversation")
+
+    # Supabase unavailable — store locally
+    conv_id = str(_uuid.uuid4())
+    _local_conversations[conv_id] = {
+        "id": conv_id,
+        "user_id": user_id,
+        "title": None,
+        "conversation_type": conversation_type,
+        "primary_agent_id": agent_id,
+        "participating_agents": [agent_id],
+        "status": "active",
+        "messages": [],
+        "conversation_context": {},
+        "conversation_summary": None,
+        "created_at": now,
+        "updated_at": now,
+        "last_message_at": now,
+    }
+    logger.info(f"Conversation {conv_id} stored in-memory (Supabase unavailable)")
+    return conv_id
 
 
 async def _add_message(
@@ -659,7 +701,24 @@ async def _add_message(
     content: str,
     agent_id: Optional[str] = None,
 ):
-    """Add message to conversation. Uses PATCH so the update is applied correctly."""
+    """Add message to conversation, falling back to in-memory when Supabase is unavailable."""
+    now = datetime.now(timezone.utc).isoformat()
+    message: Dict[str, Any] = {
+        "role": role,
+        "content": content,
+        "agent_id": agent_id,
+        "timestamp": now,
+        "metadata": {},
+    }
+
+    # Try in-memory store first (set by _create_conversation fallback)
+    if conversation_id in _local_conversations:
+        conv = _local_conversations[conversation_id]
+        conv["messages"].append(message)
+        conv["last_message_at"] = now
+        conv["updated_at"] = now
+        return
+
     rows = await _supabase_get(
         "agent_conversations",
         f"id=eq.{conversation_id}&user_id=eq.{user_id}&limit=1",
@@ -669,24 +728,15 @@ async def _add_message(
 
     conv = rows[0]
     messages: List[Dict[str, Any]] = _parse_messages(conv.get("messages"))
-
-    message: Dict[str, Any] = {
-        "role": role,
-        "content": content,
-        "agent_id": agent_id,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "metadata": {},
-    }
     messages.append(message)
 
-    # PATCH so we only update these columns (avoids upsert/insert confusion)
     updated = await _supabase_patch(
         "agent_conversations",
         f"id=eq.{conversation_id}&user_id=eq.{user_id}",
         {
-            "messages": messages,  # PostgREST accepts list for JSONB
-            "last_message_at": datetime.now(timezone.utc).isoformat(),
-            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "messages": messages,
+            "last_message_at": now,
+            "updated_at": now,
         },
     )
     if not updated:
@@ -773,12 +823,15 @@ async def send_message(
     # Add user message
     await _add_message(conversation_id, user_id, "user", request.message)
 
-    # Get conversation history
-    conv_rows = await _supabase_get(
-        "agent_conversations", f"id=eq.{conversation_id}&limit=1"
-    )
-    conv_data = conv_rows[0]
-    messages = _parse_messages(conv_data.get("messages"))
+    # Get conversation history (in-memory or Supabase)
+    if conversation_id in _local_conversations:
+        messages = list(_local_conversations[conversation_id]["messages"])
+    else:
+        conv_rows = await _supabase_get(
+            "agent_conversations", f"id=eq.{conversation_id}&limit=1"
+        )
+        conv_data = conv_rows[0] if conv_rows else {"messages": []}
+        messages = _parse_messages(conv_data.get("messages"))
 
     # Get user context
     context = await _get_user_context(user_id)
@@ -848,18 +901,24 @@ async def get_conversation(
     """Get specific conversation."""
     user_id = current_user["id"]
 
-    rows = await _supabase_get(
-        "agent_conversations", f"id=eq.{conversation_id}&user_id=eq.{user_id}&limit=1"
-    )
+    # Check in-memory store first
+    if conversation_id in _local_conversations:
+        row = _local_conversations[conversation_id]
+    else:
+        rows = await _supabase_get(
+            "agent_conversations", f"id=eq.{conversation_id}&user_id=eq.{user_id}&limit=1"
+        )
+        if not rows:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        row = rows[0]
 
-    if not rows:
-        raise HTTPException(status_code=404, detail="Conversation not found")
-
-    row = rows[0]
-
-    # Get agent info
-    agent_rows = await _supabase_get("ai_agents", f"id=eq.{row['primary_agent_id']}")
-    agent_name = agent_rows[0]["agent_name"] if agent_rows else "Assistant"
+    # Resolve agent name from orchestrator or Supabase
+    agent = orchestrator.get_agent_by_id(row["primary_agent_id"])
+    if agent:
+        agent_name = agent.agent_name
+    else:
+        agent_rows = await _supabase_get("ai_agents", f"id=eq.{row['primary_agent_id']}")
+        agent_name = agent_rows[0]["agent_name"] if agent_rows else "Assistant"
 
     messages = _parse_messages(row.get("messages"))
 
