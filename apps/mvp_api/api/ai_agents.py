@@ -210,10 +210,23 @@ class Agent:
 
         # Build system prompt — Anthropic takes system as a top-level string, not a message role
         system_prompt = self.system_prompt
+        first_name = context.get("first_name", "the user") if context else "the user"
         if context:
             context_summary = self._build_context_summary(context)
             if context_summary:
-                system_prompt = f"{system_prompt}\n\nUser Context:\n{context_summary}"
+                personalization = (
+                    f"\n\nPERSONALIZATION RULES (mandatory — follow in every response):\n"
+                    f"1. Always address the user as '{first_name}' — use their name naturally throughout.\n"
+                    f"2. Your response MUST reference the specific health data listed above "
+                    f"(conditions, medications, symptoms, labs, meals) — never give generic advice when personal data is available.\n"
+                    f"3. Open your response by briefly stating which of their data you are drawing from "
+                    f"(e.g. 'Based on your recent symptoms and lab results, {first_name}...').\n"
+                    f"4. Make every recommendation directly relevant to their personal health profile."
+                )
+                system_prompt = (
+                    f"{system_prompt}\n\nUser Health Profile:\n{context_summary}"
+                    f"{personalization}"
+                )
 
         # Build messages array — only user/assistant roles (no system role)
         messages = []
@@ -239,22 +252,56 @@ class Agent:
             return "I apologize, but I'm experiencing technical difficulties."
 
     def _build_context_summary(self, context: Dict[str, Any]) -> str:
-        """Build context summary for the agent."""
+        """Build a rich context summary for the agent, covering all available health data."""
         parts = []
 
-        if context.get("user_goals"):
-            parts.append(f"User's health goals: {', '.join(context['user_goals'])}")
+        first_name = context.get("first_name") or context.get("user_name") or "the user"
+        parts.append(f"User's name: {context.get('user_name', first_name)} (address them as {first_name})")
 
         if context.get("health_conditions"):
-            parts.append(
-                f"Health conditions: {', '.join(context['health_conditions'])}"
-            )
+            parts.append(f"Diagnosed health conditions: {', '.join(context['health_conditions'])}")
+
+        if context.get("medications"):
+            med_strs = []
+            for m in context["medications"]:
+                dose = f" {m['dose']}" if m.get("dose") else ""
+                freq = f" {m['frequency']}" if m.get("frequency") else ""
+                med_strs.append(f"{m['name']}{dose}{freq}")
+            parts.append(f"Current medications: {', '.join(med_strs)}")
 
         if context.get("recent_symptoms"):
-            parts.append(f"Recent symptoms: {context['recent_symptoms']}")
+            symp_strs = []
+            for s in context["recent_symptoms"][:6]:
+                sname = s.get("name", "Unknown")
+                severity = s.get("severity")
+                date = s.get("date", "")
+                sev_str = f", severity {severity}/10" if severity else ""
+                symp_strs.append(f"{sname} ({date}{sev_str})")
+            parts.append(f"Recent symptoms: {'; '.join(symp_strs)}")
+
+        if context.get("lab_results"):
+            lab_strs = []
+            for l in context["lab_results"][:6]:
+                test = l.get("test", "")
+                val = f"{l.get('value', '')} {l.get('unit', '')}".strip()
+                date = l.get("date", "")
+                status = l.get("status", "")
+                status_str = f" [{status}]" if status and status.lower() != "normal" else ""
+                lab_strs.append(f"{test}: {val}{status_str} ({date})")
+            parts.append(f"Recent lab results: {'; '.join(lab_strs)}")
 
         if context.get("recent_meals"):
-            parts.append(f"Recent meals: {context['recent_meals']}")
+            meal_strs = []
+            for m in context["recent_meals"][:5]:
+                meal_name = m.get("meal") or "Unknown"
+                cals = f", {m['calories']} cal" if m.get("calories") else ""
+                mtype = f" [{m['meal_type']}]" if m.get("meal_type") else ""
+                date = m.get("date", "")
+                meal_strs.append(f"{meal_name}{mtype}{cals} ({date})")
+            parts.append(f"Recent meals: {', '.join(meal_strs)}")
+
+        if context.get("user_goals"):
+            parts.append(f"Health goals: {', '.join(context['user_goals'])}")
 
         return "\n".join(parts) if parts else ""
 
@@ -280,7 +327,7 @@ _NUTRITION_PREFERENCE_KEYS = (
 # System prompt injected when user has stored preferences
 _NUTRITION_PERSONALIZED_PROMPT = """You are the Nutrition Analyst, a personalized AI nutritionist.
 
-USER PROFILE (apply these to every response — never suggest anything that violates allergies or restrictions):
+USER DIETARY PROFILE (apply these to every response — never suggest anything that violates allergies or restrictions):
 - Goals: {goals}
 - Allergies (STRICT — never include): {allergies}
 - Dietary restrictions: {dietary_restrictions}
@@ -293,13 +340,15 @@ USER PROFILE (apply these to every response — never suggest anything that viol
 - Notes: {notes}
 
 Guidelines:
-1. Every recommendation must respect allergies absolutely — check ingredients for hidden allergens.
-2. Align meals with dietary restrictions and goals.
-3. Favor preferred foods and cuisines when possible.
-4. Tailor portions and calorie density to goals.
-5. When relevant, cite evidence-based nutritional science.
-6. Offer 2–3 concrete, practical options instead of generic advice.
-7. Occasionally remind the user how a suggestion connects to their personal goals.
+1. Always address the user by their first name (provided in the health profile below).
+2. Every recommendation must respect allergies absolutely — check ingredients for hidden allergens.
+3. Align meals with dietary restrictions and goals.
+4. Favor preferred foods and cuisines when possible.
+5. Tailor portions and calorie density to goals.
+6. Proactively reference their recent meal logs, health conditions, symptoms, and lab results when available — never be generic.
+7. Open each response by briefly stating which personal data you're basing your advice on.
+8. Offer 2–3 concrete, practical options instead of generic advice.
+9. Occasionally remind the user how a suggestion connects to their personal goals.
 """
 
 # System prompt when no preferences exist — initiates onboarding
@@ -521,9 +570,22 @@ class NutritionAnalystAgent(Agent):
 
         # Build system prompt with optional health context appended
         system_prompt = _build_nutrition_system_prompt(prefs)
+        first_name = context.get("first_name", "the user") if context else "the user"
         ctx_summary = self._build_context_summary(context) if context else ""
         if ctx_summary:
-            system_prompt = f"{system_prompt}\n\nHealth Context:\n{ctx_summary}"
+            personalization = (
+                f"\n\nPERSONALIZATION RULES (mandatory — follow in every response):\n"
+                f"1. Always address the user as '{first_name}' — use their name naturally throughout.\n"
+                f"2. Your response MUST reference their specific health data "
+                f"(conditions, medications, symptoms, labs, meals) — never give generic advice when personal data is available.\n"
+                f"3. Open your response by briefly stating which of their data you are drawing from "
+                f"(e.g. 'Based on your recent meals and health conditions, {first_name}...').\n"
+                f"4. Make every recommendation directly relevant to their personal profile."
+            )
+            system_prompt = (
+                f"{system_prompt}\n\nUser Health Profile:\n{ctx_summary}"
+                f"{personalization}"
+            )
 
         # Build messages — only user/assistant roles (Anthropic requirement)
         messages: List[Dict[str, str]] = [
@@ -617,24 +679,114 @@ orchestrator = AgentOrchestrator()
 # ============================================================================
 
 
-async def _get_user_context(user_id: str) -> Dict[str, Any]:
-    """Gather user context for agents."""
-    context = {}
+async def _get_user_context(
+    user_id: str, current_user: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
+    """Gather comprehensive user context for agents including name, health data, and history."""
+    context: Dict[str, Any] = {}
 
-    # Get health conditions
+    # --- User name resolution (JWT metadata → profiles table → email fallback) ---
+    name: Optional[str] = None
+    if current_user:
+        payload = current_user.get("token_payload") or {}
+        meta = payload.get("user_metadata") or {}
+        name = meta.get("full_name") or meta.get("name") or meta.get("display_name")
+
+    if not name:
+        profiles = await _supabase_get("profiles", f"id=eq.{user_id}&limit=1")
+        if profiles:
+            p = profiles[0]
+            name = (
+                p.get("full_name")
+                or p.get("name")
+                or (
+                    f"{p.get('first_name', '')} {p.get('last_name', '')}".strip() or None
+                )
+            )
+
+    if not name:
+        email = (current_user or {}).get("email") or ""
+        if email:
+            local = email.split("@")[0]
+            # Strip trailing ".demo" / ".test" suffixes for cleaner names
+            local = local.replace(".demo", "").replace(".test", "")
+            name = " ".join(p.capitalize() for p in local.replace("_", ".").split("."))
+
+    context["user_name"] = name or "there"
+    context["first_name"] = (name or "").split()[0] if name else "there"
+
+    # --- Health conditions ---
     conditions = await _supabase_get(
-        "health_conditions", f"user_id=eq.{user_id}&is_current=eq.true&limit=5"
+        "health_conditions", f"user_id=eq.{user_id}&is_current=eq.true&limit=10"
     )
     if conditions:
         context["health_conditions"] = [c["condition_name"] for c in conditions]
 
-    # Get recent symptoms (last 7 days)
+    # --- Current medications ---
+    medications = await _supabase_get(
+        "medications", f"user_id=eq.{user_id}&is_active=eq.true&limit=10"
+    )
+    if medications:
+        context["medications"] = [
+            {
+                "name": m.get("medication_name"),
+                "dose": m.get("dosage"),
+                "frequency": m.get("frequency"),
+            }
+            for m in medications
+            if m.get("medication_name")
+        ]
+
+    # --- Recent symptoms (last 10, with severity and notes) ---
     symptoms = await _supabase_get(
         "symptom_journal",
-        f"user_id=eq.{user_id}&order=symptom_date.desc&limit=5",
+        f"user_id=eq.{user_id}&order=symptom_date.desc&limit=10",
     )
     if symptoms:
-        context["recent_symptoms"] = f"{len(symptoms)} entries in last 7 days"  # type: ignore
+        context["recent_symptoms"] = [
+            {
+                "name": s.get("symptom_name"),
+                "severity": s.get("severity"),
+                "date": (s.get("symptom_date") or "")[:10],
+                "notes": s.get("notes"),
+            }
+            for s in symptoms
+            if s.get("symptom_name")
+        ]
+
+    # --- Lab results (most recent 10) ---
+    labs = await _supabase_get(
+        "lab_results",
+        f"user_id=eq.{user_id}&order=test_date.desc&limit=10",
+    )
+    if labs:
+        context["lab_results"] = [
+            {
+                "test": l.get("test_name"),
+                "value": l.get("value"),
+                "unit": l.get("unit"),
+                "date": (l.get("test_date") or "")[:10],
+                "status": l.get("status"),
+            }
+            for l in labs
+            if l.get("test_name")
+        ]
+
+    # --- Recent meal logs (last 7) ---
+    meals = await _supabase_get(
+        "meal_logs",
+        f"user_id=eq.{user_id}&order=timestamp.desc&limit=7",
+    )
+    if meals:
+        context["recent_meals"] = [
+            {
+                "meal": m.get("meal_name") or m.get("food_name"),
+                "calories": m.get("calories"),
+                "meal_type": m.get("meal_type"),
+                "date": (m.get("timestamp") or "")[:10],
+            }
+            for m in meals
+        ]
 
     return context
 
@@ -833,8 +985,8 @@ async def send_message(
         conv_data = conv_rows[0] if conv_rows else {"messages": []}
         messages = _parse_messages(conv_data.get("messages"))
 
-    # Get user context
-    context = await _get_user_context(user_id)
+    # Get user context (includes name resolution and all health data)
+    context = await _get_user_context(user_id, current_user)
 
     # Generate agent response — pass user_id for preference-aware agents
     if isinstance(agent, NutritionAnalystAgent):
