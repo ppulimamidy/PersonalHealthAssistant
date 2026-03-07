@@ -9,10 +9,20 @@ export interface User {
 
 export type Gender = 'male' | 'female' | 'other' | 'prefer_not_to_say';
 
+/** Biological sex — used for clinical reference ranges and metabolic baselines. */
+export type BiologicalSex = 'male' | 'female' | 'other' | 'prefer_not_to_say';
+
 export interface UserProfile {
+  // ── Structured fields (from profiles table — set at registration) ──────────
+  date_of_birth?: string;           // ISO date e.g. "1985-03-15"
+  biological_sex?: BiologicalSex;
+  weight_kg?: number;
+  height_cm?: number;
+  primary_goals?: string[];         // set during onboarding goals step
+  onboarding_completed_at?: string; // ISO timestamp; null = onboarding pending
+  // ── Legacy fields kept for backward compatibility ─────────────────────────
   age?: number;
   gender?: Gender;
-  weight_kg?: number;
   profile_completed?: boolean;
 }
 

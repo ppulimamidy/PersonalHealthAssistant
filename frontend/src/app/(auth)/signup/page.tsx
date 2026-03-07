@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/Button';
@@ -8,51 +8,99 @@ import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/authStore';
 import { Activity } from 'lucide-react';
 import toast from 'react-hot-toast';
+import type { BiologicalSex } from '@/types';
+
+const SEX_OPTIONS: { value: BiologicalSex; label: string }[] = [
+  { value: 'female', label: 'Female' },
+  { value: 'male', label: 'Male' },
+  { value: 'other', label: 'Other' },
+  { value: 'prefer_not_to_say', label: 'Prefer not to say' },
+];
 
 export default function SignupPage() {
   const router = useRouter();
   const { setUser } = useAuthStore();
+
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [dob, setDob] = useState('');
+  const [sex, setSex] = useState<BiologicalSex | ''>('');
+  const [weight, setWeight] = useState<number | ''>('');
+  const [weightUnit, setWeightUnit] = useState<'lb' | 'kg'>('lb');
   const [isLoading, setIsLoading] = useState(false);
+
+  const weightKg = useMemo(() => {
+    if (typeof weight !== 'number' || weight <= 0) return undefined;
+    return weightUnit === 'kg' ? weight : Math.round((weight / 2.20462) * 10) / 10;
+  }, [weight, weightUnit]);
+
+  // Earliest allowed DOB: 13 years ago
+  const maxDob = useMemo(() => {
+    const d = new Date();
+    d.setFullYear(d.getFullYear() - 13);
+    return d.toISOString().split('T')[0];
+  }, []);
+
+  const isValid = name.trim() && email && password.length >= 8 && dob && sex && weightKg;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isValid || !weightKg || !sex || !dob) return;
     setIsLoading(true);
 
     try {
+      // 1. Create auth user
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
         options: {
-          data: { name },
+          data: {
+            name,
+            date_of_birth: dob,
+            biological_sex: sex,
+            weight_kg: weightKg,
+          },
         },
       });
 
       if (error) throw error;
+      if (!data.user) throw new Error('Signup failed — no user returned');
 
-      if (data.user) {
-        setUser({
-          id: data.user.id,
-          email: data.user.email!,
-          name: name,
-          created_at: data.user.created_at,
-        });
-        toast.success('Account created successfully!');
-        router.push('/onboarding');
+      // 2. Insert into profiles table (canonical store for demographic data)
+      const { error: profileError } = await supabase.from('profiles').insert({
+        id: data.user.id,
+        full_name: name.trim(),
+        date_of_birth: dob,
+        biological_sex: sex,
+        weight_kg: weightKg,
+      });
+
+      if (profileError) {
+        // Non-fatal: profile can be created later; log and continue
+        console.warn('profiles insert failed:', profileError.message);
       }
-    } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : 'Signup failed';
-      toast.error(errorMessage);
+
+      setUser({
+        id: data.user.id,
+        email: data.user.email!,
+        name: name.trim(),
+        created_at: data.user.created_at,
+      });
+
+      toast.success('Account created!');
+      router.push('/onboarding');
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Signup failed');
     } finally {
       setIsLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-900 px-4">
+    <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-900 px-4 py-12">
       <div className="w-full max-w-md">
+        {/* Header */}
         <div className="text-center mb-8">
           <Link href="/" className="inline-flex items-center gap-2">
             <Activity className="w-10 h-10 text-primary-600 dark:text-primary-400" />
@@ -63,9 +111,11 @@ export default function SignupPage() {
         </div>
 
         <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-8">
-          <form onSubmit={handleSubmit} className="space-y-6">
+          <form onSubmit={handleSubmit} className="space-y-5">
+
+            {/* Full name */}
             <div>
-              <label htmlFor="name" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+              <label htmlFor="name" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
                 Full Name
               </label>
               <input
@@ -75,12 +125,13 @@ export default function SignupPage() {
                 onChange={(e) => setName(e.target.value)}
                 required
                 className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-primary-500"
-                placeholder="John Doe"
+                placeholder="Jane Smith"
               />
             </div>
 
+            {/* Email */}
             <div>
-              <label htmlFor="email" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+              <label htmlFor="email" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
                 Email
               </label>
               <input
@@ -94,8 +145,9 @@ export default function SignupPage() {
               />
             </div>
 
+            {/* Password */}
             <div>
-              <label htmlFor="password" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+              <label htmlFor="password" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
                 Password
               </label>
               <input
@@ -108,24 +160,105 @@ export default function SignupPage() {
                 className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-primary-500"
                 placeholder="••••••••"
               />
-              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Must be at least 8 characters</p>
+              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">At least 8 characters</p>
             </div>
 
-            <Button type="submit" className="w-full" isLoading={isLoading}>
+            <hr className="border-slate-200 dark:border-slate-700" />
+            <p className="text-xs text-slate-500 dark:text-slate-400 -mt-1">
+              Used for personalised health baselines — only you can see this.
+            </p>
+
+            {/* Date of birth */}
+            <div>
+              <label htmlFor="dob" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
+                Date of Birth <span className="text-red-500">*</span>
+              </label>
+              <input
+                id="dob"
+                type="date"
+                value={dob}
+                onChange={(e) => setDob(e.target.value)}
+                required
+                max={maxDob}
+                className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-primary-500"
+              />
+            </div>
+
+            {/* Biological sex */}
+            <div>
+              <p className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
+                Biological Sex <span className="text-red-500">*</span>
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                {SEX_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => setSex(opt.value)}
+                    className={`px-3 py-2 rounded-lg border text-sm font-medium transition-colors ${
+                      sex === opt.value
+                        ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20 text-primary-700 dark:text-primary-300'
+                        : 'border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-400 hover:border-slate-400'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                Used for clinical reference ranges and metabolic calculations.
+              </p>
+            </div>
+
+            {/* Weight */}
+            <div>
+              <p className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
+                Weight <span className="text-red-500">*</span>
+              </p>
+              <div className="flex gap-3">
+                <input
+                  type="number"
+                  value={weight}
+                  onChange={(e) => setWeight(e.target.value === '' ? '' : Number(e.target.value))}
+                  required
+                  min={1}
+                  className="flex-1 px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  placeholder={weightUnit === 'lb' ? 'e.g. 160' : 'e.g. 72'}
+                />
+                <div className="flex rounded-lg border border-slate-300 dark:border-slate-600 overflow-hidden">
+                  {(['lb', 'kg'] as const).map((unit) => (
+                    <button
+                      key={unit}
+                      type="button"
+                      onClick={() => setWeightUnit(unit)}
+                      className={`px-4 py-2 text-sm font-medium transition-colors ${
+                        weightUnit === unit
+                          ? 'bg-primary-500 text-white'
+                          : 'bg-white dark:bg-slate-700 text-slate-600 dark:text-slate-400'
+                      }`}
+                    >
+                      {unit}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <Button type="submit" className="w-full" isLoading={isLoading} disabled={!isValid}>
               Create Account
             </Button>
           </form>
 
-          <p className="mt-6 text-xs text-center text-slate-500 dark:text-slate-400">
+          <p className="mt-5 text-xs text-center text-slate-500 dark:text-slate-400">
             By signing up, you agree to our{' '}
-            <a href="#" className="text-primary-600 dark:text-primary-400 hover:underline">Terms of Service</a>
+            <a href="/terms" className="text-primary-600 dark:text-primary-400 hover:underline">Terms</a>
             {' '}and{' '}
-            <a href="#" className="text-primary-600 dark:text-primary-400 hover:underline">Privacy Policy</a>
+            <a href="/privacy" className="text-primary-600 dark:text-primary-400 hover:underline">Privacy Policy</a>
           </p>
 
-          <div className="mt-6 text-center text-sm">
+          <div className="mt-5 text-center text-sm">
             <span className="text-slate-600 dark:text-slate-400">Already have an account? </span>
-            <Link href="/login" className="text-primary-600 dark:text-primary-400 hover:text-primary-700 dark:hover:text-primary-300 font-medium">
+            <Link href="/login" className="text-primary-600 dark:text-primary-400 hover:underline font-medium">
               Sign in
             </Link>
           </div>

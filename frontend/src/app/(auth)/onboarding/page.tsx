@@ -1,15 +1,113 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { ouraService } from '@/services/oura';
 import { useAuthStore } from '@/stores/authStore';
-import { Activity, CheckCircle, Circle, ArrowRight } from 'lucide-react';
+import {
+  CheckCircle,
+  Circle,
+  ArrowRight,
+  Dumbbell,
+  Moon,
+  Leaf,
+  Heart,
+  Brain,
+  Zap,
+  Pill,
+  BarChart2,
+  Activity,
+} from 'lucide-react';
 import toast from 'react-hot-toast';
 import { supabase } from '@/lib/supabase';
-import type { Gender, UserProfile } from '@/types';
+
+// ── Goal options ─────────────────────────────────────────────────────────────
+
+const GOAL_OPTIONS = [
+  { value: 'improve_sleep', label: 'Improve Sleep', icon: Moon },
+  { value: 'lose_weight', label: 'Lose Weight', icon: Leaf },
+  { value: 'build_muscle', label: 'Build Muscle', icon: Dumbbell },
+  { value: 'manage_stress', label: 'Manage Stress', icon: Brain },
+  { value: 'improve_energy', label: 'Boost Energy', icon: Zap },
+  { value: 'heart_health', label: 'Heart Health', icon: Heart },
+  { value: 'manage_condition', label: 'Manage a Condition', icon: Pill },
+  { value: 'track_metrics', label: 'Track Metrics', icon: BarChart2 },
+];
+
+// ── Condition options ─────────────────────────────────────────────────────────
+
+const COMMON_CONDITIONS = [
+  'Type 2 Diabetes', 'Prediabetes', 'Hypertension', 'High Cholesterol',
+  'Hypothyroidism', 'Hyperthyroidism', 'Asthma', 'COPD',
+  'IBS / IBD', 'GERD / Acid Reflux', 'PCOS', 'Endometriosis',
+  'Anxiety', 'Depression', 'ADHD', 'Insomnia',
+  'Osteoporosis', 'Arthritis', 'Fibromyalgia', 'Chronic Fatigue',
+  'Anemia', 'Celiac Disease', 'Food Allergies', 'Lupus',
+  'Psoriasis', 'Eczema', 'Migraine', 'Sleep Apnea',
+];
+
+const CONDITION_CATEGORY_MAP: Record<string, string> = {
+  'Type 2 Diabetes': 'metabolic', 'Prediabetes': 'metabolic',
+  'Hypertension': 'cardiovascular', 'High Cholesterol': 'cardiovascular',
+  'Hypothyroidism': 'metabolic', 'Hyperthyroidism': 'metabolic',
+  'Asthma': 'other', 'COPD': 'other',
+  'IBS / IBD': 'digestive', 'GERD / Acid Reflux': 'digestive',
+  'PCOS': 'metabolic', 'Endometriosis': 'other',
+  'Anxiety': 'mental_health', 'Depression': 'mental_health',
+  'ADHD': 'mental_health', 'Insomnia': 'other',
+  'Osteoporosis': 'other', 'Arthritis': 'other',
+  'Fibromyalgia': 'other', 'Chronic Fatigue': 'other',
+  'Anemia': 'other', 'Celiac Disease': 'digestive',
+  'Food Allergies': 'digestive', 'Lupus': 'autoimmune',
+  'Psoriasis': 'autoimmune', 'Eczema': 'autoimmune',
+  'Migraine': 'other', 'Sleep Apnea': 'other',
+};
+
+// ── Step indicator ────────────────────────────────────────────────────────────
+
+function StepIndicator({ step }: Readonly<{ step: number }>) {
+  const steps = [
+    { label: 'Account', num: 0 },
+    { label: 'Goals', num: 1 },
+    { label: 'Conditions', num: 2 },
+    { label: 'Device', num: 3 },
+  ];
+  return (
+    <div className="flex items-center justify-center gap-3 mb-8">
+      {steps.map((s, i) => {
+        let icon;
+        if (s.num < step || s.num === 0) {
+          icon = <CheckCircle className="w-5 h-5 text-primary-600 dark:text-primary-400" />;
+        } else if (s.num === step) {
+          icon = (
+            <div className="w-5 h-5 rounded-full border-2 border-primary-600 dark:border-primary-400 flex items-center justify-center">
+              <span className="text-xs font-bold text-primary-600 dark:text-primary-400">{s.num}</span>
+            </div>
+          );
+        } else {
+          icon = <Circle className="w-5 h-5 text-slate-300 dark:text-slate-600" />;
+        }
+        return (
+        <div key={s.num} className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5">
+            {icon}
+            <span className={`text-xs font-medium ${s.num <= step ? 'text-slate-900 dark:text-slate-100' : 'text-slate-400 dark:text-slate-500'}`}>
+              {s.label}
+            </span>
+          </div>
+          {i < steps.length - 1 && (
+            <div className="w-8 h-0.5 bg-slate-200 dark:bg-slate-700" />
+          )}
+        </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── Oura logo ─────────────────────────────────────────────────────────────────
 
 const OuraLogo = () => (
   <svg viewBox="0 0 24 24" className="w-12 h-12" fill="currentColor">
@@ -18,87 +116,104 @@ const OuraLogo = () => (
   </svg>
 );
 
+// ── Main page ─────────────────────────────────────────────────────────────────
+
 export default function OnboardingPage() {
   const router = useRouter();
-  const { user, profile, setProfile, setOuraConnection } = useAuthStore();
+  const { user, setProfile, setOuraConnection } = useAuthStore();
   const [step, setStep] = useState(1);
+  const [isSaving, setIsSaving] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
-  const [isSavingProfile, setIsSavingProfile] = useState(false);
 
-  const [age, setAge] = useState<number | ''>('');
-  const [gender, setGender] = useState<Gender | ''>('');
-  const [weight, setWeight] = useState<number | ''>('');
-  const [weightUnit, setWeightUnit] = useState<'kg' | 'lb'>('lb');
+  const [selectedGoals, setSelectedGoals] = useState<string[]>([]);
+  const [selectedConditions, setSelectedConditions] = useState<string[]>([]);
+  const [noConditions, setNoConditions] = useState(false);
 
-  useEffect(() => {
-    // Prefill from persisted authStore / Supabase metadata if present
-    if (profile?.age && age === '') setAge(profile.age);
-    if (profile?.gender && gender === '') setGender(profile.gender);
-    if (profile?.weight_kg && weight === '') {
-      // default UI is lb; convert from kg for display
-      setWeightUnit('lb');
-      setWeight(Math.round(profile.weight_kg * 2.20462));
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [profile]);
+  // ── Step 1: Goals ────────────────────────────────────────────────────────
 
-  const canContinueProfile = useMemo(() => {
-    return (
-      typeof age === 'number' &&
-      age >= 13 &&
-      age <= 120 &&
-      typeof weight === 'number' &&
-      weight > 0 &&
-      Boolean(gender)
+  const toggleGoal = (value: string) => {
+    setSelectedGoals((prev) =>
+      prev.includes(value) ? prev.filter((g) => g !== value) : [...prev, value]
     );
-  }, [age, weight, gender]);
+  };
 
-  const weightKg = useMemo(() => {
-    if (typeof weight !== 'number') return undefined;
-    const kg = weightUnit === 'kg' ? weight : weight / 2.20462;
-    return Math.round(kg * 10) / 10;
-  }, [weight, weightUnit]);
-
-  const handleSaveProfile = async () => {
-    if (!canContinueProfile || !weightKg || gender === '' || age === '') return;
-    setIsSavingProfile(true);
+  const handleSaveGoals = async () => {
+    if (!user) return;
+    setIsSaving(true);
     try {
-      const nextProfile: UserProfile = {
-        age: age as number,
-        gender: gender as Gender,
-        weight_kg: weightKg,
-        profile_completed: true,
-      };
+      // Persist to profiles.primary_goals
+      const { error: profileErr } = await supabase
+        .from('profiles')
+        .update({ primary_goals: selectedGoals })
+        .eq('id', user.id);
+      if (profileErr) console.warn('profiles goals update:', profileErr.message);
 
-      const { error } = await supabase.auth.updateUser({
-        data: {
-          age: nextProfile.age,
-          gender: nextProfile.gender,
-          weight_kg: nextProfile.weight_kg,
-          profile_completed: true,
-        },
-      });
-      if (error) throw error;
+      // Upsert user_health_profile.health_goals
+      const { error: uhpErr } = await supabase
+        .from('user_health_profile')
+        .upsert({ user_id: user.id, health_goals: selectedGoals }, { onConflict: 'user_id' });
+      if (uhpErr) console.warn('user_health_profile upsert:', uhpErr.message);
 
-      setProfile(nextProfile);
-      toast.success('Profile saved');
       setStep(2);
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : 'Failed to save profile';
-      toast.error(msg);
+      toast.error(e instanceof Error ? e.message : 'Failed to save goals');
     } finally {
-      setIsSavingProfile(false);
+      setIsSaving(false);
     }
   };
+
+  // ── Step 2: Conditions ───────────────────────────────────────────────────
+
+  const toggleCondition = (name: string) => {
+    setNoConditions(false);
+    setSelectedConditions((prev) =>
+      prev.includes(name) ? prev.filter((c) => c !== name) : [...prev, name]
+    );
+  };
+
+  const handleNoneCurrently = () => {
+    setNoConditions(true);
+    setSelectedConditions([]);
+  };
+
+  const handleSaveConditions = async () => {
+    if (!user) return;
+    setIsSaving(true);
+    try {
+      if (selectedConditions.length > 0) {
+        const rows = selectedConditions.map((name) => ({
+          user_id: user.id,
+          condition_name: name,
+          condition_category: CONDITION_CATEGORY_MAP[name] ?? 'other',
+          is_active: true,
+        }));
+        const { error } = await supabase.from('health_conditions').insert(rows);
+        if (error) console.warn('health_conditions insert:', error.message);
+      }
+
+      // Mark onboarding complete
+      const { error: profileErr } = await supabase
+        .from('profiles')
+        .update({ onboarding_completed_at: new Date().toISOString() })
+        .eq('id', user.id);
+      if (profileErr) console.warn('profiles onboarding_completed_at:', profileErr.message);
+
+      setProfile({ profile_completed: true });
+      setStep(3);
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : 'Failed to save conditions');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // ── Step 3: Oura ─────────────────────────────────────────────────────────
 
   const handleConnectOura = async () => {
     setIsConnecting(true);
     try {
       const response = await ouraService.getAuthUrl();
-
-      // Check if we're in sandbox mode
       if (response.sandbox_mode) {
-        // In sandbox mode, automatically connect without OAuth
         toast.success('Connected to Oura (Sandbox Mode)');
         setOuraConnection({
           id: 'sandbox',
@@ -106,194 +221,182 @@ export default function OnboardingPage() {
           is_active: true,
           is_sandbox: true,
         });
-
-        // Redirect to timeline after a short delay
-        setTimeout(() => {
-          router.push('/timeline');
-        }, 1000);
+        setTimeout(() => router.push('/timeline'), 1000);
       } else if (response.auth_url) {
-        // Production mode - redirect to OAuth
-        window.location.href = response.auth_url;
+        globalThis.location.href = response.auth_url;
       } else {
         toast.error('Oura integration not configured');
         setIsConnecting(false);
       }
-    } catch (error) {
-      console.error('Failed to connect Oura:', error);
+    } catch {
       toast.error('Failed to initiate Oura connection');
       setIsConnecting(false);
     }
   };
 
-  const handleSkip = () => {
-    router.push('/timeline');
-  };
+  // ── Render ────────────────────────────────────────────────────────────────
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
+    <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-900 px-4 py-12">
       <div className="w-full max-w-lg">
-        <div className="text-center mb-8">
-          <Activity className="w-12 h-12 text-primary-600 mx-auto" />
-          <h1 className="mt-4 text-2xl font-bold text-slate-900">
-            Let's Get You Set Up
+        {/* Header */}
+        <div className="text-center mb-6">
+          <Activity className="w-10 h-10 text-primary-600 dark:text-primary-400 mx-auto" />
+          <h1 className="mt-4 text-2xl font-bold text-slate-900 dark:text-slate-100">
+            {step === 1 && 'What are your health goals?'}
+            {step === 2 && 'Any health conditions to track?'}
+            {step === 3 && 'Connect your Oura Ring'}
           </h1>
-          <p className="mt-2 text-slate-600">
-            Add a few basics so we can personalize your insights
+          <p className="mt-1 text-slate-500 dark:text-slate-400 text-sm">
+            {step === 1 && 'Select all that apply — you can change these later.'}
+            {step === 2 && 'This helps us tailor insights to what matters most to you.'}
+            {step === 3 && 'Sync your sleep, activity, and readiness data.'}
           </p>
         </div>
 
-        {/* Progress */}
-        <div className="flex items-center justify-center gap-4 mb-8">
-          <div className="flex items-center gap-2">
-            <CheckCircle className="w-6 h-6 text-primary-600" />
-            <span className="text-sm font-medium text-slate-900">Account</span>
-          </div>
-          <div className="w-12 h-0.5 bg-slate-200" />
-          <div className="flex items-center gap-2">
-            {step >= 1 ? (
-              <CheckCircle className="w-6 h-6 text-primary-600" />
-            ) : (
-              <div className="w-6 h-6 rounded-full border-2 border-primary-600 flex items-center justify-center">
-                <span className="text-xs font-bold text-primary-600">2</span>
-              </div>
-            )}
-            <span className="text-sm font-medium text-slate-900">Profile</span>
-          </div>
-          <div className="w-12 h-0.5 bg-slate-200" />
-          <div className="flex items-center gap-2">
-            {step >= 2 ? (
-              <div className="w-6 h-6 rounded-full border-2 border-primary-600 flex items-center justify-center">
-                <span className="text-xs font-bold text-primary-600">2</span>
-              </div>
-            ) : (
-              <Circle className="w-6 h-6 text-slate-300" />
-            )}
-            <span className="text-sm font-medium text-slate-900">Connect Device</span>
-          </div>
-        </div>
+        <StepIndicator step={step} />
 
-        {step === 1 ? (
+        {/* Step 1 — Goals */}
+        {step === 1 && (
           <Card>
-            <div>
-              <h2 className="text-xl font-semibold text-slate-900 mb-2">Your profile</h2>
-              <p className="text-slate-600 mb-6">
-                This helps us tailor insights and generate better doctor-visit questions.
-              </p>
-
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">Age</label>
-                  <input
-                    type="number"
-                    value={age}
-                    onChange={(e) => setAge(e.target.value === '' ? '' : Number(e.target.value))}
-                    min={13}
-                    max={120}
-                    className="w-full px-4 py-2 border border-slate-300 rounded-lg bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-primary-500"
-                    placeholder="e.g. 32"
-                  />
-                  <p className="mt-1 text-xs text-slate-500">We only use this for context, not diagnosis.</p>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">Gender</label>
-                  <select
-                    value={gender}
-                    onChange={(e) => setGender(e.target.value as Gender)}
-                    className="w-full px-4 py-2 border border-slate-300 rounded-lg bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-primary-500"
+            <div className="grid grid-cols-2 gap-3">
+              {GOAL_OPTIONS.map(({ value, label, icon: Icon }) => {
+                const active = selectedGoals.includes(value);
+                return (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => toggleGoal(value)}
+                    className={`flex items-center gap-3 p-4 rounded-xl border-2 text-left transition-colors ${
+                      active
+                        ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20'
+                        : 'border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600'
+                    }`}
                   >
-                    <option value="">Select…</option>
-                    <option value="female">Female</option>
-                    <option value="male">Male</option>
-                    <option value="other">Other</option>
-                    <option value="prefer_not_to_say">Prefer not to say</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">Weight</label>
-                  <div className="flex gap-3">
-                    <input
-                      type="number"
-                      value={weight}
-                      onChange={(e) => setWeight(e.target.value === '' ? '' : Number(e.target.value))}
-                      min={1}
-                      className="flex-1 px-4 py-2 border border-slate-300 rounded-lg bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-primary-500"
-                      placeholder={weightUnit === 'lb' ? 'e.g. 160' : 'e.g. 72'}
+                    <Icon
+                      className={`w-5 h-5 flex-shrink-0 ${active ? 'text-primary-600 dark:text-primary-400' : 'text-slate-400 dark:text-slate-500'}`}
                     />
-                    <select
-                      value={weightUnit}
-                      onChange={(e) => setWeightUnit(e.target.value as 'kg' | 'lb')}
-                      className="w-28 px-3 py-2 border border-slate-300 rounded-lg bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                    <span
+                      className={`text-sm font-medium ${active ? 'text-primary-700 dark:text-primary-300' : 'text-slate-700 dark:text-slate-300'}`}
                     >
-                      <option value="lb">lb</option>
-                      <option value="kg">kg</option>
-                    </select>
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-6 space-y-3">
-                <Button onClick={handleSaveProfile} className="w-full" isLoading={isSavingProfile} disabled={!canContinueProfile}>
-                  Continue
-                  <ArrowRight className="w-5 h-5 ml-2" />
-                </Button>
-                <button onClick={() => setStep(2)} className="w-full text-sm text-slate-500 hover:text-slate-700">
-                  Skip for now
-                </button>
-              </div>
+                      {label}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+            <div className="mt-6 space-y-3">
+              <Button
+                onClick={handleSaveGoals}
+                className="w-full"
+                isLoading={isSaving}
+                disabled={selectedGoals.length === 0}
+              >
+                Continue
+                <ArrowRight className="w-5 h-5 ml-2" />
+              </Button>
+              <button
+                type="button"
+                onClick={() => setStep(2)}
+                className="w-full text-sm text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+              >
+                Skip for now
+              </button>
             </div>
           </Card>
-        ) : (
+        )}
+
+        {/* Step 2 — Health conditions */}
+        {step === 2 && (
+          <Card>
+            <div className="flex flex-wrap gap-2">
+              {COMMON_CONDITIONS.map((name) => {
+                const active = selectedConditions.includes(name);
+                return (
+                  <button
+                    key={name}
+                    type="button"
+                    onClick={() => toggleCondition(name)}
+                    className={`px-3 py-1.5 rounded-full border text-sm font-medium transition-colors ${
+                      active
+                        ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20 text-primary-700 dark:text-primary-300'
+                        : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:border-slate-300 dark:hover:border-slate-500'
+                    }`}
+                  >
+                    {name}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="mt-4 pt-4 border-t border-slate-200 dark:border-slate-700">
+              <button
+                type="button"
+                onClick={handleNoneCurrently}
+                className={`w-full py-2 rounded-lg border text-sm font-medium transition-colors ${
+                  noConditions
+                    ? 'border-slate-500 bg-slate-100 dark:bg-slate-700 text-slate-900 dark:text-slate-100'
+                    : 'border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:border-slate-300'
+                }`}
+              >
+                None currently
+              </button>
+            </div>
+
+            <div className="mt-5 space-y-3">
+              <Button
+                onClick={handleSaveConditions}
+                className="w-full"
+                isLoading={isSaving}
+                disabled={selectedConditions.length === 0 && !noConditions}
+              >
+                Continue
+                <ArrowRight className="w-5 h-5 ml-2" />
+              </Button>
+              <button
+                type="button"
+                onClick={() => setStep(1)}
+                className="w-full text-sm text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+              >
+                Back
+              </button>
+            </div>
+          </Card>
+        )}
+
+        {/* Step 3 — Oura */}
+        {step === 3 && (
           <Card>
             <div className="text-center">
-              <div className="w-20 h-20 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-6">
+              <div className="w-20 h-20 bg-slate-100 dark:bg-slate-700 rounded-full flex items-center justify-center mx-auto mb-6">
                 <OuraLogo />
               </div>
-              <h2 className="text-xl font-semibold text-slate-900 mb-2">
-                Connect Your Oura Ring
-              </h2>
-              <p className="text-slate-600 mb-8">
-                We'll sync your sleep, activity, and readiness data to provide
-                personalized health insights.
-              </p>
 
-              <div className="space-y-4 mb-8 text-left">
-                <div className="flex items-start gap-3 p-3 bg-slate-50 rounded-lg">
-                  <CheckCircle className="w-5 h-5 text-green-500 mt-0.5" />
-                  <div>
-                    <p className="text-sm font-medium text-slate-900">Read-only access</p>
-                    <p className="text-xs text-slate-500">We only read your data, never modify it</p>
+              <div className="space-y-3 mb-8 text-left">
+                {[
+                  { title: 'Read-only access', desc: 'We only read your data, never modify it' },
+                  { title: 'Secure connection', desc: 'Data is encrypted in transit and at rest' },
+                  { title: 'Revoke anytime', desc: 'Disconnect your device whenever you want' },
+                ].map(({ title, desc }) => (
+                  <div key={title} className="flex items-start gap-3 p-3 bg-slate-50 dark:bg-slate-700/50 rounded-lg">
+                    <CheckCircle className="w-5 h-5 text-green-500 mt-0.5 flex-shrink-0" />
+                    <div>
+                      <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{title}</p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">{desc}</p>
+                    </div>
                   </div>
-                </div>
-                <div className="flex items-start gap-3 p-3 bg-slate-50 rounded-lg">
-                  <CheckCircle className="w-5 h-5 text-green-500 mt-0.5" />
-                  <div>
-                    <p className="text-sm font-medium text-slate-900">Secure connection</p>
-                    <p className="text-xs text-slate-500">Data is encrypted in transit and at rest</p>
-                  </div>
-                </div>
-                <div className="flex items-start gap-3 p-3 bg-slate-50 rounded-lg">
-                  <CheckCircle className="w-5 h-5 text-green-500 mt-0.5" />
-                  <div>
-                    <p className="text-sm font-medium text-slate-900">Revoke anytime</p>
-                    <p className="text-xs text-slate-500">Disconnect your device whenever you want</p>
-                  </div>
-                </div>
+                ))}
               </div>
 
-              <Button
-                onClick={handleConnectOura}
-                className="w-full"
-                isLoading={isConnecting}
-              >
+              <Button onClick={handleConnectOura} className="w-full" isLoading={isConnecting}>
                 Connect Oura Ring
                 <ArrowRight className="w-5 h-5 ml-2" />
               </Button>
 
               <button
-                onClick={handleSkip}
-                className="mt-4 text-sm text-slate-500 hover:text-slate-700"
+                type="button"
+                onClick={() => router.push('/timeline')}
+                className="mt-4 text-sm text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
               >
                 Skip for now
               </button>
