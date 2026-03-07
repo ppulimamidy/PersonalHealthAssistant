@@ -24,7 +24,7 @@ from fastapi import (
     Form,
     status,
 )
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 from common.middleware.auth import get_current_user
 from common.utils.logging import get_logger
@@ -220,7 +220,7 @@ async def list_meals(
     if not bearer:
         raise HTTPException(status_code=401, detail="Authentication required")
 
-    end_d = date.today()
+    end_d = datetime.utcnow().date()
     start_d = end_d - timedelta(days=days)
     url = (
         f"{NUTRITION_SERVICE_URL}/api/v1/nutrition/nutrition-history"

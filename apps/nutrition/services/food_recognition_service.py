@@ -23,12 +23,14 @@ class FoodRecognitionService:
     def __init__(self):
         # API Keys
         self.openai_api_key = os.getenv("OPENAI_API_KEY")
+        self.anthropic_api_key = os.getenv("ANTHROPIC_API_KEY")
         self.google_vision_api_key = os.getenv("GOOGLE_VISION_API_KEY")
         self.azure_vision_api_key = os.getenv("AZURE_VISION_API_KEY")
         self.azure_vision_endpoint = os.getenv("AZURE_VISION_ENDPOINT")
-        
+
         # Service availability flags
         self.openai_available = bool(self.openai_api_key)
+        self.anthropic_available = bool(self.anthropic_api_key)
         self.google_available = bool(self.google_vision_api_key)
         self.azure_available = bool(self.azure_vision_api_key and self.azure_vision_endpoint)
         
@@ -331,36 +333,123 @@ class FoodRecognitionService:
         """
         Recognize foods in an image using multiple AI vision APIs.
         Returns a list of detected food items with confidence scores.
+        Priority: Anthropic → OpenAI → Google → Azure → mock fallback.
         """
         try:
-            # Try OpenAI Vision first (most accurate for food recognition)
+            # Try Anthropic Claude Vision first (configured and quota available)
+            if self.anthropic_available:
+                try:
+                    return await self._recognize_with_anthropic(image_bytes)
+                except Exception as e:
+                    logger.warning(f"Anthropic Vision failed: {e}")
+
+            # Try OpenAI Vision
             if self.openai_available:
                 try:
                     return await self._recognize_with_openai(image_bytes)
                 except Exception as e:
                     logger.warning(f"OpenAI Vision failed: {e}")
-            
+
             # Fallback to Google Vision
             if self.google_available:
                 try:
                     return await self._recognize_with_google(image_bytes)
                 except Exception as e:
                     logger.warning(f"Google Vision failed: {e}")
-            
+
             # Fallback to Azure Vision
             if self.azure_available:
                 try:
                     return await self._recognize_with_azure(image_bytes)
                 except Exception as e:
                     logger.warning(f"Azure Vision failed: {e}")
-            
+
             # If all APIs fail, return mock results
             logger.warning("All vision APIs failed, using mock results")
             return self._get_mock_recognition_results()
-            
+
         except Exception as e:
             logger.error(f"Food recognition failed: {e}")
             return self._get_mock_recognition_results()
+
+    def _image_media_type(self, image_bytes: bytes) -> str:
+        """Detect image MIME type from bytes using PIL."""
+        try:
+            img = Image.open(io.BytesIO(image_bytes))
+            fmt = (img.format or "JPEG").upper()
+            return {"JPEG": "image/jpeg", "PNG": "image/png", "GIF": "image/gif", "WEBP": "image/webp"}.get(fmt, "image/jpeg")
+        except Exception:
+            return "image/jpeg"
+
+    async def _recognize_with_anthropic(self, image_bytes: bytes) -> List[Dict[str, Any]]:
+        """Recognize foods using Anthropic Claude Vision API."""
+        import anthropic
+        import json
+
+        client = anthropic.AsyncAnthropic(api_key=self.anthropic_api_key)
+        image_base64 = base64.b64encode(image_bytes).decode("utf-8")
+        media_type = self._image_media_type(image_bytes)
+
+        prompt = """Analyze this food image and identify all food items present.
+Return ONLY a valid JSON array with each food item containing:
+- name: the food name (string, be specific e.g. "grilled salmon" not just "fish")
+- confidence: confidence score (number 0-1)
+- description: brief description (string)
+- category: food category (one of: protein, vegetable, grain, fruit, dairy, beverage, condiment, other)
+
+Identify every distinct food item visible. Be precise — name dishes and ingredients specifically.
+Return the JSON array only, no markdown fences or extra text.
+
+Example:
+[{"name": "grilled salmon", "confidence": 0.95, "description": "Salmon fillet with grill marks", "category": "protein"}]"""
+
+        result = await client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=1000,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": media_type,
+                                "data": image_base64,
+                            },
+                        },
+                        {"type": "text", "text": prompt},
+                    ],
+                }
+            ],
+        )
+
+        content = result.content[0].text.strip()
+        # Strip markdown fences if present
+        if "```json" in content:
+            content = content[content.find("```json") + 7: content.rfind("```")].strip()
+        elif "```" in content:
+            content = content[content.find("```") + 3: content.rfind("```")].strip()
+
+        food_data = json.loads(content)
+        food_items = []
+        if isinstance(food_data, list):
+            for item in food_data:
+                if isinstance(item, dict):
+                    food_items.append({
+                        "name": item.get("name", "unknown"),
+                        "confidence": item.get("confidence", 0.8),
+                        "description": item.get("description", ""),
+                        "category": item.get("category", "other"),
+                        "model_used": "anthropic_vision",
+                    })
+
+        if food_items:
+            logger.info(f"Anthropic Vision recognized {len(food_items)} food items")
+            return food_items
+
+        logger.warning("Anthropic Vision returned empty food items")
+        return self._get_mock_recognition_results()
 
     async def _recognize_with_openai(self, image_bytes: bytes) -> List[Dict[str, Any]]:
         """Recognize foods using OpenAI Vision API."""
@@ -623,21 +712,107 @@ class FoodRecognitionService:
         """
         Estimate portion sizes for detected food items using AI or heuristics.
         Returns food items with estimated portion sizes (grams).
+        Priority: Anthropic → OpenAI → heuristic fallback.
         """
         try:
-            # Use OpenAI Vision for portion estimation
+            # Use Anthropic for portion estimation
+            if self.anthropic_available:
+                try:
+                    return await self._estimate_portion_with_anthropic(image_bytes, food_items)
+                except Exception as e:
+                    logger.warning(f"Anthropic portion estimation failed: {e}")
+
+            # Fallback to OpenAI
             if self.openai_available:
                 try:
                     return await self._estimate_portion_with_openai(image_bytes, food_items)
                 except Exception as e:
                     logger.warning(f"OpenAI portion estimation failed: {e}")
-            
+
             # Fallback to heuristic estimation
             return self._estimate_portion_heuristic(food_items)
-            
+
         except Exception as e:
             logger.error(f"Portion estimation failed: {e}")
             return self._estimate_portion_heuristic(food_items)
+
+    async def _estimate_portion_with_anthropic(self, image_bytes: bytes, food_items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Estimate portions using Anthropic Claude Vision API."""
+        import anthropic
+        import json
+
+        client = anthropic.AsyncAnthropic(api_key=self.anthropic_api_key)
+        image_base64 = base64.b64encode(image_bytes).decode("utf-8")
+        media_type = self._image_media_type(image_bytes)
+        food_names = [item["name"] for item in food_items]
+
+        prompt = f"""Analyze this food image and estimate the portion sizes in grams for these food items: {', '.join(food_names)}.
+
+Consider:
+- Visual size relative to common objects (plate, spoon, fork, etc.)
+- Typical serving sizes for each food
+- Density and volume of the food visible
+
+Return ONLY a JSON object with food names as keys and estimated grams as integer values.
+Example: {{"grilled salmon": 180, "steamed rice": 150, "broccoli": 90}}"""
+
+        result = await client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=500,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": media_type,
+                                "data": image_base64,
+                            },
+                        },
+                        {"type": "text", "text": prompt},
+                    ],
+                }
+            ],
+        )
+
+        content = result.content[0].text.strip()
+        if "```json" in content:
+            content = content[content.find("```json") + 7: content.rfind("```")].strip()
+        elif "```" in content:
+            content = content[content.find("```") + 3: content.rfind("```")].strip()
+
+        grams_map = json.loads(content)
+        if not isinstance(grams_map, dict):
+            return self._estimate_portion_heuristic(food_items)
+
+        updated: List[Dict[str, Any]] = []
+        for item in food_items:
+            name = (item.get("name") or "").strip()
+            g = grams_map.get(name) or grams_map.get(name.lower())
+            try:
+                g_val = int(float(g)) if g is not None else None
+            except Exception:
+                g_val = None
+
+            if not g_val or g_val <= 0:
+                updated.append(item)
+                continue
+
+            updated.append({
+                **item,
+                "portion_g": g_val,
+                "portion_estimate": {
+                    "food_name": name or item.get("name", "unknown"),
+                    "estimated_quantity": g_val,
+                    "unit": "g",
+                    "confidence": 0.75,
+                },
+                "estimation_method": "anthropic",
+            })
+
+        return updated
 
     async def _estimate_portion_with_openai(self, image_bytes: bytes, food_items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Estimate portions using OpenAI Vision API."""
