@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field, validator
 
 class RecognitionModel(str, Enum):
     """Available food recognition models."""
+    ANTHROPIC_VISION = "anthropic_vision"
     OPENAI_VISION = "openai_vision"
     GOOGLE_VISION = "google_vision"
     AZURE_VISION = "azure_vision"

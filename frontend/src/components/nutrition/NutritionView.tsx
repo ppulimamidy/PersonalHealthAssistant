@@ -39,6 +39,11 @@ export function NutritionView() {
   const [recognition, setRecognition] = useState<FoodRecognitionResponse | null>(null);
   const [recognizedFoods, setRecognizedFoods] = useState<RecognizedFoodItem[]>([]);
 
+  // Scan-specific logging fields (separate from the manual log form)
+  const [scanMealType, setScanMealType] = useState<MealType>('lunch');
+  const [scanMealName, setScanMealName] = useState('');
+  const [scanNotes, setScanNotes] = useState('');
+
   const { data, isLoading, refetch, isRefetching, error } = useQuery({
     queryKey: ['nutrition-summary', 14],
     queryFn: () => nutritionService.getSummary(14),
@@ -141,15 +146,22 @@ export function NutritionView() {
     return { map, days };
   }, [meals]);
 
+  function detectMealTypeFromTime(): MealType {
+    const h = new Date().getHours();
+    if (h >= 5 && h < 11) return 'breakfast';
+    if (h >= 11 && h < 15) return 'lunch';
+    if (h >= 17 && h < 21) return 'dinner';
+    return 'snack';
+  }
+
   const recognizeMealMutation = useMutation({
     mutationFn: async () => {
       if (!mealPhoto) throw new Error('Please select a photo first');
-      return await nutritionService.recognizeMealImage(mealPhoto, { meal_type: mealType });
+      return await nutritionService.recognizeMealImage(mealPhoto, { meal_type: scanMealType });
     },
     onSuccess: (res) => {
       setRecognition(res);
       const rows = (res?.recognized_foods ?? []) as RecognizedFoodItem[];
-      // Ensure editable baseline fields exist
       setRecognizedFoods(
         rows.map((r) => ({
           ...r,
@@ -163,8 +175,16 @@ export function NutritionView() {
                 : 100,
         }))
       );
+      // Auto-detect meal type from time; pre-populate name from top foods
+      setScanMealType(detectMealTypeFromTime());
+      const topNames = rows
+        .slice(0, 3)
+        .map((r) => (r.name ?? '').toString().trim())
+        .filter(Boolean);
+      setScanMealName(topNames.join(', '));
+      setScanNotes('');
       setLogError(null);
-      setLogSuccess('Photo analyzed — review and log');
+      setLogSuccess(null);
     },
     onError: (e: unknown) => {
       setRecognition(null);
@@ -262,31 +282,29 @@ export function NutritionView() {
 
                 <div className="md:col-span-2">
                   {recognition ? (
-                    <div>
-                      <div className="text-sm text-slate-700 dark:text-slate-200">
-                        {recognition.detected_cuisine ? (
-                          <span className="mr-3">
-                            <span className="text-slate-500 dark:text-slate-400">Cuisine:</span>{' '}
-                            {recognition.detected_cuisine}
+                    <div className="space-y-5">
+                      {/* Recognition meta */}
+                      <div className="flex flex-wrap gap-3 text-sm text-slate-600 dark:text-slate-400">
+                        {recognition.detected_cuisine && (
+                          <span><span className="font-medium text-slate-700 dark:text-slate-300">Cuisine:</span> {recognition.detected_cuisine}</span>
+                        )}
+                        {recognition.detected_region && (
+                          <span><span className="font-medium text-slate-700 dark:text-slate-300">Region:</span> {recognition.detected_region}</span>
+                        )}
+                        {typeof recognition.overall_confidence === 'number' && (
+                          <span><span className="font-medium text-slate-700 dark:text-slate-300">Confidence:</span> {Math.round(recognition.overall_confidence * 100)}%</span>
+                        )}
+                        {typeof recognition.total_calories === 'number' && recognition.total_calories > 0 && (
+                          <span className="font-medium text-primary-700 dark:text-primary-400">
+                            ~{Math.round(recognition.total_calories)} kcal total
                           </span>
-                        ) : null}
-                        {recognition.detected_region ? (
-                          <span className="mr-3">
-                            <span className="text-slate-500 dark:text-slate-400">Region:</span>{' '}
-                            {recognition.detected_region}
-                          </span>
-                        ) : null}
-                        {typeof recognition.overall_confidence === 'number' ? (
-                          <span>
-                            <span className="text-slate-500 dark:text-slate-400">Confidence:</span>{' '}
-                            {Math.round(recognition.overall_confidence * 100)}%
-                          </span>
-                        ) : null}
+                        )}
                       </div>
 
-                      <div className="mt-4">
-                        <div className="text-xs text-slate-500 dark:text-slate-400 mb-2">
-                          Recognized foods (edit before logging)
+                      {/* Editable food list */}
+                      <div>
+                        <div className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-2 uppercase tracking-wide">
+                          Recognized foods — edit before logging
                         </div>
                         {recognizedFoods.length === 0 ? (
                           <p className="text-slate-600 dark:text-slate-300 text-sm">
@@ -295,7 +313,7 @@ export function NutritionView() {
                         ) : (
                           <div className="space-y-2">
                             {recognizedFoods.map((f, idx) => (
-                              <div key={f.id ?? idx} className="grid grid-cols-1 md:grid-cols-6 gap-2">
+                              <div key={f.id ?? idx} className="grid grid-cols-1 md:grid-cols-6 gap-2 items-center">
                                 <input
                                   className="md:col-span-3 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 px-3 py-2 text-sm"
                                   value={(f.name ?? '').toString()}
@@ -306,21 +324,24 @@ export function NutritionView() {
                                   }}
                                   placeholder="Food name"
                                 />
-                                <input
-                                  className="md:col-span-1 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 px-3 py-2 text-sm"
-                                  type="number"
-                                  min={1}
-                                  value={Math.round((f.portion_g as number) ?? 100)}
-                                  onChange={(e) => {
-                                    const next = [...recognizedFoods];
-                                    next[idx] = { ...next[idx], portion_g: Number(e.target.value) };
-                                    setRecognizedFoods(next);
-                                  }}
-                                />
-                                <div className="md:col-span-1 flex items-center text-xs text-slate-600 dark:text-slate-300">
+                                <div className="md:col-span-1 flex items-center gap-1">
+                                  <input
+                                    className="w-full rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 px-3 py-2 text-sm"
+                                    type="number"
+                                    min={1}
+                                    value={Math.round((f.portion_g as number) ?? 100)}
+                                    onChange={(e) => {
+                                      const next = [...recognizedFoods];
+                                      next[idx] = { ...next[idx], portion_g: Number(e.target.value) };
+                                      setRecognizedFoods(next);
+                                    }}
+                                  />
+                                  <span className="text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">g</span>
+                                </div>
+                                <div className="md:col-span-1 text-xs text-slate-500 dark:text-slate-400">
                                   {typeof f.calories === 'number' ? `${Math.round(f.calories)} kcal` : '—'}
                                 </div>
-                                <div className="md:col-span-1 flex gap-2">
+                                <div className="md:col-span-1">
                                   <Button
                                     variant="outline"
                                     onClick={() => setRecognizedFoods(recognizedFoods.filter((_, i) => i !== idx))}
@@ -330,59 +351,140 @@ export function NutritionView() {
                                 </div>
                               </div>
                             ))}
+                            <Button
+                              variant="outline"
+                              onClick={() =>
+                                setRecognizedFoods([
+                                  ...recognizedFoods,
+                                  { name: '', portion_g: 100, confidence: 0.0 } as RecognizedFoodItem,
+                                ])
+                              }
+                            >
+                              + Add food
+                            </Button>
+                          </div>
+                        )}
+                      </div>
 
-                            <div className="mt-3 flex flex-wrap gap-2">
-                              <Button
-                                variant="outline"
-                                onClick={() =>
-                                  setRecognizedFoods([
-                                    ...recognizedFoods,
-                                    { name: '', portion_g: 100, confidence: 0.0 } as RecognizedFoodItem,
-                                  ])
-                                }
-                              >
-                                Add food
-                              </Button>
-                              <Button
-                                variant="outline"
-                                onClick={() => {
-                                  // Copy recognized foods into the manual logging form
-                                  const nextFoods: MealFoodItemInput[] = recognizedFoods
+                      {/* Log meal panel */}
+                      {recognizedFoods.length > 0 && (
+                        <div className="rounded-xl border border-primary-200 dark:border-primary-800 bg-primary-50/50 dark:bg-primary-900/10 p-4 space-y-4">
+                          <div className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+                            Log this meal
+                          </div>
+
+                          {/* Meal type selector */}
+                          <div>
+                            <div className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-2 uppercase tracking-wide">
+                              Meal type <span className="text-red-500">*</span>
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                              {(
+                                [
+                                  { value: 'breakfast', label: 'Breakfast', emoji: '🌅' },
+                                  { value: 'lunch',     label: 'Lunch',     emoji: '☀️' },
+                                  { value: 'dinner',    label: 'Dinner',    emoji: '🌙' },
+                                  { value: 'snack',     label: 'Snack',     emoji: '🍎' },
+                                ] as { value: MealType; label: string; emoji: string }[]
+                              ).map(({ value, label, emoji }) => (
+                                <button
+                                  key={value}
+                                  onClick={() => setScanMealType(value)}
+                                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-sm font-medium transition-colors ${
+                                    scanMealType === value
+                                      ? 'bg-primary-600 dark:bg-primary-500 text-white border-primary-600 dark:border-primary-500'
+                                      : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-primary-400'
+                                  }`}
+                                >
+                                  <span>{emoji}</span>
+                                  {label}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          {/* Meal name */}
+                          <div>
+                            <div className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-1 uppercase tracking-wide">
+                              Meal name <span className="text-slate-400 font-normal normal-case">(optional)</span>
+                            </div>
+                            <input
+                              className="w-full rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 px-3 py-2 text-sm"
+                              value={scanMealName}
+                              onChange={(e) => setScanMealName(e.target.value)}
+                              placeholder="e.g., Grilled salmon with veggies"
+                            />
+                          </div>
+
+                          {/* Notes */}
+                          <div>
+                            <div className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-1 uppercase tracking-wide">
+                              Notes <span className="text-slate-400 font-normal normal-case">(optional)</span>
+                            </div>
+                            <input
+                              className="w-full rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 px-3 py-2 text-sm"
+                              value={scanNotes}
+                              onChange={(e) => setScanNotes(e.target.value)}
+                              placeholder="e.g., Felt full, restaurant meal"
+                            />
+                          </div>
+
+                          {/* Nutrition preview */}
+                          {(recognition.total_calories ?? 0) > 0 && (
+                            <div className="flex flex-wrap gap-4 text-sm">
+                              <span className="text-slate-600 dark:text-slate-300">
+                                <span className="font-semibold text-slate-900 dark:text-slate-100">{Math.round(recognition.total_calories ?? 0)}</span> kcal
+                              </span>
+                              {(recognition.total_protein ?? 0) > 0 && (
+                                <span className="text-slate-600 dark:text-slate-300">
+                                  <span className="font-semibold text-slate-900 dark:text-slate-100">{Math.round(recognition.total_protein ?? 0)}g</span> protein
+                                </span>
+                              )}
+                              {(recognition.total_carbs ?? 0) > 0 && (
+                                <span className="text-slate-600 dark:text-slate-300">
+                                  <span className="font-semibold text-slate-900 dark:text-slate-100">{Math.round(recognition.total_carbs ?? 0)}g</span> carbs
+                                </span>
+                              )}
+                              {(recognition.total_fat ?? 0) > 0 && (
+                                <span className="text-slate-600 dark:text-slate-300">
+                                  <span className="font-semibold text-slate-900 dark:text-slate-100">{Math.round(recognition.total_fat ?? 0)}g</span> fat
+                                </span>
+                              )}
+                            </div>
+                          )}
+
+                          <div className="flex flex-wrap gap-2 items-center">
+                            <Button
+                              isLoading={logMealMutation.isPending}
+                              disabled={recognizedFoods.length === 0 || logMealMutation.isPending}
+                              onClick={() => {
+                                setLogError(null);
+                                setLogSuccess(null);
+                                const payload: LogMealRequest = {
+                                  meal_type: scanMealType,
+                                  meal_name: scanMealName.trim() || undefined,
+                                  user_notes: scanNotes.trim() || undefined,
+                                  food_items: recognizedFoods
                                     .filter((x) => (x.name ?? '').toString().trim().length > 0)
                                     .map((x) => ({
                                       name: (x.name ?? '').toString().trim(),
                                       portion_g: typeof x.portion_g === 'number' ? x.portion_g : 100,
-                                    }));
-                                  setFoods(nextFoods.length ? nextFoods : [{ name: '', portion_g: 100 }]);
-                                }}
-                              >
-                                Use in log form
-                              </Button>
-                              <Button
-                                isLoading={logMealMutation.isPending}
-                                disabled={recognizedFoods.length === 0 || logMealMutation.isPending}
-                                onClick={() => {
-                                  setLogError(null);
-                                  setLogSuccess(null);
-                                  const payload: LogMealRequest = {
-                                    meal_type: mealType,
-                                    meal_name: mealName.trim() ? mealName.trim() : undefined,
-                                    food_items: recognizedFoods
-                                      .filter((x) => (x.name ?? '').toString().trim().length > 0)
-                                      .map((x) => ({
-                                        name: (x.name ?? '').toString().trim(),
-                                        portion_g: typeof x.portion_g === 'number' ? x.portion_g : 100,
-                                      })),
-                                  };
-                                  logMealMutation.mutate(payload);
-                                }}
-                              >
-                                Log recognized meal
-                              </Button>
-                            </div>
+                                    })),
+                                };
+                                logMealMutation.mutate(payload);
+                              }}
+                            >
+                              Log meal
+                            </Button>
+                            {logError && (
+                              <span className="text-sm text-red-600 dark:text-red-400">{logError}</span>
+                            )}
+                            {logSuccess && (
+                              <span className="text-sm text-emerald-700 dark:text-emerald-400">{logSuccess}</span>
+                            )}
                           </div>
-                        )}
-                      </div>
+                        </div>
+                      )}
                     </div>
                   ) : (
                     <p className="text-slate-600 dark:text-slate-300 text-sm">
