@@ -4,9 +4,12 @@ Stripe subscriptions, checkout sessions, customer portal, and webhooks.
 """
 
 import os
+import ssl
 from datetime import datetime
 from typing import Optional
 
+import aiohttp
+import certifi
 import stripe
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
@@ -22,6 +25,11 @@ from ..dependencies.usage_gate import (
 
 logger = get_logger(__name__)
 router = APIRouter()
+
+
+def _ssl_context() -> ssl.SSLContext:
+    """Return certifi SSL context (fixes macOS cert verification for aiohttp)."""
+    return ssl.create_default_context(cafile=certifi.where())
 
 # Stripe configuration
 stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
@@ -121,8 +129,6 @@ async def _upsert_subscription(  # pylint: disable=too-many-arguments
 
     if existing:
         # PATCH existing record
-        import aiohttp
-
         supabase_url = os.environ.get("SUPABASE_URL")
         supabase_key = os.environ.get("SUPABASE_SERVICE_KEY")
         url = f"{supabase_url}/rest/v1/subscriptions?user_id=eq.{user_id}"
@@ -131,7 +137,8 @@ async def _upsert_subscription(  # pylint: disable=too-many-arguments
             "Authorization": f"Bearer {supabase_key}",
             "Content-Type": "application/json",
         }
-        async with aiohttp.ClientSession() as session:
+        connector = aiohttp.TCPConnector(ssl=_ssl_context())
+        async with aiohttp.ClientSession(connector=connector) as session:
             async with session.patch(url, headers=headers, json=body) as resp:
                 if resp.status not in (200, 204):
                     error = await resp.text()
@@ -179,14 +186,39 @@ async def create_checkout_session(
         metadata={"user_id": user_id, "tier": body.tier},
     )
 
-    # Store customer ID so we can look it up later
-    await _upsert_subscription(
-        user_id=user_id,
-        stripe_customer_id=customer_id,
-        stripe_subscription_id=None,
-        tier="free",
-        status="incomplete",
+    # Persist the Stripe customer ID without overwriting an active subscription.
+    # An active subscriber upgrading to a higher tier should NOT be downgraded to free
+    # just because a new checkout session was created.
+    existing = await _supabase_get(
+        "subscriptions",
+        f"user_id=eq.{user_id}&select=tier,status&limit=1",
     )
+    is_active = bool(existing and existing[0].get("status") == "active")
+    if not is_active:
+        await _upsert_subscription(
+            user_id=user_id,
+            stripe_customer_id=customer_id,
+            stripe_subscription_id=None,
+            tier="free",
+            status="incomplete",
+        )
+    else:
+        # Only update the customer ID (in case it changed), leave tier/status intact
+        supabase_url = os.environ.get("SUPABASE_URL")
+        supabase_key = os.environ.get("SUPABASE_SERVICE_KEY")
+        url = f"{supabase_url}/rest/v1/subscriptions?user_id=eq.{user_id}"
+        headers = {
+            "apikey": supabase_key,
+            "Authorization": f"Bearer {supabase_key}",
+            "Content-Type": "application/json",
+        }
+        connector = aiohttp.TCPConnector(ssl=_ssl_context())
+        async with aiohttp.ClientSession(connector=connector) as http_session:
+            async with http_session.patch(
+                url, headers=headers, json={"stripe_customer_id": customer_id}
+            ) as resp:
+                if resp.status not in (200, 204):
+                    logger.warning(f"Could not update customer_id for {user_id}")
 
     return CheckoutResponse(checkout_url=session.url)
 
@@ -322,9 +354,8 @@ async def force_activate_pro(
     }
     payload = {"tier": tier, "status": "active", "updated_at": "now()"}
 
-    import aiohttp
-
-    async with aiohttp.ClientSession() as session:
+    connector = aiohttp.TCPConnector(ssl=_ssl_context())
+    async with aiohttp.ClientSession(connector=connector) as session:
         async with session.patch(url, headers=headers, json=payload) as resp:
             if resp.status not in (200, 204):
                 error = await resp.text()

@@ -68,7 +68,15 @@ SELECT
     'user_health_profile' as table_name,
     COUNT(*) as record_count
 FROM user_health_profile
-WHERE user_id = '22144dc2-f352-48aa-b34b-aebfa9f7e638';
+WHERE user_id = '22144dc2-f352-48aa-b34b-aebfa9f7e638'
+
+UNION ALL
+
+SELECT
+    'profiles' as table_name,
+    COUNT(*) as record_count
+FROM public.profiles
+WHERE id = '22144dc2-f352-48aa-b34b-aebfa9f7e638';
 
 -- ============================================================================
 -- DELETE OPERATIONS (in correct order to respect foreign keys)
@@ -105,6 +113,10 @@ WHERE user_id = '22144dc2-f352-48aa-b34b-aebfa9f7e638';
 -- Delete user health profile
 DELETE FROM user_health_profile
 WHERE user_id = '22144dc2-f352-48aa-b34b-aebfa9f7e638';
+
+-- Delete profiles row (leave auth.users intact — only wipe demo profile data)
+DELETE FROM public.profiles
+WHERE id = '22144dc2-f352-48aa-b34b-aebfa9f7e638';
 
 -- ============================================================================
 -- VERIFICATION - Show counts AFTER cleanup
@@ -172,6 +184,14 @@ SELECT
     'user_health_profile' as table_name,
     COUNT(*) as record_count
 FROM user_health_profile
-WHERE user_id = '22144dc2-f352-48aa-b34b-aebfa9f7e638';
+WHERE user_id = '22144dc2-f352-48aa-b34b-aebfa9f7e638'
+
+UNION ALL
+
+SELECT
+    'profiles' as table_name,
+    COUNT(*) as record_count
+FROM public.profiles
+WHERE id = '22144dc2-f352-48aa-b34b-aebfa9f7e638';
 
 SELECT '✅ Cleanup complete! All demo data deleted.' as status;
