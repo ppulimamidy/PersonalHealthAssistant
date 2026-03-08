@@ -142,12 +142,12 @@ export default function SharePage() {
             {data.profile && (
               <Section title="Profile">
                 <Row label="Age" value={calcAge(data.profile.date_of_birth as string)} />
-                {data.profile.biological_sex && (
+                {data.profile.biological_sex != null ? (
                   <Row label="Biological Sex" value={String(data.profile.biological_sex)} />
-                )}
-                {data.profile.weight_kg && (
-                  <Row label="Weight" value={`${data.profile.weight_kg} kg`} />
-                )}
+                ) : null}
+                {data.profile.weight_kg != null ? (
+                  <Row label="Weight" value={`${Number(data.profile.weight_kg)} kg`} />
+                ) : null}
                 {data.conditions && data.conditions.length > 0 && (
                   <div className="mt-3">
                     <p className="text-xs mb-2" style={{ color: '#526380' }}>Conditions</p>
