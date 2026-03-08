@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { ouraService } from '@/services/oura';
@@ -19,9 +19,14 @@ import {
   Pill,
   BarChart2,
   Activity,
+  Users,
+  ClipboardList,
+  Bell,
+  Stethoscope,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { supabase } from '@/lib/supabase';
+import type { UserRole } from '@/types';
 
 // ── Goal options ─────────────────────────────────────────────────────────────
 
@@ -67,7 +72,7 @@ const CONDITION_CATEGORY_MAP: Record<string, string> = {
 
 // ── Step indicator ────────────────────────────────────────────────────────────
 
-function StepIndicator({ step }: Readonly<{ step: number }>) {
+function PatientStepIndicator({ step }: Readonly<{ step: number }>) {
   const steps = [
     { label: 'Account', num: 0 },
     { label: 'Goals', num: 1 },
@@ -90,17 +95,17 @@ function StepIndicator({ step }: Readonly<{ step: number }>) {
           icon = <Circle className="w-5 h-5 text-slate-300 dark:text-slate-600" />;
         }
         return (
-        <div key={s.num} className="flex items-center gap-3">
-          <div className="flex items-center gap-1.5">
-            {icon}
-            <span className={`text-xs font-medium ${s.num <= step ? 'text-slate-900 dark:text-slate-100' : 'text-slate-400 dark:text-slate-500'}`}>
-              {s.label}
-            </span>
+          <div key={s.num} className="flex items-center gap-3">
+            <div className="flex items-center gap-1.5">
+              {icon}
+              <span className={`text-xs font-medium ${s.num <= step ? 'text-slate-900 dark:text-slate-100' : 'text-slate-400 dark:text-slate-500'}`}>
+                {s.label}
+              </span>
+            </div>
+            {i < steps.length - 1 && (
+              <div className="w-8 h-0.5 bg-slate-200 dark:bg-slate-700" />
+            )}
           </div>
-          {i < steps.length - 1 && (
-            <div className="w-8 h-0.5 bg-slate-200 dark:bg-slate-700" />
-          )}
-        </div>
         );
       })}
     </div>
@@ -116,10 +121,13 @@ const OuraLogo = () => (
   </svg>
 );
 
-// ── Main page ─────────────────────────────────────────────────────────────────
+// ── Main page (inner, uses searchParams) ─────────────────────────────────────
 
-export default function OnboardingPage() {
+function OnboardingContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const roleParam = (searchParams.get('role') as UserRole | null) ?? 'patient';
+
   const { user, setProfile, setOuraConnection } = useAuthStore();
   const [step, setStep] = useState(1);
   const [isSaving, setIsSaving] = useState(false);
@@ -129,7 +137,32 @@ export default function OnboardingPage() {
   const [selectedConditions, setSelectedConditions] = useState<string[]>([]);
   const [noConditions, setNoConditions] = useState(false);
 
-  // ── Step 1: Goals ────────────────────────────────────────────────────────
+  // ── Shared: mark onboarding complete ─────────────────────────────────────
+
+  const markComplete = async () => {
+    if (!user) return;
+    const { error } = await supabase
+      .from('profiles')
+      .update({ onboarding_completed_at: new Date().toISOString() })
+      .eq('id', user.id);
+    if (error) console.warn('profiles onboarding_completed_at:', error.message);
+    setProfile({ profile_completed: true });
+  };
+
+  // ── Provider onboarding ───────────────────────────────────────────────────
+
+  const handleProviderComplete = async () => {
+    setIsSaving(true);
+    try {
+      await markComplete();
+      toast.success('Provider account ready!');
+      router.push('/patients');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // ── Patient/Caregiver: Step 1 — Goals ────────────────────────────────────
 
   const toggleGoal = (value: string) => {
     setSelectedGoals((prev) =>
@@ -141,14 +174,12 @@ export default function OnboardingPage() {
     if (!user) return;
     setIsSaving(true);
     try {
-      // Persist to profiles.primary_goals
       const { error: profileErr } = await supabase
         .from('profiles')
         .update({ primary_goals: selectedGoals })
         .eq('id', user.id);
       if (profileErr) console.warn('profiles goals update:', profileErr.message);
 
-      // Upsert user_health_profile.health_goals
       const { error: uhpErr } = await supabase
         .from('user_health_profile')
         .upsert({ user_id: user.id, health_goals: selectedGoals }, { onConflict: 'user_id' });
@@ -162,7 +193,7 @@ export default function OnboardingPage() {
     }
   };
 
-  // ── Step 2: Conditions ───────────────────────────────────────────────────
+  // ── Patient/Caregiver: Step 2 — Conditions ───────────────────────────────
 
   const toggleCondition = (name: string) => {
     setNoConditions(false);
@@ -191,14 +222,7 @@ export default function OnboardingPage() {
         if (error) console.warn('health_conditions insert:', error.message);
       }
 
-      // Mark onboarding complete
-      const { error: profileErr } = await supabase
-        .from('profiles')
-        .update({ onboarding_completed_at: new Date().toISOString() })
-        .eq('id', user.id);
-      if (profileErr) console.warn('profiles onboarding_completed_at:', profileErr.message);
-
-      setProfile({ profile_completed: true });
+      await markComplete();
       setStep(3);
     } catch (e: unknown) {
       toast.error(e instanceof Error ? e.message : 'Failed to save conditions');
@@ -207,7 +231,7 @@ export default function OnboardingPage() {
     }
   };
 
-  // ── Step 3: Oura ─────────────────────────────────────────────────────────
+  // ── Patient/Caregiver: Step 3 — Oura ─────────────────────────────────────
 
   const handleConnectOura = async () => {
     setIsConnecting(true);
@@ -236,6 +260,80 @@ export default function OnboardingPage() {
 
   // ── Render ────────────────────────────────────────────────────────────────
 
+  // Provider flow — single welcome screen
+  if (roleParam === 'provider') {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-900 px-4 py-12">
+        <div className="w-full max-w-lg">
+          <div className="text-center mb-6">
+            <Activity className="w-10 h-10 text-primary-600 dark:text-primary-400 mx-auto" />
+            <h1 className="mt-4 text-2xl font-bold text-slate-900 dark:text-slate-100">
+              You&apos;re set up as a Healthcare Provider
+            </h1>
+            <p className="mt-1 text-slate-500 dark:text-slate-400 text-sm">
+              Here&apos;s what you can do with your provider account.
+            </p>
+          </div>
+
+          <Card>
+            <div className="space-y-4 mb-8">
+              {[
+                {
+                  icon: Users,
+                  title: 'Patient Roster',
+                  desc: 'Patients share access via a secure token. Their summaries appear in your Patients tab.',
+                },
+                {
+                  icon: ClipboardList,
+                  title: 'Review Care Plans & Labs',
+                  desc: 'See active care plans, goal progress, and recent lab results for each patient.',
+                },
+                {
+                  icon: Bell,
+                  title: 'Out-of-Range Alerts',
+                  desc: "Get notified when a patient's tracked metric drifts outside their care plan target.",
+                },
+                {
+                  icon: Stethoscope,
+                  title: 'Pin Doctor Instructions',
+                  desc: 'Add pinned goals to a patient\'s plan — they appear highlighted in their Health tab.',
+                },
+              ].map(({ icon: Icon, title, desc }) => (
+                <div key={title} className="flex items-start gap-4 p-4 bg-slate-50 dark:bg-slate-700/50 rounded-xl">
+                  <div className="w-10 h-10 rounded-lg bg-primary-100 dark:bg-primary-900/30 flex items-center justify-center flex-shrink-0">
+                    <Icon className="w-5 h-5 text-primary-600 dark:text-primary-400" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{title}</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{desc}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <Button onClick={handleProviderComplete} className="w-full" isLoading={isSaving}>
+              Go to Patients Dashboard
+              <ArrowRight className="w-5 h-5 ml-2" />
+            </Button>
+          </Card>
+        </div>
+      </div>
+    );
+  }
+
+  // Patient / Caregiver flow — existing goals → conditions → device
+  const titles: Record<number, string> = {
+    1: roleParam === 'caregiver' ? 'What are your health goals?' : 'What are your health goals?',
+    2: roleParam === 'caregiver' ? 'Any health conditions to track?' : 'Any health conditions to track?',
+    3: 'Connect your Oura Ring',
+  };
+
+  const subtitles: Record<number, string> = {
+    1: 'Select all that apply — you can change these later.',
+    2: 'This helps us tailor insights to what matters most to you.',
+    3: 'Sync your sleep, activity, and readiness data.',
+  };
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-900 px-4 py-12">
       <div className="w-full max-w-lg">
@@ -243,18 +341,14 @@ export default function OnboardingPage() {
         <div className="text-center mb-6">
           <Activity className="w-10 h-10 text-primary-600 dark:text-primary-400 mx-auto" />
           <h1 className="mt-4 text-2xl font-bold text-slate-900 dark:text-slate-100">
-            {step === 1 && 'What are your health goals?'}
-            {step === 2 && 'Any health conditions to track?'}
-            {step === 3 && 'Connect your Oura Ring'}
+            {titles[step]}
           </h1>
           <p className="mt-1 text-slate-500 dark:text-slate-400 text-sm">
-            {step === 1 && 'Select all that apply — you can change these later.'}
-            {step === 2 && 'This helps us tailor insights to what matters most to you.'}
-            {step === 3 && 'Sync your sleep, activity, and readiness data.'}
+            {subtitles[step]}
           </p>
         </div>
 
-        <StepIndicator step={step} />
+        <PatientStepIndicator step={step} />
 
         {/* Step 1 — Goals */}
         {step === 1 && (
@@ -405,5 +499,15 @@ export default function OnboardingPage() {
         )}
       </div>
     </div>
+  );
+}
+
+// ── Suspense wrapper (required for useSearchParams in Next.js App Router) ────
+
+export default function OnboardingPage() {
+  return (
+    <Suspense>
+      <OnboardingContent />
+    </Suspense>
   );
 }

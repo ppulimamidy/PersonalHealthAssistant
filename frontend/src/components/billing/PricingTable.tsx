@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { Check, X } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { billingService } from '@/services/billing';
@@ -25,7 +26,7 @@ const tiers: PricingTier[] = [
     price: '$0',
     period: 'forever',
     description: 'Get started with basic health tracking',
-    cta: 'Current Plan',
+    cta: 'Get Started Free',
     features: [
       { text: 'Oura Ring data sync', included: true },
       { text: 'Health timeline view', included: true },
@@ -73,9 +74,33 @@ const tiers: PricingTier[] = [
   },
 ];
 
-export function PricingTable() {
+interface PricingTableProps {
+  /** 'light' (default, used inside the app) or 'dark' (for the landing page) */
+  variant?: 'light' | 'dark';
+  /** When true, Free tier shows a "Get Started Free" link instead of a disabled "Current Plan" button */
+  isPublicPage?: boolean;
+}
+
+const DARK = {
+  card:         { backgroundColor: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' },
+  cardPopular:  { backgroundColor: 'rgba(0,212,170,0.04)',  border: '1px solid rgba(0,212,170,0.35)' },
+  title:        { color: '#E8EDF5' },
+  desc:         { color: '#8B97A8' },
+  price:        { color: '#E8EDF5' },
+  period:       { color: '#526380' },
+  featureOn:    { color: '#8B97A8' },
+  featureOff:   { color: '#526380' },
+  badge:        { backgroundColor: '#00D4AA', color: '#000' },
+  btnFree:      { backgroundColor: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.10)', color: '#8B97A8' },
+  btnPopular:   { backgroundColor: '#00D4AA', color: '#000' },
+  btnSecondary: { backgroundColor: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.10)', color: '#E8EDF5' },
+};
+
+export function PricingTable({ variant = 'light', isPublicPage = false }: PricingTableProps) {
   const [loading, setLoading] = useState<string | null>(null);
   const currentTier = useSubscriptionStore((s) => s.getTier());
+
+  const dark = variant === 'dark';
 
   const handleUpgrade = async (tier: SubscriptionTier) => {
     if (tier === 'free' || tier === currentTier) return;
@@ -91,9 +116,75 @@ export function PricingTable() {
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-5xl mx-auto">
       {tiers.map((tier) => {
-        const isCurrent = tier.id === currentTier;
+        const isCurrent = !isPublicPage && tier.id === currentTier;
         const isPopular = tier.popular;
 
+        if (dark) {
+          // ── Dark variant (landing page) ──────────────────────────────────
+          return (
+            <div
+              key={tier.id}
+              className="relative rounded-2xl p-6 flex flex-col"
+              style={isPopular ? DARK.cardPopular : DARK.card}
+            >
+              {isPopular && (
+                <div className="absolute -top-3 left-1/2 -translate-x-1/2 text-xs font-semibold px-3 py-1 rounded-full" style={DARK.badge}>
+                  Most Popular
+                </div>
+              )}
+
+              <div className="mb-4">
+                <h3 className="text-lg font-semibold" style={DARK.title}>{tier.name}</h3>
+                <p className="text-sm mt-1" style={DARK.desc}>{tier.description}</p>
+              </div>
+
+              <div className="mb-6">
+                <span className="text-4xl font-bold" style={DARK.price}>{tier.price}</span>
+                <span className="ml-1" style={DARK.period}>{tier.period}</span>
+              </div>
+
+              <ul className="space-y-3 mb-8 flex-1">
+                {tier.features.map((feature, i) => (
+                  <li key={i} className="flex items-start gap-2">
+                    {feature.included ? (
+                      <Check className="w-4 h-4 text-green-400 mt-0.5 shrink-0" />
+                    ) : (
+                      <X className="w-4 h-4 mt-0.5 shrink-0" style={{ color: '#526380' }} />
+                    )}
+                    <span className="text-sm" style={feature.included ? DARK.featureOn : DARK.featureOff}>
+                      {feature.text}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+
+              {/* Free tier on public page → Get Started Free link */}
+              {tier.id === 'free' && isPublicPage ? (
+                <Link href="/signup" className="block w-full">
+                  <button className="w-full py-2.5 rounded-xl text-sm font-semibold transition-all hover:brightness-110" style={DARK.btnFree}>
+                    Get Started Free
+                  </button>
+                </Link>
+              ) : (
+                <button
+                  className="w-full py-2.5 rounded-xl text-sm font-semibold transition-all hover:brightness-110 disabled:opacity-40 disabled:cursor-not-allowed"
+                  style={isPopular ? DARK.btnPopular : DARK.btnSecondary}
+                  disabled={isCurrent || tier.id === 'free'}
+                  onClick={() => handleUpgrade(tier.id)}
+                >
+                  {loading === tier.id ? (
+                    <span className="inline-flex items-center gap-2">
+                      <span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                      Loading…
+                    </span>
+                  ) : isCurrent ? 'Current Plan' : tier.cta}
+                </button>
+              )}
+            </div>
+          );
+        }
+
+        // ── Light variant (default, inside the app) ─────────────────────────
         return (
           <div
             key={tier.id}
@@ -127,13 +218,7 @@ export function PricingTable() {
                   ) : (
                     <X className="w-4 h-4 text-slate-300 dark:text-slate-600 mt-0.5 shrink-0" />
                   )}
-                  <span
-                    className={`text-sm ${
-                      feature.included
-                        ? 'text-slate-700 dark:text-slate-300'
-                        : 'text-slate-400 dark:text-slate-500'
-                    }`}
-                  >
+                  <span className={`text-sm ${feature.included ? 'text-slate-700 dark:text-slate-300' : 'text-slate-400 dark:text-slate-500'}`}>
                     {feature.text}
                   </span>
                 </li>

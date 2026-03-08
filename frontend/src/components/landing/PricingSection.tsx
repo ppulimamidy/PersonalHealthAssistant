@@ -15,7 +15,7 @@ export function PricingSection() {
             Start free. Upgrade when you need more.
           </p>
         </div>
-        <PricingTable />
+        <PricingTable variant="dark" isPublicPage />
       </div>
     </section>
   );

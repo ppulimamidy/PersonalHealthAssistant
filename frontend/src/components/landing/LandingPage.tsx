@@ -7,7 +7,7 @@ import {
   Activity,
   Brain,
   FileText,
-  Shield,
+  Pill,
   Zap,
   Check,
   ArrowRight,
@@ -17,6 +17,11 @@ import {
   TrendingUp,
   Cpu,
   ChevronRight,
+  FlaskConical,
+  Users,
+  Target,
+  User,
+  Stethoscope,
 } from 'lucide-react';
 import { PricingSection } from './PricingSection';
 import { BetaSignupForm } from './BetaSignupForm';
@@ -46,37 +51,58 @@ const features = [
   {
     icon: Brain,
     title: 'AI-Powered Insights',
-    description: 'Personalised insights that explain the "why" behind your trends — not a wall of charts.',
+    description: 'Personalised insights that explain the "why" behind your trends — connecting sleep, glucose, symptoms, and medications into one picture.',
     color: 'text-violet-400',
     bg: 'rgba(139,92,246,0.08)',
   },
   {
-    icon: Utensils,
-    title: 'Nutrition Tracking',
-    description: 'Log meals by photo scan. Get calories, macros, and AI-analysed meal patterns automatically.',
-    color: 'text-orange-400',
-    bg: 'rgba(251,146,60,0.08)',
+    icon: FlaskConical,
+    title: 'Lab Results & Biomarkers',
+    description: 'Enter or scan your labs. AI flags abnormal values instantly and tracks every biomarker over time — glucose, LDL, TSH, and 50+ more.',
+    color: 'text-cyan-400',
+    bg: 'rgba(34,211,238,0.08)',
+  },
+  {
+    icon: Target,
+    title: 'Care Plans & Goals',
+    description: 'Set clinical care plan targets — weight, adherence, blood pressure. Track progress daily. Doctors can prescribe goals directly to your app.',
+    color: 'text-pink-400',
+    bg: 'rgba(244,114,182,0.08)',
   },
   {
     icon: FileText,
     title: 'Doctor Visit Prep',
-    description: 'Generate a comprehensive, clinician-ready summary before every appointment.',
+    description: 'Generate a clinician-ready 30-day summary before every appointment — adherence stats, lab highlights, AI-suggested questions. One click, PDF ready.',
     color: 'text-blue-400',
     bg: 'rgba(96,165,250,0.08)',
   },
   {
-    icon: Sparkles,
-    title: 'AI Health Agents',
-    description: '5 specialised agents — Nutrition Coach, Sleep Analyst, Medication Guide, and more.',
-    color: 'text-yellow-400',
-    bg: 'rgba(250,204,21,0.08)',
+    icon: Users,
+    title: 'Care Team Sharing',
+    description: 'Share your full health record with your doctor, nutritionist, or family — granular permissions, no account required on their end. Revoke any time.',
+    color: 'text-indigo-400',
+    bg: 'rgba(129,140,248,0.08)',
   },
   {
-    icon: Shield,
-    title: 'Privacy First',
-    description: 'Your data stays encrypted and private. We never sell or share your health information.',
-    color: 'text-green-400',
-    bg: 'rgba(74,222,128,0.08)',
+    icon: Utensils,
+    title: 'Nutrition Tracking',
+    description: 'Log meals by photo scan. Get calories, macros, and AI-analysed meal patterns — including correlations with your symptoms and energy levels.',
+    color: 'text-orange-400',
+    bg: 'rgba(251,146,60,0.08)',
+  },
+  {
+    icon: Pill,
+    title: 'Medications & Symptoms',
+    description: 'Track every medication, dosage, and adherence streak. Log symptoms with severity and triggers. AI surfaces correlations between what you take and how you feel.',
+    color: 'text-red-400',
+    bg: 'rgba(248,113,113,0.08)',
+  },
+  {
+    icon: Sparkles,
+    title: 'AI Health Agents',
+    description: '5 specialised agents — Cardiologist, Nutritionist, Sleep Analyst, Endocrinologist, and more. Ask anything, get evidence-backed answers.',
+    color: 'text-yellow-400',
+    bg: 'rgba(250,204,21,0.08)',
   },
 ];
 
@@ -95,14 +121,14 @@ const demoSteps = [
     time: '60–120 s',
     title: 'Your health at a glance — scored and explained',
     description: 'See today\'s sleep, activity, and readiness scores. The AI surfaces 3 high-signal insights: what changed, why it matters, and what to watch.',
-    ctas: ['Sleep: 85', 'Activity: 92', 'Readiness: 78'],
+    ctas: ['Sleep breakdown', '14-day trend', 'AI explains why'],
   },
   {
     label: 'Doctor Prep',
     time: '120–180 s',
     title: 'One-click report for your next appointment',
     description: 'Generate a clinician-ready summary of your last 30 days. Share trends, medications, symptoms, and suggested questions — in seconds.',
-    ctas: ['Export PDF', 'Share with doctor', 'View Health Twin'],
+    ctas: ['Export PDF', 'Share with doctor', 'Share with family'],
   },
 ];
 
@@ -114,7 +140,7 @@ function DemoStep0() {
       {/* Greeting row */}
       <div>
         <p className="text-lg font-semibold" style={{ color: TEXT_1, fontFamily: 'Syne, sans-serif' }}>Good morning, Sarah</p>
-        <p className="text-xs" style={{ color: TEXT_3 }}>Saturday, March 8</p>
+        <p className="text-xs" style={{ color: TEXT_3 }}>Sunday, March 8</p>
       </div>
       {/* Connect device card */}
       <div className="rounded-xl p-4 flex items-center justify-between" style={{ backgroundColor: 'rgba(255,255,255,0.03)', border: `1px solid ${BORDER}` }}>
@@ -270,6 +296,50 @@ function DemoStep2() {
 
 const DEMO_PANELS = [DemoStep0, DemoStep1, DemoStep2];
 
+// ── Who It's For data ────────────────────────────────────────────────────────
+
+const WHO_ITS_FOR = [
+  {
+    icon: User,
+    title: 'Patients',
+    subtitle: 'Managing your own health',
+    points: [
+      'Wearable + labs + symptoms in one place',
+      'AI explains what your data means',
+      'Doctor visit prep in one click',
+      'Care plan goals — set by you or your provider',
+    ],
+    color: ACCENT,
+    bg: ACCENT_BG,
+  },
+  {
+    icon: Users,
+    title: 'Caregivers',
+    subtitle: 'Supporting a loved one',
+    points: [
+      'View health data your family member shares',
+      'See their medications, labs, and symptoms',
+      'Dedicated Family tab in your dashboard',
+      'Privacy-first: revocable access at any time',
+    ],
+    color: '#818cf8',
+    bg: 'rgba(129,140,248,0.10)',
+  },
+  {
+    icon: Stethoscope,
+    title: 'Healthcare Providers',
+    subtitle: 'Monitoring your patients',
+    points: [
+      'Patients share access via a secure token',
+      'Review care plans, labs, and goal progress',
+      'Alerts when metrics drift out of range',
+      'Pin clinical instructions to the patient app',
+    ],
+    color: '#60a5fa',
+    bg: 'rgba(96,165,250,0.10)',
+  },
+];
+
 // ── Main Component ───────────────────────────────────────────────────────────
 
 export function LandingPage() {
@@ -294,7 +364,7 @@ export function LandingPage() {
               <button className="text-sm font-medium" style={{ color: TEXT_2 }}>Log in</button>
             </Link>
             <Link href="/signup">
-              <button className="px-4 py-1.5 rounded-lg text-sm font-semibold transition-all" style={{ backgroundColor: ACCENT, color: '#000' }}>
+              <button className="px-4 py-1.5 rounded-lg text-sm font-semibold transition-all hover:brightness-110" style={{ backgroundColor: ACCENT, color: '#000' }}>
                 Get Started
               </button>
             </Link>
@@ -316,7 +386,7 @@ export function LandingPage() {
             <span style={{ color: ACCENT }}>before</span> it becomes a problem
           </h1>
           <p className="text-xl max-w-2xl mx-auto mb-10" style={{ color: TEXT_2 }}>
-            Turn wearable data, symptoms, and lab results into clear insights you can actually bring to your doctor.
+            Your wearables, lab results, symptoms, and medications — connected by AI into a single picture of your health.
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
             <Link href="/signup">
@@ -330,6 +400,20 @@ export function LandingPage() {
                 See the 3-minute demo
               </button>
             </a>
+          </div>
+          {/* Role pills */}
+          <div className="flex items-center justify-center gap-2 mt-8 flex-wrap">
+            <span className="text-xs" style={{ color: TEXT_3 }}>Built for:</span>
+            {[
+              { label: 'Patients', icon: User },
+              { label: 'Caregivers', icon: Users },
+              { label: 'Healthcare Providers', icon: Stethoscope },
+            ].map(({ label, icon: Icon }) => (
+              <span key={label} className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium" style={{ backgroundColor: 'rgba(255,255,255,0.04)', border: `1px solid ${BORDER_MED}`, color: TEXT_2 }}>
+                <Icon className="w-3 h-3" />
+                {label}
+              </span>
+            ))}
           </div>
           <p className="mt-4 text-xs" style={{ color: TEXT_3 }}>Not medical advice. Designed to support better clinician conversations.</p>
         </div>
@@ -438,8 +522,47 @@ export function LandingPage() {
         </div>
       </section>
 
-      {/* ── How It Works ────────────────────────────────────────────────── */}
+      {/* ── Who It's For ────────────────────────────────────────────────── */}
       <section className="py-20 px-6">
+        <div className="max-w-6xl mx-auto">
+          <div className="text-center mb-12">
+            <p className="text-xs font-semibold uppercase tracking-widest mb-3" style={{ color: ACCENT }}>Who it&apos;s for</p>
+            <h2 className="text-4xl font-bold mb-4" style={{ fontFamily: 'Syne, sans-serif', color: TEXT_1 }}>One platform, three experiences</h2>
+            <p className="text-lg" style={{ color: TEXT_2 }}>Whether you&apos;re managing your own health, supporting someone you love, or monitoring a patient panel</p>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {WHO_ITS_FOR.map(({ icon: Icon, title, subtitle, points, color, bg }) => (
+              <div key={title} className="rounded-2xl p-6" style={{ backgroundColor: 'rgba(255,255,255,0.02)', border: `1px solid rgba(255,255,255,0.07)` }}>
+                <div className="w-12 h-12 rounded-xl flex items-center justify-center mb-4" style={{ backgroundColor: bg }}>
+                  <Icon className="w-6 h-6" style={{ color }} />
+                </div>
+                <p className="text-xl font-bold mb-1" style={{ color: TEXT_1, fontFamily: 'Syne, sans-serif' }}>{title}</p>
+                <p className="text-sm mb-5" style={{ color: TEXT_3 }}>{subtitle}</p>
+                <ul className="space-y-2.5">
+                  {points.map((pt) => (
+                    <li key={pt} className="flex items-start gap-2.5">
+                      <div className="w-4 h-4 rounded-full flex-shrink-0 flex items-center justify-center mt-0.5" style={{ backgroundColor: bg }}>
+                        <Check className="w-2.5 h-2.5" style={{ color }} />
+                      </div>
+                      <span className="text-sm" style={{ color: TEXT_2 }}>{pt}</span>
+                    </li>
+                  ))}
+                </ul>
+                <div className="mt-6">
+                  <Link href="/signup">
+                    <button className="w-full py-2 rounded-xl text-sm font-semibold transition-all hover:brightness-110" style={{ backgroundColor: bg, color, border: `1px solid ${color}33` }}>
+                      Get started →
+                    </button>
+                  </Link>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ── How It Works ────────────────────────────────────────────────── */}
+      <section className="py-20 px-6" style={{ backgroundColor: BG_SURFACE }}>
         <div className="max-w-4xl mx-auto">
           <div className="text-center mb-14">
             <p className="text-xs font-semibold uppercase tracking-widest mb-3" style={{ color: ACCENT }}>How it works</p>
@@ -447,9 +570,9 @@ export function LandingPage() {
           </div>
           <div className="space-y-10">
             {[
-              { n: '1', title: 'Sign Up & Connect Your Device', body: 'Create your account and authorise access to your Oura Ring. Or skip the device and log manually — it still works.', badge: '30 seconds' },
-              { n: '2', title: 'View Your Health Dashboard', body: 'See your sleep, activity, and readiness trends. Log meals with a photo, track symptoms, and let AI find patterns you\'d miss.', badge: '1 minute' },
-              { n: '3', title: 'Get Insights & Prep for Visits', body: 'We surface 3 high-signal insights: what changed, why it might matter, and what questions to ask your doctor.', badge: '2 minutes' },
+              { n: '1', title: 'Sign Up & Choose Your Role', body: 'Create your account in 30 seconds and tell us who you are — patient, caregiver, or healthcare provider. Each role gets a tailored dashboard from the start.', badge: '30 seconds' },
+              { n: '2', title: 'Connect & Start Logging', body: 'Link your Oura Ring or start logging manually. Add medications, health conditions, and log meals by photo. It all feeds a single, unified health picture.', badge: '1 minute' },
+              { n: '3', title: 'Get Insights & Prep for Visits', body: 'We surface 3 high-signal insights: what changed, why it might matter, and what questions to ask your doctor. Share your full record with your care team in one click.', badge: '2 minutes' },
             ].map(({ n, title, body, badge }) => (
               <div key={n} className="flex items-start gap-6">
                 <div className="flex flex-col items-center gap-2 flex-shrink-0">
@@ -469,7 +592,7 @@ export function LandingPage() {
       </section>
 
       {/* ── Why HealthAssist ────────────────────────────────────────────── */}
-      <section className="py-20 px-6 relative overflow-hidden" style={{ backgroundColor: BG_SURFACE }}>
+      <section className="py-20 px-6 relative overflow-hidden">
         <div className="absolute inset-0 pointer-events-none" style={{ background: 'radial-gradient(ellipse 60% 50% at 50% 50%, rgba(0,212,170,0.05) 0%, transparent 70%)' }} />
         <div className="max-w-4xl mx-auto relative">
           <div className="text-center mb-12">
@@ -477,12 +600,14 @@ export function LandingPage() {
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {[
-              'Connect Oura, log meals, or track symptoms — all in one place',
-              'Baseline vs recent comparison (14 days vs 30-day average)',
+              'Wearables, lab results, symptoms, and medications — all in one place',
+              'AI connects the dots across your entire health picture',
               '5 specialised AI health agents available 24/7',
-              'One-click doctor-ready health report',
-              'Nutrition scan from a photo — calories and macros in seconds',
-              'Privacy-first: encrypted, never sold, always yours',
+              'One-click doctor-ready report — PDF in seconds',
+              'Share your record with family or providers — no account needed on their end',
+              'Lab anomaly detection — flagged and explained the moment you log',
+              'Care plans with progress tracking — set by you or your doctor',
+              'Privacy-first: encrypted, row-level security, never sold',
             ].map((item) => (
               <div key={item} className="flex items-center gap-3 px-4 py-3 rounded-xl" style={{ backgroundColor: 'rgba(255,255,255,0.03)', border: `1px solid ${BORDER}` }}>
                 <div className="w-6 h-6 rounded-full flex-shrink-0 flex items-center justify-center" style={{ backgroundColor: ACCENT_BG }}>
@@ -519,8 +644,6 @@ export function LandingPage() {
             <span className="font-semibold" style={{ color: TEXT_1, fontFamily: 'Syne, sans-serif' }}>HealthAssist</span>
           </div>
           <div className="flex items-center gap-6 text-sm">
-            <a href="/privacy" style={{ color: TEXT_3 }} className="hover:text-white transition-colors">Privacy</a>
-            <a href="/terms" style={{ color: TEXT_3 }} className="hover:text-white transition-colors">Terms</a>
             <a href="mailto:hello@healthassist.app" style={{ color: TEXT_3 }} className="hover:text-white transition-colors">Contact</a>
           </div>
           <p className="text-xs" style={{ color: TEXT_3 }}>
