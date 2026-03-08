@@ -44,6 +44,14 @@ from .api.health_twin import router as health_twin_router
 from .api.medication_intelligence import router as medication_intelligence_router
 from .api.symptom_correlations import router as symptom_correlations_router
 from .api.specialist_agents import router as specialist_agents_router
+from .api.profile import router as profile_router
+from .api.export import router as export_router
+from .api.user_goals import router as goals_router
+from .api.weekly_checkins import router as weekly_checkins_router
+from .api.care_plans import router as care_plans_router
+from .api.sharing import router as sharing_router
+from .api.caregiver import router as caregiver_router
+from .api.notifications import router as notifications_router
 
 logger = get_logger(__name__)
 settings = get_settings()
@@ -174,6 +182,14 @@ app.include_router(
     prefix="/api/v1/specialist-agents",
     tags=["AI Agents"],
 )
+app.include_router(profile_router, prefix="/api/v1/profile", tags=["Profile"])
+app.include_router(export_router, prefix="/api/v1/export", tags=["Export"])
+app.include_router(goals_router, prefix="/api/v1/goals", tags=["Goals"])
+app.include_router(weekly_checkins_router, prefix="/api/v1/checkins", tags=["Check-ins"])
+app.include_router(care_plans_router, prefix="/api/v1/care-plans", tags=["Care Plans"])
+app.include_router(sharing_router, prefix="/api/v1/share", tags=["Care Team Sharing"])
+app.include_router(caregiver_router, prefix="/api/v1/caregiver", tags=["Caregiver"])
+app.include_router(notifications_router, prefix="/api/v1/notifications", tags=["Notifications"])
 
 
 @app.get("/health")

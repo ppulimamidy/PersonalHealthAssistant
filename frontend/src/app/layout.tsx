@@ -3,6 +3,7 @@ import { Syne, DM_Sans, DM_Mono } from 'next/font/google';
 import '@/styles/globals.css';
 import { Providers } from './providers';
 import { Toaster } from '@/components/ui/toaster';
+import { ServiceWorkerRegistration } from '@/components/ServiceWorkerRegistration';
 
 const syne = Syne({
   subsets: ['latin'],
@@ -29,6 +30,13 @@ const dmMono = DM_Mono({
 export const metadata: Metadata = {
   title: 'Personal Health Assistant',
   description: 'Your AI-powered personal health companion',
+  manifest: '/manifest.json',
+  themeColor: '#00D4AA',
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'black-translucent',
+    title: 'HealthAI',
+  },
 };
 
 export default function RootLayout({
@@ -39,6 +47,7 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${syne.variable} ${dmSans.variable} ${dmMono.variable}`}>
       <body className={dmSans.className}>
+        <ServiceWorkerRegistration />
         <Providers>{children}</Providers>
         <Toaster />
       </body>

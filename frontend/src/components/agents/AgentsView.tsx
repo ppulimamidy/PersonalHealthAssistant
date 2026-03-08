@@ -6,8 +6,8 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { agentsService } from '@/services/agents';
 import { useAuth } from '@/hooks/useAuth';
-import { Bot, Send, User, Sparkles, AlertCircle } from 'lucide-react';
-import type { AgentInfo, ChatMessage } from '@/types';
+import { Bot, Send, User, Sparkles, AlertCircle, PenSquare, History } from 'lucide-react';
+import type { AgentInfo, ChatMessage, AgentConversation } from '@/types';
 
 // Sample questions shown in empty state per agent type
 const SAMPLE_QUESTIONS: Record<string, string[]> = {
@@ -198,6 +198,14 @@ export function AgentsView() {
     refetchInterval: false,
   });
 
+  // Fetch recent conversations
+  const { data: conversations, refetch: refetchConversations } = useQuery({
+    queryKey: ['conversations'],
+    queryFn: agentsService.listConversations,
+    enabled: Boolean(user) && !isAuthLoading,
+    staleTime: 30_000,
+  });
+
   // Send message mutation
   const sendMessageMutation = useMutation({
     mutationFn: (msg: string) =>
@@ -212,6 +220,7 @@ export function AgentsView() {
       setMessage('');
       setError(null);
       queryClient.setQueryData(['conversation', data.id], data);
+      refetchConversations();
     },
     onError: (e: unknown) => {
       const msg = e instanceof Error ? e.message : 'Failed to send message';
@@ -223,6 +232,19 @@ export function AgentsView() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [conversation?.messages]);
+
+  const handleNewChat = () => {
+    setActiveConversation(null);
+    setMessage('');
+    setError(null);
+  };
+
+  const handleResumeConversation = (conv: AgentConversation) => {
+    setActiveConversation(conv.id);
+    const matched = agentsList.find((a: AgentInfo) => a.agent_name === conv.primary_agent_name);
+    if (matched) setSelectedAgent(matched.agent_type);
+    setError(null);
+  };
 
   const handleSend = (text?: string) => {
     const toSend = text ?? message;
@@ -256,7 +278,10 @@ export function AgentsView() {
   if (isAuthLoading || agentsLoading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
-        <div className="text-slate-500">Loading AI agents...</div>
+        <div className="flex flex-col items-center gap-3">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600" />
+          <p className="text-sm text-slate-500 dark:text-slate-400">Loading AI agents…</p>
+        </div>
       </div>
     );
   }
@@ -302,9 +327,10 @@ export function AgentsView() {
                     onClick={() => {
                       setSelectedAgent(agent.agent_type);
                       setActiveConversation(null);
+                      setError(null);
                     }}
                     className={`w-full text-left p-3 rounded-lg border transition-colors ${
-                      selectedAgent === agent.agent_type
+                      selectedAgent === agent.agent_type && !activeConversation
                         ? 'bg-primary-50 dark:bg-primary-900/20 border-primary-600 dark:border-primary-400'
                         : 'border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800'
                     }`}
@@ -321,6 +347,52 @@ export function AgentsView() {
                   </button>
                 ))}
               </div>
+
+              {/* Recent conversations */}
+              {conversations && conversations.length > 0 && (
+                <div className="mt-4 pt-4 border-t border-slate-200 dark:border-slate-700">
+                  <h4 className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-2">
+                    <History className="w-3.5 h-3.5" />
+                    Recent Chats
+                  </h4>
+                  <div className="space-y-1">
+                    {conversations.slice(0, 5).map((conv: AgentConversation) => {
+                      const firstUserMsg = conv.messages.find((m) => m.role === 'user');
+                      const isActive = conv.id === activeConversation;
+                      const agentType = agentsList.find(
+                        (a: AgentInfo) => a.agent_name === conv.primary_agent_name
+                      )?.agent_type ?? '';
+                      return (
+                        <button
+                          key={conv.id}
+                          onClick={() => handleResumeConversation(conv)}
+                          className={`w-full text-left p-2.5 rounded-lg border transition-colors ${
+                            isActive
+                              ? 'bg-primary-50 dark:bg-primary-900/20 border-primary-600 dark:border-primary-400'
+                              : 'border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800'
+                          }`}
+                        >
+                          <div className="text-xs font-medium text-slate-800 dark:text-slate-200 truncate">
+                            {getAgentIcon(agentType)} {conv.primary_agent_name}
+                          </div>
+                          {firstUserMsg && (
+                            <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                              {firstUserMsg.content.length > 42
+                                ? firstUserMsg.content.slice(0, 42) + '…'
+                                : firstUserMsg.content}
+                            </div>
+                          )}
+                          <div className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">
+                            {new Date(conv.last_message_at).toLocaleDateString('en-US', {
+                              month: 'short', day: 'numeric',
+                            })}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>
@@ -329,12 +401,25 @@ export function AgentsView() {
         <div className="lg:col-span-3">
           <Card className="h-[600px] flex flex-col">
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Bot className="w-5 h-5" />
-                {selectedAgent
-                  ? agentsList.find((a: AgentInfo) => a.agent_type === selectedAgent)?.agent_name ||
-                    'AI Assistant'
-                  : 'Select an agent to start chatting'}
+              <CardTitle className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Bot className="w-5 h-5" />
+                  {activeConversation
+                    ? (agentsList.find((a: AgentInfo) => a.agent_type === selectedAgent)?.agent_name || 'AI Assistant')
+                    : selectedAgent
+                    ? agentsList.find((a: AgentInfo) => a.agent_type === selectedAgent)?.agent_name || 'AI Assistant'
+                    : 'Select an agent to start chatting'}
+                </div>
+                {activeConversation && (
+                  <button
+                    onClick={handleNewChat}
+                    title="Start a new conversation"
+                    className="flex items-center gap-1 text-xs font-normal text-slate-500 dark:text-slate-400 hover:text-primary-600 dark:hover:text-primary-400 transition-colors"
+                  >
+                    <PenSquare className="w-3.5 h-3.5" />
+                    New Chat
+                  </button>
+                )}
               </CardTitle>
             </CardHeader>
             <CardContent className="flex-1 flex flex-col p-0 min-h-0">

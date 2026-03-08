@@ -9,7 +9,7 @@ Phase 3 of Health Intelligence Features
 
 import json
 import os
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 import anthropic
@@ -218,10 +218,15 @@ class Agent:
                     f"\n\nPERSONALIZATION RULES (mandatory — follow in every response):\n"
                     f"1. Always address the user as '{first_name}' — use their name naturally throughout.\n"
                     f"2. Your response MUST reference the specific health data listed above "
-                    f"(conditions, medications, symptoms, labs, meals) — never give generic advice when personal data is available.\n"
+                    f"(conditions, medications, symptoms, labs, meals, care plans) — never give generic advice when personal data is available.\n"
                     f"3. Open your response by briefly stating which of their data you are drawing from "
                     f"(e.g. 'Based on your recent symptoms and lab results, {first_name}...').\n"
-                    f"4. Make every recommendation directly relevant to their personal health profile."
+                    f"4. Make every recommendation directly relevant to their personal health profile.\n"
+                    f"5. If they have active treatment plans, check in on progress proactively — "
+                    f"especially if adherence is below 80% or a target metric is moving in the wrong direction. "
+                    f"Example: 'You\\'re 72% adherent on Metformin this month — your LDL data suggests the gap may be impacting results.'\n"
+                    f"6. If prior AI findings are listed, reference any that are directly relevant to the current question. "
+                    f"This closes the loop and makes advice feel continuous, not episodic."
                 )
                 system_prompt = (
                     f"{system_prompt}\n\nUser Health Profile:\n{context_summary}"
@@ -302,6 +307,59 @@ class Agent:
 
         if context.get("user_goals"):
             parts.append(f"Health goals: {', '.join(context['user_goals'])}")
+
+        # --- Care plans / treatment targets ---
+        if context.get("care_plans"):
+            plan_strs = []
+            for p in context["care_plans"]:
+                title = p.get("title", "Unnamed plan")
+                source_tag = " [Doctor-prescribed]" if p.get("source") == "doctor" else ""
+                target = ""
+                if p.get("target_value") is not None:
+                    target = f" — target: {p['target_value']} {p.get('target_unit') or ''}"
+                    if p.get("current_value") is not None:
+                        target += f" (current: {p['current_value']} {p.get('target_unit') or ''})"
+                if p.get("target_date"):
+                    target += f" by {p['target_date']}"
+                plan_strs.append(f"{title}{source_tag}{target}")
+            parts.append(f"Active treatment plans: {'; '.join(plan_strs)}")
+
+        # --- Medication adherence ---
+        if context.get("adherence_pct") is not None:
+            pct = context["adherence_pct"]
+            if pct < 60:
+                adherence_note = f"{pct}% (critically low — patient missing more than 4 in 10 doses)"
+            elif pct < 80:
+                adherence_note = f"{pct}% (below target — patient missing roughly 1 in 5 doses)"
+            else:
+                adherence_note = f"{pct}% (good)"
+            parts.append(f"Medication adherence (last 30 days): {adherence_note}")
+
+        # --- Wellbeing trend ---
+        wellbeing_parts = []
+        if context.get("avg_energy") is not None:
+            wellbeing_parts.append(f"energy {context['avg_energy']}/10")
+        if context.get("avg_mood") is not None:
+            wellbeing_parts.append(f"mood {context['avg_mood']}/10")
+        if context.get("avg_pain") is not None:
+            wellbeing_parts.append(f"pain {context['avg_pain']}/10")
+        if wellbeing_parts:
+            parts.append(f"Avg weekly wellbeing (last 4 check-ins): {', '.join(wellbeing_parts)}")
+
+        # --- Prior AI insights ---
+        if context.get("recent_insights"):
+            insight_strs = []
+            for ins in context["recent_insights"][:3]:
+                title = ins.get("title", "")
+                week = ins.get("week", "")
+                summary = ins.get("summary", "")
+                snippet = f"{title}"
+                if week:
+                    snippet += f" ({week})"
+                if summary:
+                    snippet += f": {summary[:120]}"
+                insight_strs.append(snippet)
+            parts.append(f"Prior AI findings: {' | '.join(insight_strs)}")
 
         return "\n".join(parts) if parts else ""
 
@@ -786,6 +844,77 @@ async def _get_user_context(
                 "date": (m.get("timestamp") or "")[:10],
             }
             for m in meals
+        ]
+
+    # --- Active user goals ---
+    goals = await _supabase_get(
+        "user_goals",
+        f"user_id=eq.{user_id}&status=eq.active&order=created_at.desc&limit=10",
+    )
+    if goals:
+        context["user_goals"] = [g["goal_text"] for g in goals if g.get("goal_text")]
+
+    # --- Active care plans (treatment targets set by doctor or self) ---
+    care_plans = await _supabase_get(
+        "care_plans",
+        f"user_id=eq.{user_id}&status=eq.active&order=created_at.desc&limit=8",
+    )
+    if care_plans:
+        context["care_plans"] = [
+            {
+                "title": p.get("title"),
+                "metric_type": p.get("metric_type"),
+                "target_value": p.get("target_value"),
+                "target_unit": p.get("target_unit"),
+                "target_date": p.get("target_date"),
+                "current_value": p.get("current_value"),
+                "source": p.get("source"),  # 'doctor' | 'self'
+            }
+            for p in care_plans
+            if p.get("title")
+        ]
+
+    # --- Medication adherence rate (last 30 days) ---
+    thirty_ago = (date.today() - timedelta(days=30)).isoformat()
+    adherence_rows = await _supabase_get(
+        "medication_adherence_log",
+        f"user_id=eq.{user_id}&scheduled_time=gte.{thirty_ago}&select=was_taken",
+    )
+    if adherence_rows:
+        total = len(adherence_rows)
+        taken = sum(1 for r in adherence_rows if r.get("was_taken"))
+        context["adherence_pct"] = round(taken / total * 100) if total else None
+
+    # --- Weekly wellbeing trend (energy + mood from check-ins) ---
+    checkins = await _supabase_get(
+        "weekly_checkins",
+        f"user_id=eq.{user_id}&order=week_start.desc&select=week_start,energy_level,mood_rating,pain_level&limit=4",
+    )
+    if checkins:
+        energy_vals = [c.get("energy_level") for c in checkins if c.get("energy_level") is not None]
+        mood_vals = [c.get("mood_rating") for c in checkins if c.get("mood_rating") is not None]
+        pain_vals = [c.get("pain_level") for c in checkins if c.get("pain_level") is not None]
+        if energy_vals:
+            context["avg_energy"] = round(sum(energy_vals) / len(energy_vals), 1)
+        if mood_vals:
+            context["avg_mood"] = round(sum(mood_vals) / len(mood_vals), 1)
+        if pain_vals:
+            context["avg_pain"] = round(sum(pain_vals) / len(pain_vals), 1)
+
+    # --- Recent AI insights (resurfaced findings) ---
+    insights = await _supabase_get(
+        "saved_insights",
+        f"user_id=eq.{user_id}&order=created_at.desc&select=title,summary,metric_key,week_bucket&limit=5",
+    )
+    if insights:
+        context["recent_insights"] = [
+            {
+                "title": ins.get("title"),
+                "summary": ins.get("summary"),
+                "week": ins.get("week_bucket"),
+            }
+            for ins in insights
+            if ins.get("title")
         ]
 
     return context

@@ -5,11 +5,13 @@ Can be triggered by a cron job (e.g., Render Cron or external scheduler).
 """
 
 import os
+import ssl
 from datetime import date, timedelta
 from typing import List, Optional
 from typing_extensions import TypedDict
 
 import aiohttp
+import certifi
 from fastapi import APIRouter, Depends, Header, HTTPException
 
 from common.middleware.auth import get_current_user
@@ -21,6 +23,10 @@ from ..dependencies.usage_gate import (
 
 logger = get_logger(__name__)
 router = APIRouter()
+
+
+def _ssl_context() -> ssl.SSLContext:
+    return ssl.create_default_context(cafile=certifi.where())
 
 RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
 EMAIL_FROM = os.environ.get(
@@ -36,7 +42,8 @@ async def _send_email(to: str, subject: str, html: str) -> bool:
         return False
 
     try:
-        async with aiohttp.ClientSession() as session:
+        connector = aiohttp.TCPConnector(ssl=_ssl_context())
+        async with aiohttp.ClientSession(connector=connector) as session:
             async with session.post(
                 "https://api.resend.com/emails",
                 headers={
@@ -148,8 +155,39 @@ def _build_summary_html(
     sleep_trend: str,
     best_day: str,
     worst_day: str,
+    adherence_rate: float = 0.0,
+    symptom_count: int = 0,
+    avg_symptom_severity: float = 0.0,
+    top_insight: str = "",
 ) -> str:
     """Build a simple HTML email for the weekly summary."""
+    adherence_section = ""
+    if adherence_rate > 0:
+        color = "#22c55e" if adherence_rate >= 80 else "#f59e0b" if adherence_rate >= 60 else "#ef4444"
+        adherence_section = f"""
+      <div style="background: #f8fafc; border-radius: 12px; padding: 24px; margin-bottom: 20px;">
+        <h2 style="color: #334155; font-size: 16px; margin: 0 0 12px 0;">Medication Adherence (30 days)</h2>
+        <p style="color: {color}; font-size: 28px; font-weight: 700; margin: 0;">{adherence_rate:.0f}%</p>
+        <p style="color: #64748b; font-size: 13px; margin: 4px 0 0 0;">of scheduled doses taken</p>
+      </div>"""
+
+    symptom_section = ""
+    if symptom_count > 0:
+        symptom_section = f"""
+      <div style="background: #f8fafc; border-radius: 12px; padding: 24px; margin-bottom: 20px;">
+        <h2 style="color: #334155; font-size: 16px; margin: 0 0 12px 0;">Symptoms (Last 14 Days)</h2>
+        <p style="color: #475569; margin: 4px 0;">{symptom_count} symptom(s) logged</p>
+        {f'<p style="color: #475569; margin: 4px 0;">Average severity: <strong>{avg_symptom_severity:.1f}/10</strong></p>' if avg_symptom_severity > 0 else ""}
+      </div>"""
+
+    insight_section = ""
+    if top_insight:
+        insight_section = f"""
+      <div style="background: #f0fdf4; border-left: 4px solid #00D4AA; border-radius: 4px; padding: 16px; margin-bottom: 20px;">
+        <h2 style="color: #334155; font-size: 14px; margin: 0 0 6px 0;">Top Recommendation</h2>
+        <p style="color: #475569; font-size: 13px; margin: 0;">{top_insight}</p>
+      </div>"""
+
     return f"""
     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 600px; margin: 0 auto; padding: 24px;">
       <div style="text-align: center; margin-bottom: 24px;">
@@ -181,13 +219,16 @@ def _build_summary_html(
         <p style="color: #475569; margin: 4px 0;">Best day: <strong>{best_day}</strong></p>
         <p style="color: #475569; margin: 4px 0;">Needs attention: <strong>{worst_day}</strong></p>
       </div>
+      {adherence_section}
+      {symptom_section}
+      {insight_section}
 
       <div style="text-align: center; margin-top: 24px;">
         <a href="https://healthassist.app/trends" style="display: inline-block; background: #6366f1; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: 600;">View Full Trends</a>
       </div>
 
       <p style="color: #94a3b8; font-size: 12px; text-align: center; margin-top: 32px;">
-        You're receiving this because you're a Pro+ subscriber.
+        You're receiving this because you're a Pro subscriber.
         <a href="https://healthassist.app/settings" style="color: #94a3b8;">Manage preferences</a>
       </p>
     </div>
@@ -207,10 +248,10 @@ async def send_weekly_summary(
     name = current_user.get("name", email.split("@")[0])
 
     tier = await get_user_tier(user_id)
-    if tier != "pro_plus":
+    if tier not in ("pro", "pro_plus"):
         raise HTTPException(
             status_code=403,
-            detail="Weekly email summaries are a Pro+ feature",
+            detail="Weekly email summaries are a Pro feature",
         )
 
     from .timeline import get_timeline
@@ -307,3 +348,52 @@ async def _fetch_user_timeline(user_id: str, email: str) -> Optional[list]:
 
     mock_user = {"id": user_id, "email": email, "user_type": "system"}
     return await get_timeline(days=7, current_user=mock_user)
+
+
+def _build_reminder_html(user_name: str) -> str:
+    """Build a simple 'don't forget to log today' reminder email."""
+    return f"""
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 600px; margin: 0 auto; padding: 24px;">
+      <div style="text-align: center; margin-bottom: 24px;">
+        <h1 style="color: #1e293b; font-size: 22px; margin: 0;">Daily Health Check-In</h1>
+        <p style="color: #64748b; margin-top: 4px;">Hi {user_name}, don't forget to log your health data today!</p>
+      </div>
+
+      <div style="background: #f0fdf4; border-left: 4px solid #00D4AA; border-radius: 4px; padding: 20px; margin-bottom: 20px;">
+        <p style="color: #334155; margin: 0; font-size: 14px;">
+          Consistent logging helps you and your care team understand your health trends.
+          It only takes a minute!
+        </p>
+      </div>
+
+      <div style="display: flex; gap: 12px; justify-content: center; margin-top: 24px; flex-wrap: wrap;">
+        <a href="https://healthassist.app/nutrition" style="display: inline-block; background: #f59e0b; color: white; padding: 10px 20px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 14px;">Log Meal</a>
+        <a href="https://healthassist.app/symptoms" style="display: inline-block; background: #8b5cf6; color: white; padding: 10px 20px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 14px;">Log Symptom</a>
+        <a href="https://healthassist.app/medications" style="display: inline-block; background: #00D4AA; color: white; padding: 10px 20px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 14px;">Log Medications</a>
+      </div>
+
+      <p style="color: #94a3b8; font-size: 12px; text-align: center; margin-top: 32px;">
+        <a href="https://healthassist.app/settings" style="color: #94a3b8;">Manage email preferences</a>
+      </p>
+    </div>
+    """
+
+
+@router.post("/send-reminder")
+async def send_reminder(
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Send a one-click 'don't forget to log today' reminder email with deep-links.
+    """
+    user_id = current_user["id"]
+    email = current_user.get("email", "")
+    name = current_user.get("name", email.split("@")[0] if email else "User")
+
+    if not email:
+        return {"sent": False, "reason": "No email address found"}
+
+    html = _build_reminder_html(name)
+    subject = f"Health check-in reminder — {date.today().strftime('%b %d')}"
+    sent = await _send_email(email, subject, html)
+    return {"sent": sent}

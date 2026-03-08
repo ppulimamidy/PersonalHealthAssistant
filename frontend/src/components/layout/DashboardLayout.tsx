@@ -4,6 +4,8 @@ import { useAuth } from '@/hooks/useAuth';
 import { TopNav } from './TopNav';
 import { HealthContextPanel } from './HealthContextPanel';
 import { UpgradeModal } from '@/components/billing/UpgradeModal';
+import { VitalsCheckinModal } from '@/components/home/VitalsCheckinModal';
+import { WeeklyCheckinModal } from '@/components/home/WeeklyCheckinModal';
 
 export function DashboardLayout({ children }: { readonly children: React.ReactNode }) {
   const { isLoading } = useAuth(true);
@@ -35,6 +37,8 @@ export function DashboardLayout({ children }: { readonly children: React.ReactNo
       </main>
 
       <UpgradeModal />
+      <VitalsCheckinModal />
+      <WeeklyCheckinModal />
     </div>
   );
 }

@@ -90,8 +90,23 @@ function ThemeToggle() {
 
 export function TopNav() {
   const pathname = usePathname();
-  const { user, logout } = useAuthStore();
+  const { user, profile, logout } = useAuthStore();
   const tier = useSubscriptionStore((s) => s.getTier());
+
+  const isProvider = profile?.user_role === 'provider';
+  const isCaregiver = profile?.user_role === 'caregiver';
+  const visibleTabs =
+    isProvider
+      ? [
+          ...TABS,
+          { name: 'Patients', href: '/patients', subRoutes: ['/patients'] } as TabDef,
+        ]
+      : isCaregiver
+      ? [
+          ...TABS,
+          { name: 'Family', href: '/patients', subRoutes: ['/patients'] } as TabDef,
+        ]
+      : TABS;
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -103,7 +118,7 @@ export function TopNav() {
     : 'U';
 
   // Find active tab
-  const activeTab = TABS.find((tab) =>
+  const activeTab = visibleTabs.find((tab) =>
     tab.subRoutes.some((r) => pathname === r || pathname.startsWith(r + '/'))
   );
 
@@ -133,7 +148,7 @@ export function TopNav() {
 
         {/* Tabs — centred */}
         <nav className="flex items-center gap-1 flex-1 justify-center">
-          {TABS.map((tab) => {
+          {visibleTabs.map((tab) => {
             const isActive = tab === activeTab;
             return (
               <Link

@@ -4,11 +4,15 @@ Computes a weighted composite score from Oura sleep, activity, and readiness dat
 """
 
 import os
+from datetime import date, timedelta
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel
 
 from common.middleware.auth import get_current_user
 from common.utils.logging import get_logger
+from ..dependencies.usage_gate import _supabase_get
 
 logger = get_logger(__name__)
 router = APIRouter()
@@ -150,3 +154,231 @@ def _empty_score():
         "change_from_yesterday": 0,
         "date": None,
     }
+
+
+# ── Trajectory score ───────────────────────────────────────────────────────────
+
+class TrajectoryComponent(BaseModel):
+    name: str
+    label: str
+    score: float        # 0–100
+    weight: float       # 0–1
+    available: bool     # False when insufficient data
+
+
+class TrajectoryResponse(BaseModel):
+    score: Optional[float]          # weighted composite 0–100
+    delta_30d: Optional[float]      # change vs 30 days ago
+    direction: str                  # "up" | "down" | "stable" | "insufficient"
+    components: List[TrajectoryComponent]
+    data_quality: str               # "good" | "partial" | "insufficient"
+
+
+def _avg(vals: list) -> Optional[float]:
+    clean = [v for v in vals if v is not None]
+    return sum(clean) / len(clean) if clean else None
+
+
+@router.get("/trajectory", response_model=TrajectoryResponse)
+async def get_trajectory(current_user: dict = Depends(get_current_user)):
+    """
+    Composite health trajectory score (0–100) from four pillars:
+      1. Medication adherence (30d)     weight 25%
+      2. Symptom severity (30d, inverted) weight 25%
+      3. Goal/plan engagement            weight 25%
+      4. Well-being check-ins (energy + mood) weight 25%
+
+    Also returns a delta vs the previous 30-day period where data allows.
+    """
+    user_id = current_user["id"]
+    today = date.today()
+
+    components: List[TrajectoryComponent] = []
+    period_scores: Dict[str, Optional[float]] = {}  # current period
+    prev_scores: Dict[str, Optional[float]] = {}    # 30–60d ago
+
+    # ── 1. Medication adherence ──────────────────────────────────────────────
+    try:
+        start_curr = (today - timedelta(days=30)).isoformat()
+        start_prev = (today - timedelta(days=60)).isoformat()
+        end_prev   = (today - timedelta(days=30)).isoformat()
+
+        rows_curr = await _supabase_get(
+            "medication_adherence_log",
+            f"user_id=eq.{user_id}&date=gte.{start_curr}&select=was_taken&limit=500",
+        ) or []
+        rows_prev = await _supabase_get(
+            "medication_adherence_log",
+            f"user_id=eq.{user_id}&date=gte.{start_prev}&date=lte.{end_prev}&select=was_taken&limit=500",
+        ) or []
+
+        if rows_curr:
+            taken = sum(1 for r in rows_curr if r.get("was_taken"))
+            period_scores["adherence"] = round(taken / len(rows_curr) * 100)
+        if rows_prev:
+            taken_p = sum(1 for r in rows_prev if r.get("was_taken"))
+            prev_scores["adherence"] = round(taken_p / len(rows_prev) * 100)
+
+        components.append(TrajectoryComponent(
+            name="adherence", label="Med. Adherence",
+            score=period_scores.get("adherence") or 0.0,
+            weight=0.25,
+            available="adherence" in period_scores,
+        ))
+    except Exception as exc:
+        logger.warning("Trajectory adherence: %s", exc)
+        components.append(TrajectoryComponent(name="adherence", label="Med. Adherence", score=0, weight=0.25, available=False))
+
+    # ── 2. Symptom severity (inverted: lower = better score) ─────────────────
+    try:
+        start_curr = (today - timedelta(days=30)).isoformat()
+        start_prev = (today - timedelta(days=60)).isoformat()
+        end_prev   = (today - timedelta(days=30)).isoformat()
+
+        symp_curr = await _supabase_get(
+            "symptom_journal",
+            f"user_id=eq.{user_id}&symptom_date=gte.{start_curr}&select=severity&limit=200",
+        ) or []
+        symp_prev = await _supabase_get(
+            "symptom_journal",
+            f"user_id=eq.{user_id}&symptom_date=gte.{start_prev}&symptom_date=lte.{end_prev}&select=severity&limit=200",
+        ) or []
+
+        def _sev_to_score(rows: list) -> Optional[float]:
+            sevs = [r["severity"] for r in rows if r.get("severity") is not None]
+            if not sevs:
+                return None
+            avg_sev = sum(sevs) / len(sevs)
+            return round(max(0, 100 - avg_sev * 10))
+
+        s = _sev_to_score(symp_curr)
+        if s is not None:
+            period_scores["symptoms"] = s
+        sp = _sev_to_score(symp_prev)
+        if sp is not None:
+            prev_scores["symptoms"] = sp
+
+        components.append(TrajectoryComponent(
+            name="symptoms", label="Symptom Control",
+            score=period_scores.get("symptoms") or 0.0,
+            weight=0.25,
+            available="symptoms" in period_scores,
+        ))
+    except Exception as exc:
+        logger.warning("Trajectory symptoms: %s", exc)
+        components.append(TrajectoryComponent(name="symptoms", label="Symptom Control", score=0, weight=0.25, available=False))
+
+    # ── 3. Goal / care-plan engagement ───────────────────────────────────────
+    try:
+        goals_all = await _supabase_get(
+            "user_goals",
+            f"user_id=eq.{user_id}&select=status&limit=100",
+        ) or []
+        plans_all = await _supabase_get(
+            "care_plans",
+            f"user_id=eq.{user_id}&select=status&limit=100",
+        ) or []
+
+        all_items = goals_all + plans_all
+        if all_items:
+            completed = sum(1 for i in all_items if i.get("status") in ("achieved", "completed"))
+            total = len(all_items)
+            # Score: proportion completed + partial credit for having active items
+            active = sum(1 for i in all_items if i.get("status") == "active")
+            # Engagement: 50 pts for having active items, 50 pts for completion rate
+            engagement = 50 if active > 0 else 0
+            completion_rate = (completed / total * 50) if total > 0 else 0
+            period_scores["engagement"] = round(engagement + completion_rate)
+        else:
+            period_scores["engagement"] = None
+
+        components.append(TrajectoryComponent(
+            name="engagement", label="Goal Engagement",
+            score=period_scores.get("engagement") or 0.0,
+            weight=0.25,
+            available=period_scores.get("engagement") is not None,
+        ))
+    except Exception as exc:
+        logger.warning("Trajectory engagement: %s", exc)
+        components.append(TrajectoryComponent(name="engagement", label="Goal Engagement", score=0, weight=0.25, available=False))
+
+    # ── 4. Well-being check-ins (energy + mood) ───────────────────────────────
+    try:
+        checkins_curr = await _supabase_get(
+            "weekly_checkins",
+            f"user_id=eq.{user_id}&order=checked_in_at.desc&select=energy,mood&limit=4",
+        ) or []
+        checkins_prev = await _supabase_get(
+            "weekly_checkins",
+            f"user_id=eq.{user_id}&order=checked_in_at.desc&select=energy,mood&limit=4&offset=4",
+        ) or []
+
+        def _checkin_score(rows: list) -> Optional[float]:
+            if not rows:
+                return None
+            avg_energy = _avg([r.get("energy") for r in rows])
+            avg_mood = _avg([r.get("mood") for r in rows])
+            if avg_energy is None or avg_mood is None:
+                return None
+            return round((avg_energy + avg_mood) / 2 * 10)  # 0–10 → 0–100
+
+        wb = _checkin_score(checkins_curr)
+        if wb is not None:
+            period_scores["wellbeing"] = wb
+        wbp = _checkin_score(checkins_prev)
+        if wbp is not None:
+            prev_scores["wellbeing"] = wbp
+
+        components.append(TrajectoryComponent(
+            name="wellbeing", label="Well-being",
+            score=period_scores.get("wellbeing") or 0.0,
+            weight=0.25,
+            available="wellbeing" in period_scores,
+        ))
+    except Exception as exc:
+        logger.warning("Trajectory wellbeing: %s", exc)
+        components.append(TrajectoryComponent(name="wellbeing", label="Well-being", score=0, weight=0.25, available=False))
+
+    # ── Composite score ───────────────────────────────────────────────────────
+    available = [c for c in components if c.available]
+    if len(available) == 0:
+        return TrajectoryResponse(
+            score=None, delta_30d=None, direction="insufficient",
+            components=components, data_quality="insufficient",
+        )
+
+    total_weight = sum(c.weight for c in available)
+    composite = sum(c.score * c.weight for c in available) / total_weight
+
+    # Previous period composite
+    prev_available_keys = set(prev_scores.keys())
+    if prev_available_keys:
+        prev_comps = [c for c in components if c.name in prev_available_keys]
+        prev_total_w = sum(c.weight for c in prev_comps)
+        prev_composite: Optional[float] = sum(
+            prev_scores[c.name] * c.weight for c in prev_comps  # type: ignore[operator]
+        ) / prev_total_w if prev_total_w > 0 else None
+    else:
+        prev_composite = None
+
+    delta = round(composite - prev_composite, 1) if prev_composite is not None else None
+    direction = (
+        "up" if delta is not None and delta > 3
+        else "down" if delta is not None and delta < -3
+        else "stable" if delta is not None
+        else "insufficient"
+    )
+
+    data_quality = (
+        "good" if len(available) == 4
+        else "partial" if len(available) >= 2
+        else "insufficient"
+    )
+
+    return TrajectoryResponse(
+        score=round(composite, 1),
+        delta_30d=delta,
+        direction=direction,
+        components=components,
+        data_quality=data_quality,
+    )

@@ -6,7 +6,8 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { symptomsService } from '@/services/symptoms';
 import { useAuth } from '@/hooks/useAuth';
-import { Plus, FileText, Edit, Trash2, AlertCircle, TrendingUp, Calendar } from 'lucide-react';
+import { Plus, FileText, Edit, Trash2, AlertCircle, TrendingUp, Calendar, ClipboardList } from 'lucide-react';
+import { EmptyState } from '@/components/ui/EmptyState';
 import type { SymptomJournalEntry, CreateSymptomRequest } from '@/types';
 
 export function SymptomsView() {
@@ -128,13 +129,13 @@ export function SymptomsView() {
           </CardHeader>
           <CardContent>
             {symptoms.length === 0 ? (
-              <div className="text-center py-12 text-slate-500 dark:text-slate-400">
-                <FileText className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                <p className="text-lg font-medium mb-2">No symptoms logged yet</p>
-                <p className="text-sm">
-                  Start tracking your symptoms to identify patterns and triggers
-                </p>
-              </div>
+              <EmptyState
+                icon={ClipboardList}
+                title="Nothing logged yet"
+                description="Start tracking your symptoms to identify patterns and triggers."
+                actionLabel="Log Symptom"
+                onAction={() => { setShowForm(true); setEditingSymptom(null); }}
+              />
             ) : (
               <div className="space-y-3">
                 {symptoms.map((symptom) => {

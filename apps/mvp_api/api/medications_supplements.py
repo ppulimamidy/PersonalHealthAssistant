@@ -515,6 +515,396 @@ async def get_adherence_stats(
 
 
 # ============================================================================
+# ADHERENCE DAILY CHECK-IN ENDPOINTS
+# ============================================================================
+
+
+def _parse_doses_per_day(f: str) -> int:
+    """Parse frequency string into daily dose count (0 = skip from daily schedule)."""
+    f = f.lower()
+    if any(x in f for x in ["as needed", "prn", "when needed"]):
+        return 0
+    if any(x in f for x in ["twice", "bid", "2x", "2 time"]):
+        return 2
+    if any(x in f for x in ["three", "tid", "3x", "3 time"]):
+        return 3
+    if any(x in f for x in ["four", "qid", "4x", "4 time"]):
+        return 4
+    if any(x in f for x in ["weekly", "once a week"]):
+        return 0
+    return 1
+
+
+class TodayMedication(BaseModel):
+    medication_id: str
+    medication_name: str
+    dosage: str
+    doses_today: int
+    logs: List[dict]
+
+
+class TodayAdherenceResponse(BaseModel):
+    medications: List[TodayMedication]
+
+
+class LogAdherenceRequest(BaseModel):
+    medication_id: Optional[str] = None
+    supplement_id: Optional[str] = None
+    was_taken: bool
+    scheduled_slot: int = 1
+    date: Optional[date] = None
+
+
+# Slot → hour offset
+_SLOT_HOURS = {1: 8, 2: 14, 3: 20}
+
+
+@router.get("/adherence/today", response_model=TodayAdherenceResponse)
+async def get_today_adherence(
+    current_user: dict = Depends(get_current_user),
+):
+    """Return today's medication schedule with logged doses."""
+    user_id = current_user["id"]
+
+    meds = await _supabase_get(
+        "medications",
+        f"user_id=eq.{user_id}&is_active=eq.true&select=id,medication_name,dosage,frequency",
+    )
+    if not meds:
+        return TodayAdherenceResponse(medications=[])
+
+    today = date.today()
+    day_start = datetime(today.year, today.month, today.day, 0, 0, 0, tzinfo=timezone.utc).isoformat()
+    day_end = datetime(today.year, today.month, today.day, 23, 59, 59, tzinfo=timezone.utc).isoformat()
+
+    logs = await _supabase_get(
+        "medication_adherence_log",
+        f"user_id=eq.{user_id}&scheduled_time=gte.{day_start}&scheduled_time=lte.{day_end}&select=*",
+    ) or []
+
+    result = []
+    for med in meds:
+        dpd = _parse_doses_per_day(med.get("frequency", "once daily"))
+        if dpd == 0:
+            continue
+        med_logs = [lg for lg in logs if lg.get("medication_id") == med["id"]]
+        result.append(TodayMedication(
+            medication_id=med["id"],
+            medication_name=med["medication_name"],
+            dosage=med.get("dosage", ""),
+            doses_today=dpd,
+            logs=med_logs,
+        ))
+
+    return TodayAdherenceResponse(medications=result)
+
+
+@router.post("/adherence/log", response_model=AdherenceLogEntry, status_code=201)
+async def log_adherence(
+    body: LogAdherenceRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """Log a medication dose taken/missed for today."""
+    user_id = current_user["id"]
+    log_date = body.date or date.today()
+    slot_hour = _SLOT_HOURS.get(body.scheduled_slot, 8)
+    scheduled_time = datetime(
+        log_date.year, log_date.month, log_date.day,
+        slot_hour, 0, 0, tzinfo=timezone.utc
+    )
+
+    # Dedup: check if a log already exists for this med + date + slot
+    med_filter = f"medication_id=eq.{body.medication_id}" if body.medication_id else "supplement_id=eq." + (body.supplement_id or "null")
+    existing = await _supabase_get(
+        "medication_adherence_log",
+        f"user_id=eq.{user_id}&{med_filter}&scheduled_time=eq.{scheduled_time.isoformat()}&select=id&limit=1",
+    )
+
+    entry_id = str(uuid.uuid4())
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    data = {
+        "id": entry_id,
+        "user_id": user_id,
+        "medication_id": body.medication_id,
+        "supplement_id": body.supplement_id,
+        "scheduled_time": scheduled_time.isoformat(),
+        "taken_time": now_iso if body.was_taken else None,
+        "was_taken": body.was_taken,
+        "created_at": now_iso,
+    }
+
+    if existing and existing[0]:
+        # Update existing record
+        entry_id = existing[0]["id"]
+        updated = await _supabase_patch(
+            "medication_adherence_log",
+            f"id=eq.{entry_id}&user_id=eq.{user_id}",
+            {"was_taken": body.was_taken, "taken_time": data["taken_time"]},
+        )
+        row = updated or data
+    else:
+        row = await _supabase_upsert("medication_adherence_log", data)
+        if not row:
+            row = data
+
+    return AdherenceLogEntry(
+        id=row.get("id", entry_id),
+        user_id=user_id,
+        medication_id=row.get("medication_id"),
+        supplement_id=row.get("supplement_id"),
+        scheduled_time=row.get("scheduled_time", scheduled_time.isoformat()),
+        taken_time=row.get("taken_time"),
+        was_taken=row.get("was_taken", body.was_taken),
+        missed_reason=row.get("missed_reason"),
+        side_effects_noted=row.get("side_effects_noted"),
+        created_at=row.get("created_at", now_iso),
+    )
+
+
+# ============================================================================
+# ADHERENCE HISTORY
+# ============================================================================
+
+
+class DayAdherence(BaseModel):
+    scheduled: int
+    taken: int
+
+
+class MedAdherenceHistory(BaseModel):
+    medication_id: Optional[str]
+    medication_name: str
+    doses_per_day: int
+    days: dict  # date string → DayAdherence dict
+
+
+class AdherenceHistoryResponse(BaseModel):
+    dates: List[str]  # chronological YYYY-MM-DD strings
+    medications: List[MedAdherenceHistory]
+
+
+@router.get("/adherence/history", response_model=AdherenceHistoryResponse)
+async def get_adherence_history(
+    days: int = Query(default=7, ge=1, le=30),
+    current_user: dict = Depends(get_current_user),
+):
+    """Return per-day, per-medication adherence logs for the last N days."""
+    from collections import defaultdict
+
+    user_id = current_user["id"]
+    today = datetime.now(timezone.utc).date()
+
+    # Build chronological date list
+    dates = [(today - timedelta(days=i)).isoformat() for i in range(days - 1, -1, -1)]
+
+    # Fetch active medications
+    meds = (
+        await _supabase_get(
+            "medications",
+            f"user_id=eq.{user_id}&is_active=eq.true&select=id,medication_name,frequency",
+        )
+        or []
+    )
+
+    if not meds:
+        return AdherenceHistoryResponse(dates=dates, medications=[])
+
+    # Fetch adherence logs for the period
+    start_dt = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    logs = (
+        await _supabase_get(
+            "medication_adherence_log",
+            f"user_id=eq.{user_id}&scheduled_time=gte.{start_dt}"
+            f"&select=medication_id,scheduled_time,was_taken&limit=1000",
+        )
+        or []
+    )
+
+    # Group logs by medication_id → date → [was_taken, ...]
+    logs_by_med_date: dict[str, dict[str, list]] = defaultdict(lambda: defaultdict(list))
+    for log in logs:
+        mid = log.get("medication_id")
+        if mid:
+            date_key = log["scheduled_time"][:10]
+            logs_by_med_date[mid][date_key].append(log.get("was_taken", False))
+
+    result = []
+    for med in meds:
+        mid = med["id"]
+        dpd = _parse_doses_per_day(med.get("frequency") or "")
+        if dpd == 0:
+            continue  # skip as-needed / weekly
+
+        days_dict = {}
+        for d in dates:
+            taken_list = logs_by_med_date[mid].get(d, [])
+            taken = sum(1 for t in taken_list if t)
+            days_dict[d] = {"scheduled": dpd, "taken": taken}
+
+        result.append(
+            MedAdherenceHistory(
+                medication_id=mid,
+                medication_name=med.get("medication_name", "Unknown"),
+                doses_per_day=dpd,
+                days=days_dict,
+            )
+        )
+
+    return AdherenceHistoryResponse(dates=dates, medications=result)
+
+
+# ============================================================================
+# ADHERENCE STREAKS + MISSED-DOSE PATTERNS
+# ============================================================================
+
+class MedStreakData(BaseModel):
+    medication_id: str
+    medication_name: str
+    current_streak: int          # consecutive days taken (ending today)
+    longest_streak: int          # all-time best streak
+    total_days_logged: int
+    total_days_taken: int
+    missed_days_of_week: List[str]  # day names most commonly skipped, e.g. ["Saturday", "Sunday"]
+
+
+class StreaksResponse(BaseModel):
+    medications: List[MedStreakData]
+    overall_current_streak: int   # days where ALL scheduled meds were taken
+    overall_longest_streak: int
+
+
+@router.get("/adherence/streaks", response_model=StreaksResponse)
+async def get_adherence_streaks(
+    days: int = Query(default=90, ge=7, le=365),
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Compute current and longest adherence streak per medication,
+    plus which days-of-week are most often missed.
+    """
+    from collections import defaultdict
+
+    user_id = current_user["id"]
+    today = datetime.now(timezone.utc).date()
+    start = today - timedelta(days=days - 1)
+
+    # All dates in window (oldest → newest)
+    date_range = [(start + timedelta(days=i)) for i in range(days)]
+
+    meds = (
+        await _supabase_get(
+            "medications",
+            f"user_id=eq.{user_id}&is_active=eq.true&select=id,medication_name,frequency",
+        )
+        or []
+    )
+    if not meds:
+        return StreaksResponse(medications=[], overall_current_streak=0, overall_longest_streak=0)
+
+    start_dt = start.isoformat()
+    logs = (
+        await _supabase_get(
+            "medication_adherence_log",
+            f"user_id=eq.{user_id}&scheduled_time=gte.{start_dt}"
+            f"&select=medication_id,scheduled_time,was_taken&limit=5000",
+        )
+        or []
+    )
+
+    # Group: med_id -> date_str -> any taken
+    taken_by_med_date: dict[str, dict[str, bool]] = defaultdict(dict)
+    for log in logs:
+        mid = log.get("medication_id")
+        if mid:
+            d = log["scheduled_time"][:10]
+            # If any log for that day is taken, mark the day taken
+            taken_by_med_date[mid][d] = taken_by_med_date[mid].get(d, False) or bool(log.get("was_taken"))
+
+    DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+
+    def _compute_streaks(taken_map: dict) -> tuple[int, int]:
+        """Returns (current_streak, longest_streak) from date_str -> bool map."""
+        current = 0
+        longest = 0
+        run = 0
+        for d in date_range:
+            ds = d.isoformat()
+            if taken_map.get(ds, False):
+                run += 1
+                longest = max(longest, run)
+            else:
+                run = 0
+        # Current streak: count backwards from today
+        for d in reversed(date_range):
+            ds = d.isoformat()
+            if taken_map.get(ds, False):
+                current += 1
+            else:
+                break
+        return current, longest
+
+    def _missed_days_of_week(med_id: str) -> list[str]:
+        """Return up to 2 day names most commonly missed (> 50% miss rate on that day)."""
+        day_missed = defaultdict(int)
+        day_total = defaultdict(int)
+        for d in date_range:
+            ds = d.isoformat()
+            if ds in taken_by_med_date[med_id]:
+                dow = DAY_NAMES[d.weekday()]
+                day_total[dow] += 1
+                if not taken_by_med_date[med_id][ds]:
+                    day_missed[dow] += 1
+        # Days where miss rate > 50%
+        bad_days = [
+            day for day in DAY_NAMES
+            if day_total.get(day, 0) >= 2 and day_missed.get(day, 0) / day_total[day] > 0.5
+        ]
+        return bad_days[:2]
+
+    med_results = []
+    for med in meds:
+        mid = med["id"]
+        dpd = _parse_doses_per_day(med.get("frequency") or "")
+        if dpd == 0:
+            continue
+        tm = taken_by_med_date[mid]
+        cs, ls = _compute_streaks(tm)
+        total_logged = len(tm)
+        total_taken = sum(1 for v in tm.values() if v)
+        med_results.append(
+            MedStreakData(
+                medication_id=mid,
+                medication_name=med.get("medication_name", "Unknown"),
+                current_streak=cs,
+                longest_streak=ls,
+                total_days_logged=total_logged,
+                total_days_taken=total_taken,
+                missed_days_of_week=_missed_days_of_week(mid),
+            )
+        )
+
+    # Overall streak: days where every scheduled med was taken
+    if med_results:
+        scheduled_ids = {m.medication_id for m in med_results}
+        overall_taken: dict[str, bool] = {}
+        for d in date_range:
+            ds = d.isoformat()
+            overall_taken[ds] = all(
+                taken_by_med_date[mid].get(ds, False) for mid in scheduled_ids
+            )
+        ocs, ols = _compute_streaks(overall_taken)
+    else:
+        ocs, ols = 0, 0
+
+    return StreaksResponse(
+        medications=med_results,
+        overall_current_streak=ocs,
+        overall_longest_streak=ols,
+    )
+
+
+# ============================================================================
 # PRESCRIPTION / SUPPLEMENT BOTTLE IMAGE SCAN
 # ============================================================================
 

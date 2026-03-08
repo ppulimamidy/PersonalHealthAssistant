@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Plus, TrendingUp, AlertCircle, FileText, Camera, Link2 } from 'lucide-react';
+import { Plus, TrendingUp, AlertCircle, FileText, Camera, Link2, FlaskConical } from 'lucide-react';
+import { EmptyState } from '@/components/ui/EmptyState';
 import { labResultsService } from '@/services/labResults';
 import { LabResult, BiomarkerTrend, LabInsight, CreateLabResultRequest } from '@/types';
 import { LabResultCard } from '@/components/lab-results/LabResultCard';
@@ -160,30 +161,13 @@ export default function LabResultsPage() {
       {activeTab === 'results' && (
         <div className="space-y-4">
           {labResults.length === 0 ? (
-            <div className="text-center py-12">
-              <FileText className="w-16 h-16 text-slate-300 dark:text-slate-600 mx-auto mb-4" />
-              <h3 className="text-lg font-medium text-slate-900 dark:text-slate-100 mb-2">
-                No lab results yet
-              </h3>
-              <p className="text-slate-600 dark:text-slate-400 mb-4">
-                Add your first lab result to start tracking your biomarkers
-              </p>
-              <div className="flex items-center gap-2 justify-center">
-                <button
-                  onClick={() => setShowScanModal(true)}
-                  className="flex items-center gap-2 px-4 py-2 border border-teal-500 text-teal-600 dark:text-teal-400 rounded-lg hover:bg-teal-50 dark:hover:bg-teal-900/20 transition-colors"
-                >
-                  <Camera className="w-4 h-4" />
-                  Scan / Upload
-                </button>
-                <button
-                  onClick={() => { setScanPrefill(undefined); setShowAddModal(true); }}
-                  className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
-                >
-                  Add Manually
-                </button>
-              </div>
-            </div>
+            <EmptyState
+              icon={FlaskConical}
+              title="No lab results yet"
+              description="Upload or enter a lab result to start tracking your biomarkers."
+              actionLabel="Add Result"
+              onAction={() => { setScanPrefill(undefined); setShowAddModal(true); }}
+            />
           ) : (
             <div className="grid gap-4">
               {labResults.map((result) => (

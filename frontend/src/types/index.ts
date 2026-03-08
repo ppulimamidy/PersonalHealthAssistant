@@ -12,6 +12,65 @@ export type Gender = 'male' | 'female' | 'other' | 'prefer_not_to_say';
 /** Biological sex — used for clinical reference ranges and metabolic baselines. */
 export type BiologicalSex = 'male' | 'female' | 'other' | 'prefer_not_to_say';
 
+export type UserRole = 'patient' | 'provider' | 'caregiver';
+
+// ── Care team sharing ──────────────────────────────────────────────────────────
+export type SharePermission =
+  | 'summary'
+  | 'medications'
+  | 'lab_results'
+  | 'symptoms'
+  | 'care_plans'
+  | 'insights';
+
+export interface ShareLink {
+  id: string;
+  token: string;
+  label?: string;
+  permissions: SharePermission[];
+  expires_at?: string;
+  last_accessed_at?: string;
+  access_count: number;
+  created_at: string;
+}
+
+export interface CreateShareRequest {
+  label?: string;
+  permissions?: SharePermission[];
+  expires_days?: number;
+}
+
+export interface SharedHealthSummary {
+  label?: string;
+  permissions: SharePermission[];
+  generated_at: string;
+  profile?: Record<string, unknown>;
+  conditions?: string[];
+  medications?: Array<{ name: string; dosage?: string; frequency?: string; prescribed_by?: string }>;
+  medication_adherence_pct?: number;
+  lab_results?: Array<{ test_name: string; test_date: string; value?: number; unit?: string; is_abnormal?: boolean; reference_range?: string }>;
+  symptoms?: Array<{ symptom_name: string; severity?: number; date: string; notes?: string }>;
+  avg_symptom_severity?: number;
+  care_plans?: Array<{ title: string; metric_type?: string; target_value?: number; target_unit?: string; target_date?: string; source?: string; current_value?: number }>;
+  insights?: Array<{ title: string; summary?: string; insight_type?: string; category?: string; created_at: string }>;
+}
+
+// ── Caregiver / managed profiles ──────────────────────────────────────────────
+export interface ManagedProfile {
+  id: string;
+  share_token: string;
+  label?: string;
+  relationship?: string;
+  display_name?: string;
+  added_at: string;
+}
+
+export interface LinkProfileRequest {
+  token: string;
+  relationship?: string;
+  display_name?: string;
+}
+
 export interface UserProfile {
   // ── Structured fields (from profiles table — set at registration) ──────────
   date_of_birth?: string;           // ISO date e.g. "1985-03-15"
@@ -20,6 +79,8 @@ export interface UserProfile {
   height_cm?: number;
   primary_goals?: string[];         // set during onboarding goals step
   onboarding_completed_at?: string; // ISO timestamp; null = onboarding pending
+  last_checkin_at?: string;         // ISO timestamp of last periodic vitals check-in
+  user_role?: UserRole;             // persona: patient | provider | caregiver
   // ── Legacy fields kept for backward compatibility ─────────────────────────
   age?: number;
   gender?: Gender;
@@ -289,6 +350,20 @@ export interface DoctorPrepReport {
   health_intelligence?: HealthIntelligenceIndicators;
   nutrition_correlations?: CorrelationHighlight[];
   condition_specific_notes?: string[];
+  care_plan_progress?: CarePlanProgress[];
+}
+
+export interface CarePlanProgress {
+  title: string;
+  metric_type: string;
+  target_value?: number;
+  target_unit?: string;
+  target_date?: string;
+  current_value?: number;
+  progress_pct?: number;
+  on_track?: boolean;
+  source: 'doctor' | 'self';
+  days_remaining?: number;
 }
 
 export interface KeyMetric {
@@ -370,6 +445,22 @@ export interface DailyHealthScore {
   trend: 'up' | 'down' | 'stable';
   change_from_yesterday: number;
   date: string | null;
+}
+
+export interface TrajectoryComponent {
+  name: string;
+  label: string;
+  score: number;
+  weight: number;
+  available: boolean;
+}
+
+export interface TrajectoryResponse {
+  score: number | null;
+  delta_30d: number | null;
+  direction: 'up' | 'down' | 'stable' | 'insufficient';
+  components: TrajectoryComponent[];
+  data_quality: 'good' | 'partial' | 'insufficient';
 }
 
 // Referral types
@@ -1222,6 +1313,8 @@ export interface LabResult {
   flags?: string[];
   created_at: string;
   updated_at: string;
+  anomaly_detected?: boolean;
+  anomaly_message?: string;
 }
 
 export interface BiomarkerTrend {
@@ -1469,6 +1562,184 @@ export interface PredictedOutcome {
     lower: number;
     upper: number;
   };
+}
+
+// Adherence daily check-in types
+export interface TodayMedication {
+  medication_id: string;
+  medication_name: string;
+  dosage: string;
+  doses_today: number;
+  logs: Array<{
+    id: string;
+    was_taken: boolean;
+    scheduled_time: string;
+    taken_time?: string;
+  }>;
+}
+
+export interface TodayAdherenceResponse {
+  medications: TodayMedication[];
+}
+
+export interface LogAdherenceRequest {
+  medication_id?: string;
+  supplement_id?: string;
+  was_taken: boolean;
+  scheduled_slot?: number;
+  date?: string;
+}
+
+export interface DayAdherence {
+  scheduled: number;
+  taken: number;
+}
+
+export interface MedAdherenceHistory {
+  medication_id: string | null;
+  medication_name: string;
+  doses_per_day: number;
+  days: Record<string, DayAdherence>;
+}
+
+export interface AdherenceHistoryResponse {
+  dates: string[];
+  medications: MedAdherenceHistory[];
+}
+
+// ── Provider patient alerts ────────────────────────────────────────────────────
+export interface PatientAlert {
+  managed_id: string;
+  patient_label: string;
+  metric_name: string;
+  current_value?: number | null;
+  target_value?: number | null;
+  type: 'care_plan' | 'lab';
+  severity: 'warning' | 'critical';
+}
+
+export interface MedStreakData {
+  medication_id: string;
+  medication_name: string;
+  current_streak: number;
+  longest_streak: number;
+  total_days_logged: number;
+  total_days_taken: number;
+  missed_days_of_week: string[];
+}
+
+export interface StreaksResponse {
+  medications: MedStreakData[];
+  overall_current_streak: number;
+  overall_longest_streak: number;
+}
+
+export interface UserGoal {
+  id: string;
+  user_id: string;
+  goal_text: string;
+  category: string;
+  status: 'active' | 'achieved' | 'abandoned';
+  due_date?: string | null;
+  notes?: string | null;
+  source?: 'user' | 'doctor';
+  is_pinned?: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateGoalRequest {
+  goal_text: string;
+  category?: string;
+  due_date?: string;
+  notes?: string;
+  source?: 'user' | 'doctor';
+  is_pinned?: boolean;
+}
+
+export interface UpdateGoalRequest {
+  status?: 'active' | 'achieved' | 'abandoned';
+  goal_text?: string;
+  category?: string;
+  due_date?: string;
+  notes?: string;
+  is_pinned?: boolean;
+}
+
+// ── Care Plans ────────────────────────────────────────────────────────────────
+
+export type CarePlanMetricType =
+  | 'weight' | 'steps' | 'sleep_score'
+  | 'medication_adherence' | 'symptom_severity'
+  | 'calories' | 'lab_result' | 'general';
+
+export type CarePlanStatus = 'active' | 'completed' | 'abandoned';
+export type CarePlanSource = 'self' | 'doctor';
+
+export interface CarePlan {
+  id: string;
+  user_id: string;
+  title: string;
+  description?: string | null;
+  metric_type: CarePlanMetricType;
+  target_value?: number | null;
+  target_unit?: string | null;
+  target_date?: string | null;
+  start_date: string;
+  source: CarePlanSource;
+  status: CarePlanStatus;
+  notes?: string | null;
+  current_value?: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateCarePlanRequest {
+  title: string;
+  description?: string;
+  metric_type?: CarePlanMetricType;
+  target_value?: number;
+  target_unit?: string;
+  target_date?: string;
+  source?: CarePlanSource;
+  notes?: string;
+}
+
+export interface UpdateCarePlanRequest {
+  title?: string;
+  description?: string;
+  metric_type?: CarePlanMetricType;
+  target_value?: number;
+  target_unit?: string;
+  target_date?: string;
+  source?: CarePlanSource;
+  status?: CarePlanStatus;
+  notes?: string;
+}
+
+// ── Metric Delta ──────────────────────────────────────────────────────────────
+
+export interface InsightFollowUp {
+  metric_key: string;
+  original_title: string;
+  original_summary: string;
+  original_value: number | null;
+  original_date: string;
+  current_value: number | null;
+  delta: number | null;
+  direction: 'better' | 'worse' | 'stable' | 'unknown';
+  label: string;
+  source?: 'oura' | 'app_data';
+}
+
+export interface MetricDelta {
+  metric: string;
+  label: string;
+  unit: string;
+  current: number;
+  previous: number;
+  delta: number;
+  direction: 'up' | 'down' | 'stable';
 }
 
 export interface MetaAnalysisReport {

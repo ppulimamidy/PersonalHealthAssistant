@@ -17,15 +17,18 @@ export function useAuth(requireAuth = true) {
     const buildProfile = async (userId: string): Promise<UserProfile> => {
       const { data: row } = await supabase
         .from('profiles')
-        .select('date_of_birth,biological_sex,weight_kg,primary_goals,onboarding_completed_at')
+        .select('date_of_birth,biological_sex,weight_kg,height_cm,primary_goals,onboarding_completed_at,last_checkin_at,user_role')
         .eq('id', userId)
         .single();
       return {
         date_of_birth: row?.date_of_birth ?? undefined,
         biological_sex: row?.biological_sex ?? undefined,
         weight_kg: row?.weight_kg ?? undefined,
+        height_cm: row?.height_cm ?? undefined,
         primary_goals: Array.isArray(row?.primary_goals) ? row.primary_goals : undefined,
         onboarding_completed_at: row?.onboarding_completed_at ?? undefined,
+        last_checkin_at: row?.last_checkin_at ?? undefined,
+        user_role: row?.user_role ?? 'patient',
         profile_completed: Boolean(row?.onboarding_completed_at),
       };
     };

@@ -11,6 +11,10 @@ import {
   Camera, Upload, X, CheckCircle2, Loader2,
   Sparkles,
 } from 'lucide-react';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { DailyAdherenceStrip } from './DailyAdherenceStrip';
+import { AdherenceCalendar } from './AdherenceCalendar';
+import { StreakBadges } from './StreakBadges';
 import type {
   Medication,
   Supplement,
@@ -584,6 +588,15 @@ export function MedicationsView() {
         <p className="text-slate-600 dark:text-slate-400 mt-1">Track your medications, supplements, and adherence</p>
       </div>
 
+      {/* Daily adherence strip */}
+      <DailyAdherenceStrip />
+
+      {/* Streak badges + missed-dose pattern */}
+      <StreakBadges />
+
+      {/* 7-day adherence calendar */}
+      <AdherenceCalendar />
+
       {error && (
         <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
           <div className="flex items-center gap-2 text-red-800 dark:text-red-200">
@@ -622,16 +635,13 @@ export function MedicationsView() {
         </CardHeader>
         <CardContent>
           {medications.length === 0 ? (
-            <div className="text-center py-8 text-slate-500 dark:text-slate-400">
-              No medications tracked yet.{' '}
-              <button
-                className="text-primary-600 dark:text-primary-400 hover:underline"
-                onClick={() => { setScanTarget('medication'); setShowScan(true); }}
-              >
-                Scan a prescription
-              </button>
-              {' '}or click <strong>Add</strong> to enter manually.
-            </div>
+            <EmptyState
+              icon={Pill}
+              title="No medications yet"
+              description="Add your first medication to start tracking doses and adherence."
+              actionLabel="Add Medication"
+              onAction={() => { setShowMedForm(true); setEditingMed(null); setScannedMedPrefill(null); }}
+            />
           ) : (
             <div className="space-y-3">
               {medications.map((med) => (

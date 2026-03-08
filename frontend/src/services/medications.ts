@@ -7,7 +7,11 @@ import type {
   CreateMedicationRequest,
   CreateSupplementRequest,
   AdherenceStats,
+  TodayAdherenceResponse,
+  LogAdherenceRequest,
+  AdherenceHistoryResponse,
   PrescriptionScanResult,
+  StreaksResponse,
 } from '@/types';
 
 export const medicationsService = {
@@ -60,6 +64,26 @@ export const medicationsService = {
     const response = await api.get('/api/v1/adherence/stats', {
       params: { days },
     });
+    return response.data;
+  },
+
+  // Today's adherence schedule
+  getTodayAdherence: async (): Promise<TodayAdherenceResponse> => {
+    const response = await api.get('/api/v1/adherence/today');
+    return response.data;
+  },
+
+  logAdherence: async (payload: LogAdherenceRequest): Promise<void> => {
+    await api.post('/api/v1/adherence/log', payload);
+  },
+
+  getAdherenceHistory: async (days: number = 7): Promise<AdherenceHistoryResponse> => {
+    const response = await api.get('/api/v1/adherence/history', { params: { days } });
+    return response.data;
+  },
+
+  getAdherenceStreaks: async (days: number = 90): Promise<StreaksResponse> => {
+    const response = await api.get('/api/v1/adherence/streaks', { params: { days } });
     return response.data;
   },
 

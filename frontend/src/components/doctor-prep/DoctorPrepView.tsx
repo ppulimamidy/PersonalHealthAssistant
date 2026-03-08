@@ -24,12 +24,14 @@ import {
   Zap,
   Utensils,
   HeartPulse,
+  Target,
 } from 'lucide-react';
 import { formatDate } from '@/lib/utils';
-import type { DoctorPrepReport, KeyMetric, TrendSummary, HealthIntelligenceIndicators, CorrelationHighlight } from '@/types';
+import type { DoctorPrepReport, KeyMetric, TrendSummary, HealthIntelligenceIndicators, CorrelationHighlight, CarePlanProgress } from '@/types';
 import toast from 'react-hot-toast';
 import jsPDF from 'jspdf';
 import { useAuthStore } from '@/stores/authStore';
+import { exportService } from '@/services/export';
 
 function buildDoctorQuestions(report: DoctorPrepReport): string[] {
   const questions: string[] = [];
@@ -450,6 +452,20 @@ function ReportView({ report }: { report: DoctorPrepReport }) {
             <Download className="w-4 h-4 mr-2" />
             Export PDF
           </Button>
+          <Button
+            variant="outline"
+            onClick={async () => {
+              try {
+                await exportService.downloadPdf();
+                toast.success('Full history PDF downloaded!');
+              } catch {
+                toast.error('Failed to export full history');
+              }
+            }}
+          >
+            <FileText className="w-4 h-4 mr-2" />
+            Full History PDF
+          </Button>
         </div>
       </div>
 
@@ -530,6 +546,81 @@ function ReportView({ report }: { report: DoctorPrepReport }) {
                 </li>
               ))}
             </ul>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Treatment Plan Progress */}
+      {report.care_plan_progress && report.care_plan_progress.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Target className="w-5 h-5 text-primary-500" />
+              Treatment Plan Progress
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              {report.care_plan_progress.map((plan, idx) => {
+                const pct = plan.progress_pct ?? null;
+                const barColor =
+                  plan.on_track === true
+                    ? '#00D4AA'
+                    : plan.on_track === false
+                    ? '#F87171'
+                    : '#526380';
+                return (
+                  <div key={idx} className="space-y-1.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="text-sm font-medium text-slate-900 dark:text-slate-100 truncate">
+                          {plan.title}
+                        </span>
+                        {plan.source === 'doctor' && (
+                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wide bg-primary-100 dark:bg-primary-900/30 text-primary-600 dark:text-primary-400 flex-shrink-0">
+                            Rx
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 flex-shrink-0 text-xs text-slate-500 dark:text-slate-400">
+                        {plan.current_value !== undefined && plan.current_value !== null && (
+                          <span>
+                            {plan.current_value} {plan.target_unit ?? ''} current
+                          </span>
+                        )}
+                        {plan.target_value !== undefined && (
+                          <span>/ {plan.target_value} {plan.target_unit ?? ''} target</span>
+                        )}
+                        {plan.on_track !== undefined && (
+                          plan.on_track ? (
+                            <CheckCircle className="w-4 h-4 text-green-500" />
+                          ) : (
+                            <AlertCircle className="w-4 h-4 text-amber-500" />
+                          )
+                        )}
+                      </div>
+                    </div>
+                    {pct !== null && (
+                      <div className="h-1.5 w-full rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
+                        <div
+                          className="h-full rounded-full transition-all"
+                          style={{ width: `${pct}%`, backgroundColor: barColor }}
+                        />
+                      </div>
+                    )}
+                    {plan.days_remaining !== undefined && (
+                      <p className="text-xs text-slate-400">
+                        {plan.days_remaining > 0
+                          ? `${plan.days_remaining} days remaining`
+                          : plan.days_remaining === 0
+                          ? 'Due today'
+                          : `${Math.abs(plan.days_remaining)} days overdue`}
+                      </p>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           </CardContent>
         </Card>
       )}

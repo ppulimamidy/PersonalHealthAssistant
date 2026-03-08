@@ -6,10 +6,11 @@ import { useQuery } from '@tanstack/react-query';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { HealthScoreRing } from '@/components/ui/HealthScoreRing';
 import { Button } from '@/components/ui/Button';
+import { EmptyState } from '@/components/ui/EmptyState';
 import { ouraService } from '@/services/oura';
 import { useHealthStore } from '@/stores/healthStore';
 import { formatDate, formatDuration } from '@/lib/utils';
-import { Moon, Footprints, Zap, ChevronDown, ChevronUp } from 'lucide-react';
+import { Moon, Footprints, Zap, ChevronDown, ChevronUp, Cpu } from 'lucide-react';
 import type { TimelineEntry } from '@/types';
 
 type MetricKey = 'sleep_score' | 'readiness_score' | 'resting_heart_rate';
@@ -294,12 +295,13 @@ export function TimelineView() {
           ))}
         </div>
       ) : (
-        <Card className="text-center py-12">
-          <p className="text-slate-500 dark:text-slate-400">No health data available yet.</p>
-          <p className="text-sm text-slate-400 dark:text-slate-500 mt-2">
-            Connect your Oura Ring to start tracking.
-          </p>
-        </Card>
+        <EmptyState
+          icon={Cpu}
+          title="Connect a device to see your timeline"
+          description="Link your Oura Ring or another wearable to unlock daily health scores, sleep data, and readiness trends."
+          actionLabel="Connect →"
+          actionHref="/devices"
+        />
       )}
     </div>
   );

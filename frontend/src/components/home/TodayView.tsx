@@ -12,8 +12,10 @@ import {
   X,
   ArrowRight,
   Cpu,
+  Lightbulb,
 } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
+import type { InsightFollowUp } from '@/types';
 import { healthScoreService } from '@/services/healthScore';
 import { ouraService } from '@/services/oura';
 import { insightsService } from '@/services/insights';
@@ -22,6 +24,12 @@ import { nutritionService } from '@/services/nutrition';
 import { medicationsService } from '@/services/medications';
 import { healthConditionsService } from '@/services/healthConditions';
 import { HealthScoreRing } from '@/components/ui/HealthScoreRing';
+import { ProgressSummaryCard } from './ProgressSummaryCard';
+import { GoalsPanel } from './GoalsPanel';
+import { CarePlanPanel } from './CarePlanPanel';
+import { TrajectoryWidget } from './TrajectoryWidget';
+import { DailyAdherenceStrip } from '@/components/medications/DailyAdherenceStrip';
+import { SmartReminderBanner } from './SmartReminderBanner';
 
 const CHECKLIST_KEY = 'setup-checklist-dismissed';
 
@@ -192,6 +200,45 @@ function QuickLogStrip() {
   );
 }
 
+// ── Insight follow-up banner ──────────────────────────────────────────────────
+
+function InsightFollowUpBanner({ followups }: { followups: InsightFollowUp[] }) {
+  const [dismissed, setDismissed] = useState(false);
+  if (dismissed || followups.length === 0) return null;
+  const count = followups.length;
+  const hasBetter = followups.some((f) => f.direction === 'better');
+  const hasWorse = followups.some((f) => f.direction === 'worse');
+  const sentiment = hasWorse ? 'worse' : hasBetter ? 'better' : 'stable';
+  const color = sentiment === 'better' ? '#00D4AA' : sentiment === 'worse' ? '#F87171' : '#FBB124';
+  const bgColor = sentiment === 'better' ? 'rgba(0,212,170,0.06)' : sentiment === 'worse' ? 'rgba(248,113,113,0.06)' : 'rgba(251,177,36,0.06)';
+  const borderColor = sentiment === 'better' ? 'rgba(0,212,170,0.2)' : sentiment === 'worse' ? 'rgba(248,113,113,0.2)' : 'rgba(251,177,36,0.2)';
+
+  return (
+    <div className="flex items-start gap-3 p-4 rounded-xl"
+      style={{ backgroundColor: bgColor, border: `1px solid ${borderColor}` }}>
+      <Lightbulb className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color }} />
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium" style={{ color: '#E8EDF5' }}>
+          {count === 1 ? '1 finding' : `${count} findings`} from ~30 days ago — see what changed
+        </p>
+        <p className="text-xs mt-0.5 line-clamp-1" style={{ color: '#8B97A8' }}>
+          {followups.slice(0, 2).map((f) => f.label).join(', ')}
+          {count > 2 ? ` +${count - 2} more` : ''}
+        </p>
+      </div>
+      <div className="flex items-center gap-2 flex-shrink-0">
+        <Link href="/insights" className="text-xs font-medium underline" style={{ color }}>
+          View →
+        </Link>
+        <button onClick={() => setDismissed(true)} className="p-0.5 rounded"
+          style={{ color: '#526380' }}>
+          <X className="w-3.5 h-3.5" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 export function TodayView() {
@@ -246,6 +293,30 @@ export function TodayView() {
     staleTime: 60_000,
   });
 
+  const { data: symptoms28d } = useQuery({
+    queryKey: ['symptoms', 28],
+    queryFn: () => symptomsService.getSymptoms({ days: 28 }),
+    staleTime: 60_000,
+  });
+
+  const { data: adherenceStats } = useQuery({
+    queryKey: ['adherence-stats'],
+    queryFn: () => medicationsService.getAdherenceStats(30),
+    staleTime: 60_000,
+  });
+
+  const { data: todayAdherence } = useQuery({
+    queryKey: ['adherence-today'],
+    queryFn: medicationsService.getTodayAdherence,
+    staleTime: 30_000,
+  });
+
+  const { data: followups } = useQuery({
+    queryKey: ['insight-followups'],
+    queryFn: insightsService.getFollowups,
+    staleTime: 5 * 60_000,
+  });
+
   // ── Checklist data ───────────────────────────────────────────────────────────
 
   const todayEntry = timeline?.[0];
@@ -265,6 +336,18 @@ export function TodayView() {
   // Show first active medication as a reminder
   const nextMed = activeMeds[0];
 
+  // Smart banner data
+  const todayMeds = todayAdherence?.medications ?? [];
+  const medsNotLogged = todayMeds.filter((m) => m.logs.length === 0).length;
+  const hasMealToday = (() => {
+    const today = new Date().toISOString().slice(0, 10);
+    return (mealsData?.items ?? []).some((m) => m.timestamp?.startsWith(today));
+  })();
+  const latestInsightDate = insights?.[0]?.created_at;
+  const insightsStale = latestInsightDate
+    ? (Date.now() - new Date(latestInsightDate).getTime()) / (1000 * 60 * 60 * 24) > 7
+    : false;
+
   // ── Render ────────────────────────────────────────────────────────────────────
 
   return (
@@ -274,6 +357,17 @@ export function TodayView() {
         <h1 className="text-2xl font-bold text-[#E8EDF5]">{greeting(firstName)}</h1>
         <p className="text-sm text-[#526380] mt-0.5">{todayLabel()}</p>
       </div>
+
+      {/* Smart reminder banner */}
+      <SmartReminderBanner
+        medsNotLogged={medsNotLogged}
+        totalMeds={todayMeds.length}
+        hasMealToday={hasMealToday}
+        insightsStale={insightsStale}
+      />
+
+      {/* Insight follow-up banner */}
+      <InsightFollowUpBanner followups={followups ?? []} />
 
       {/* Health snapshot (Oura-connected) */}
       {ouraActive ? (
@@ -330,6 +424,29 @@ export function TodayView() {
         </Panel>
       )}
 
+      {/* Health trajectory composite score */}
+      <TrajectoryWidget />
+
+      {/* Progress summary card */}
+      <ProgressSummaryCard
+        timeline={timeline ?? undefined}
+        symptomsData={symptoms28d ?? undefined}
+        adherenceStats={adherenceStats ?? undefined}
+        healthScore={undefined}
+      />
+
+      {/* Care Plan */}
+      <CarePlanPanel
+        ouraSteps={(() => {
+          const steps = (timeline ?? []).slice(0, 7).map((e) => e.activity?.steps).filter((s): s is number => s != null);
+          return steps.length ? Math.round(steps.reduce((a, b) => a + b, 0) / steps.length) : undefined;
+        })()}
+        ouraSlpScore={timeline?.[0]?.sleep?.sleep_score ?? undefined}
+      />
+
+      {/* Goals */}
+      <GoalsPanel />
+
       {/* Setup checklist */}
       <SetupChecklist
         ouraActive={ouraActive}
@@ -341,6 +458,9 @@ export function TodayView() {
 
       {/* Quick log strip */}
       <QuickLogStrip />
+
+      {/* Daily adherence strip */}
+      <DailyAdherenceStrip />
 
       {/* Latest insight */}
       {(insightsLoading || latestInsight) && (

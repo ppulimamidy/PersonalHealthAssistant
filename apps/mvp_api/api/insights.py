@@ -729,7 +729,16 @@ async def get_insights(
             )
         )
 
-    return insights[:limit]
+    result = insights[:limit]
+
+    # Persist snapshots for 30-day follow-up (best-effort, fire-and-forget)
+    user_id = current_user.get("id", "")
+    if user_id and user_id != "sandbox-user-123":
+        import asyncio
+        for ins in result:
+            asyncio.ensure_future(_save_insight_snapshot(user_id, ins))
+
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -1367,6 +1376,311 @@ async def get_correlated_insights(
         )
 
     return out[:5]
+
+
+class MetricDelta(BaseModel):
+    metric: str
+    label: str
+    unit: str
+    current: float
+    previous: float
+    delta: float
+    direction: str  # "up" | "down" | "stable"
+
+
+@router.get("/delta", response_model=List[MetricDelta])
+async def get_insight_delta(
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Compare averaged health metrics for the last 7 days vs the same window 30 days ago.
+    Returns only metrics where both periods have data.
+    """
+    from .timeline import get_timeline
+
+    try:
+        timeline = await get_timeline(days=44, current_user=current_user)
+    except Exception as e:
+        logger.warning("get_insight_delta: timeline fetch failed: %s", e)
+        return []
+
+    if not timeline:
+        return []
+
+    # timeline[0] = most recent day, timeline[-1] = oldest (order: date desc)
+    recent = timeline[:7]
+    previous = timeline[27:34] if len(timeline) >= 34 else []
+
+    if not previous:
+        return []
+
+    def _avg(vals: list) -> Optional[float]:
+        clean = [v for v in vals if v is not None]
+        return sum(clean) / len(clean) if clean else None
+
+    def _direction(d: float, threshold: float) -> str:
+        if d > threshold:
+            return "up"
+        if d < -threshold:
+            return "down"
+        return "stable"
+
+    out: List[MetricDelta] = []
+
+    r_sleep = _avg([e.sleep.sleep_score for e in recent if e.sleep])
+    p_sleep = _avg([e.sleep.sleep_score for e in previous if e.sleep])
+    if r_sleep is not None and p_sleep is not None:
+        d = r_sleep - p_sleep
+        out.append(MetricDelta(metric="sleep_score", label="Sleep Score", unit="pts",
+                               current=round(r_sleep, 1), previous=round(p_sleep, 1),
+                               delta=round(d, 1), direction=_direction(d, 2.0)))
+
+    r_steps = _avg([e.activity.steps for e in recent if e.activity])
+    p_steps = _avg([e.activity.steps for e in previous if e.activity])
+    if r_steps is not None and p_steps is not None:
+        d = r_steps - p_steps
+        out.append(MetricDelta(metric="steps", label="Daily Steps", unit="steps",
+                               current=round(r_steps), previous=round(p_steps),
+                               delta=round(d), direction=_direction(d, 200)))
+
+    r_read = _avg([e.readiness.readiness_score for e in recent if e.readiness])
+    p_read = _avg([e.readiness.readiness_score for e in previous if e.readiness])
+    if r_read is not None and p_read is not None:
+        d = r_read - p_read
+        out.append(MetricDelta(metric="readiness", label="Readiness", unit="pts",
+                               current=round(r_read, 1), previous=round(p_read, 1),
+                               delta=round(d, 1), direction=_direction(d, 2.0)))
+
+    r_hrv = _avg([e.readiness.hrv_balance for e in recent if e.readiness])
+    p_hrv = _avg([e.readiness.hrv_balance for e in previous if e.readiness])
+    if r_hrv is not None and p_hrv is not None:
+        d = r_hrv - p_hrv
+        out.append(MetricDelta(metric="hrv", label="HRV Balance", unit="ms",
+                               current=round(r_hrv, 1), previous=round(p_hrv, 1),
+                               delta=round(d, 1), direction=_direction(d, 2.0)))
+
+    return out
+
+
+# ── Insight persistence helpers ───────────────────────────────────────────────
+
+from datetime import timedelta as _td
+
+
+def _week_bucket(d: Optional[datetime] = None) -> str:
+    """Return the Monday ISO date for the given datetime (default: today)."""
+    ref = (d or datetime.utcnow()).date()
+    monday = ref - _td(days=ref.weekday())
+    return monday.isoformat()
+
+
+async def _save_insight_snapshot(user_id: str, insight: AIInsight) -> None:
+    """
+    Upsert a saved_insight snapshot for the current week.
+    Silently ignores errors so it never blocks the main endpoint.
+    """
+    from ..dependencies.usage_gate import _supabase_upsert as _upsert
+
+    # Derive a stable metric_key from the insight category + type
+    metric_key = f"{insight.category}_{insight.type}"
+    if insight.data_points:
+        first = insight.data_points[0]
+        metric_key = first.metric.lower().replace(" ", "_")[:100]
+
+    # Best-effort extract numeric value
+    metric_value = insight.data_points[0].value if insight.data_points else None
+
+    try:
+        await _upsert(
+            "saved_insights",
+            {
+                "user_id": user_id,
+                "metric_key": metric_key,
+                "title": insight.title[:200],
+                "summary": (insight.summary or "")[:400],
+                "insight_type": insight.type,
+                "category": insight.category,
+                "metric_value": metric_value,
+                "metric_unit": "",
+                "week_bucket": _week_bucket(insight.created_at),
+            },
+        )
+    except Exception as exc:
+        logger.warning("_save_insight_snapshot: %s", exc)
+
+
+# ── Follow-ups endpoint ────────────────────────────────────────────────────────
+
+class InsightFollowUp(BaseModel):
+    metric_key: str
+    original_title: str
+    original_summary: str
+    original_value: Optional[float]
+    original_date: str          # week_bucket ISO date
+    current_value: Optional[float]
+    delta: Optional[float]
+    direction: str              # "better" | "worse" | "stable" | "unknown"
+    label: str                  # human-readable e.g. "Sleep Score"
+    source: str = "oura"        # "oura" | "app_data"
+
+
+@router.get("/followups", response_model=List[InsightFollowUp])
+async def get_insight_followups(
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Return insights from 28–42 days ago paired with current Oura timeline values.
+    Provides the "what changed since?" comparison loop.
+    """
+    from ..dependencies.usage_gate import _supabase_get as _get
+    from .timeline import get_timeline
+
+    user_id = current_user["id"]
+    today = datetime.utcnow().date()
+    window_start = (today - _td(days=42)).isoformat()
+    window_end   = (today - _td(days=28)).isoformat()
+
+    old_rows = await _get(
+        "saved_insights",
+        f"user_id=eq.{user_id}&week_bucket=gte.{window_start}&week_bucket=lte.{window_end}&order=week_bucket.desc&select=*&limit=10",
+    ) or []
+
+    if not old_rows:
+        return []
+
+    # Fetch current timeline for up-to-date values
+    try:
+        timeline = await get_timeline(days=7, current_user=current_user)
+    except Exception:
+        timeline = []
+
+    def _tl_avg(attr_path: str) -> Optional[float]:
+        """Extract and average an attribute from timeline entries."""
+        vals = []
+        for entry in timeline:
+            parts = attr_path.split(".")
+            val = entry
+            for p in parts:
+                val = getattr(val, p, None)
+                if val is None:
+                    break
+            if val is not None:
+                try:
+                    vals.append(float(val))
+                except (TypeError, ValueError):
+                    pass
+        clean = [v for v in vals if v is not None]
+        return sum(clean) / len(clean) if clean else None
+
+    # Map metric_key → current value getter (Oura-based)
+    _oura_current_map = {
+        "sleep_score": _tl_avg("sleep.sleep_score"),
+        "avg_sleep_score_(14d)": _tl_avg("sleep.sleep_score"),
+        "steps": _tl_avg("activity.steps"),
+        "avg_daily_steps": _tl_avg("activity.steps"),
+        "readiness_score_(recent)": _tl_avg("readiness.readiness_score"),
+        "hrv_balance": _tl_avg("readiness.hrv_balance"),
+        "model_confidence": None,
+    }
+
+    # Compute app-data current values for non-Oura metrics
+    thirty_ago = (today - _td(days=30)).isoformat()
+
+    async def _current_symptom_severity() -> Optional[float]:
+        rows = await _get("symptom_journal",
+            f"user_id=eq.{user_id}&symptom_date=gte.{thirty_ago}&select=severity&limit=200") or []
+        sevs = [r["severity"] for r in rows if r.get("severity") is not None]
+        return round(sum(sevs) / len(sevs), 1) if sevs else None
+
+    async def _current_adherence() -> Optional[float]:
+        rows = await _get("medication_adherence_log",
+            f"user_id=eq.{user_id}&scheduled_time=gte.{thirty_ago}&select=was_taken&limit=500") or []
+        if not rows:
+            return None
+        return round(sum(1 for r in rows if r.get("was_taken")) / len(rows) * 100)
+
+    async def _current_weight() -> Optional[float]:
+        rows = await _get("profiles", f"id=eq.{user_id}&select=weight_kg&limit=1") or []
+        wk = rows[0].get("weight_kg") if rows else None
+        return float(wk) if wk is not None else None
+
+    # App-data current values (fetch concurrently)
+    import asyncio as _asyncio
+    _app_vals = await _asyncio.gather(
+        _current_symptom_severity(),
+        _current_adherence(),
+        _current_weight(),
+        return_exceptions=True,
+    )
+    _app_current_map: dict = {
+        "symptom_severity": _app_vals[0] if not isinstance(_app_vals[0], Exception) else None,
+        "avg_symptom_severity_(30d)": _app_vals[0] if not isinstance(_app_vals[0], Exception) else None,
+        "medication_adherence": _app_vals[1] if not isinstance(_app_vals[1], Exception) else None,
+        "weight": _app_vals[2] if not isinstance(_app_vals[2], Exception) else None,
+        "weight_(kg)": _app_vals[2] if not isinstance(_app_vals[2], Exception) else None,
+    }
+
+    metric_labels = {
+        "sleep_score": "Sleep Score",
+        "steps": "Daily Steps",
+        "readiness_score_(recent)": "Readiness",
+        "hrv_balance": "HRV Balance",
+        "avg_sleep_score_(14d)": "Sleep Score",
+        "avg_daily_steps": "Daily Steps",
+        "symptom_severity": "Symptom Severity",
+        "avg_symptom_severity_(30d)": "Symptom Severity",
+        "medication_adherence": "Medication Adherence",
+        "weight": "Weight",
+        "weight_(kg)": "Weight",
+    }
+
+    followups: List[InsightFollowUp] = []
+    seen_keys: set = set()
+
+    for row in old_rows:
+        mk = (row.get("metric_key") or "").lower()
+        if mk == "model_confidence" or mk in seen_keys:
+            continue
+        seen_keys.add(mk)
+
+        original_val = row.get("metric_value")
+        if original_val is not None:
+            try:
+                original_val = float(original_val)
+            except (TypeError, ValueError):
+                original_val = None
+
+        # Determine source and current value
+        is_app_data = mk in _app_current_map
+        current_val = _app_current_map.get(mk) if is_app_data else _oura_current_map.get(mk)
+        source = "app_data" if is_app_data else "oura"
+
+        delta: Optional[float] = None
+        direction = "unknown"
+        if original_val is not None and current_val is not None:
+            delta = round(current_val - original_val, 1)
+            lower_better = "symptom" in mk or "severity" in mk
+            if lower_better:
+                direction = "better" if delta < -1 else "worse" if delta > 1 else "stable"
+            else:
+                direction = "better" if delta > 2 else "worse" if delta < -2 else "stable"
+
+        label = metric_labels.get(mk, mk.replace("_", " ").title())
+
+        followups.append(InsightFollowUp(
+            metric_key=mk,
+            original_title=row.get("title", ""),
+            original_summary=row.get("summary", ""),
+            original_value=original_val,
+            original_date=row.get("week_bucket", ""),
+            current_value=round(current_val, 1) if current_val is not None else None,
+            delta=delta,
+            direction=direction,
+            label=label,
+            source=source,
+        ))
+
+    return followups[:6]
 
 
 @router.get("/{insight_id}", response_model=AIInsight)

@@ -84,6 +84,9 @@ class LabResult(BaseModel):
     tags: List[str]
     created_at: str
     updated_at: str
+    # Anomaly detection fields — set on creation when abnormal/critical values are present
+    anomaly_detected: bool = False
+    anomaly_message: Optional[str] = None
 
 
 class BiomarkerTrend(BaseModel):
@@ -447,6 +450,53 @@ async def create_lab_result(
 
     # Parse biomarkers back for response
     result["biomarkers"] = json.loads(result["biomarkers"])
+
+    # --- Anomaly detection ---
+    anomaly_detected = False
+    anomaly_message: Optional[str] = None
+
+    if critical_count > 0:
+        anomaly_detected = True
+        anomaly_message = (
+            f"{critical_count} critical value{'s' if critical_count > 1 else ''} detected. "
+            "Consider logging how you're feeling — a symptoms and weight check-in can help correlate these results."
+        )
+    elif abnormal_count > 0:
+        # Check if any of these biomarkers were also abnormal in a prior result
+        prior_labs = await _supabase_get(
+            "lab_results",
+            f"user_id=eq.{user_id}&test_type=eq.{request.test_type}&order=test_date.desc&limit=3&select=biomarkers,test_date",
+        )
+        persistently_abnormal: list = []
+        new_abnormal_names = {b["name"] for b in biomarkers_data if b.get("status") in ("abnormal", "critical")}
+        for prior in prior_labs:
+            prior_bm = prior.get("biomarkers")
+            if isinstance(prior_bm, str):
+                import json as _json
+                try:
+                    prior_bm = _json.loads(prior_bm)
+                except Exception:
+                    prior_bm = []
+            if isinstance(prior_bm, list):
+                for pb in prior_bm:
+                    if pb.get("name") in new_abnormal_names and pb.get("status") in ("abnormal", "critical"):
+                        persistently_abnormal.append(pb["name"])
+                        break
+
+        anomaly_detected = True
+        if persistently_abnormal:
+            anomaly_message = (
+                f"{', '.join(set(persistently_abnormal))} {'remain' if len(set(persistently_abnormal)) > 1 else 'remains'} "
+                "abnormal compared to prior results. Log a quick symptoms check-in to help track what's changed."
+            )
+        else:
+            anomaly_message = (
+                f"{abnormal_count} abnormal value{'s' if abnormal_count > 1 else ''} in these results. "
+                "Log a symptoms check-in to capture how you're feeling."
+            )
+
+    result["anomaly_detected"] = anomaly_detected
+    result["anomaly_message"] = anomaly_message
 
     return LabResult(**result)
 

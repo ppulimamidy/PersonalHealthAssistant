@@ -14,9 +14,10 @@ import {
   RefreshCw,
   Info,
   Link2,
+  Cpu,
 } from 'lucide-react';
 import { useState } from 'react';
-import type { AIInsight, CorrelatedInsight } from '@/types';
+import type { AIInsight, CorrelatedInsight, MetricDelta, InsightFollowUp } from '@/types';
 import { cn } from '@/lib/utils';
 
 function InsightCard({ insight }: { insight: AIInsight }) {
@@ -153,6 +154,127 @@ function CorrelatedInsightCard({ insight }: { insight: CorrelatedInsight }) {
   );
 }
 
+// ── 30-day delta strip ────────────────────────────────────────────────────────
+
+function MetricDeltaStrip() {
+  const { data: deltas } = useQuery({
+    queryKey: ['insights-delta'],
+    queryFn: insightsService.getDelta,
+    staleTime: 5 * 60_000,
+  });
+
+  if (!deltas || deltas.length === 0) return null;
+
+  const fmtVal = (m: MetricDelta) => {
+    if (m.metric === 'steps') return Math.round(m.current).toLocaleString();
+    return m.current.toFixed(1);
+  };
+  const fmtDelta = (m: MetricDelta) => {
+    const sign = m.delta > 0 ? '+' : '';
+    if (m.metric === 'steps') return `${sign}${Math.round(m.delta).toLocaleString()}`;
+    return `${sign}${m.delta.toFixed(1)}`;
+  };
+  const deltaColor = (dir: MetricDelta['direction']) =>
+    dir === 'up' ? '#00D4AA' : dir === 'down' ? '#F87171' : '#526380';
+  const arrowIcon = (dir: MetricDelta['direction']) =>
+    dir === 'up' ? '↑' : dir === 'down' ? '↓' : '→';
+
+  return (
+    <div
+      className="rounded-xl p-4 mb-6"
+      style={{
+        backgroundColor: 'rgba(255,255,255,0.03)',
+        border: '1px solid rgba(255,255,255,0.06)',
+      }}
+    >
+      <p className="text-xs font-semibold text-[#526380] mb-3 uppercase tracking-wide">
+        What changed in 30 days?
+      </p>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {deltas.map((m) => (
+          <div key={m.metric} className="text-center">
+            <p className="text-[10px] text-[#526380] mb-1">{m.label}</p>
+            <p className="text-lg font-bold text-[#E8EDF5]">{fmtVal(m)}</p>
+            <p
+              className="text-xs font-semibold mt-0.5"
+              style={{ color: deltaColor(m.direction) }}
+            >
+              {arrowIcon(m.direction)} {fmtDelta(m)} {m.unit}
+            </p>
+            <p className="text-[10px] text-[#3D4F66] mt-0.5">
+              was {m.metric === 'steps' ? Math.round(m.previous).toLocaleString() : m.previous.toFixed(1)}
+            </p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── 30-day follow-ups ─────────────────────────────────────────────────────────
+
+function FollowUpsSection() {
+  const { data: followups } = useQuery({
+    queryKey: ['insights-followups'],
+    queryFn: insightsService.getFollowups,
+    staleTime: 10 * 60_000,
+  });
+
+  if (!followups || followups.length === 0) return null;
+
+  const dirColor = (dir: InsightFollowUp['direction']) =>
+    dir === 'better' ? '#00D4AA' : dir === 'worse' ? '#F87171' : '#526380';
+  const dirIcon = (dir: InsightFollowUp['direction'], delta: number | null) => {
+    if (dir === 'better') return '↑ Better';
+    if (dir === 'worse')  return '↓ Worse';
+    if (dir === 'stable') return '→ Stable';
+    return delta != null ? `${delta > 0 ? '+' : ''}${delta}` : '—';
+  };
+
+  return (
+    <div className="mb-8">
+      <h2 className="text-sm font-semibold text-[#8B97A8] mb-1 flex items-center gap-2">
+        <span className="w-2 h-2 rounded-full bg-[#00D4AA] inline-block" />
+        30-day follow-ups
+      </h2>
+      <p className="text-xs text-[#526380] mb-3">How did these findings change from last month?</p>
+      <div className="space-y-3">
+        {followups.map((fu) => (
+          <div
+            key={fu.metric_key}
+            className="rounded-xl px-4 py-3 flex items-center gap-4"
+            style={{ backgroundColor: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}
+          >
+            {/* Original finding */}
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-semibold text-[#C8D5E8] truncate">{fu.original_title}</p>
+              <p className="text-[10px] text-[#526380] mt-0.5">
+                {fu.label} · {fu.original_date ? new Date(fu.original_date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '~30d ago'}
+              </p>
+            </div>
+            {/* Before → After */}
+            <div className="flex items-center gap-2 flex-shrink-0 text-right">
+              <span className="text-xs text-[#3D4F66]">
+                {fu.original_value != null ? fu.original_value : '—'}
+              </span>
+              <span className="text-[10px] text-[#3D4F66]">→</span>
+              <span className="text-sm font-bold text-[#E8EDF5]">
+                {fu.current_value != null ? fu.current_value : '—'}
+              </span>
+              <span
+                className="text-xs font-semibold px-2 py-0.5 rounded-full"
+                style={{ color: dirColor(fu.direction), backgroundColor: `${dirColor(fu.direction)}1A` }}
+              >
+                {dirIcon(fu.direction, fu.delta)}
+              </span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function InsightsView() {
   const { data: insights, isLoading, refetch, isRefetching } = useQuery({
     queryKey: ['insights'],
@@ -218,6 +340,12 @@ export function InsightsView() {
         </div>
       </div>
 
+      {/* 30-day follow-ups (resurface old findings with delta) */}
+      <FollowUpsSection />
+
+      {/* 30-day metric delta strip */}
+      <MetricDeltaStrip />
+
       {/* Correlated insights: recommendation + evidence */}
       {correlatedLoading ? (
         <div className="flex items-center justify-center h-32 mb-6">
@@ -263,7 +391,17 @@ export function InsightsView() {
             We need more data to generate personalized insights. Connect your device, log symptoms, or add medications to see correlated insights.
           </p>
         </Card>
-      ) : null}
+      ) : (
+        <div className="flex items-center gap-3 p-4 rounded-lg border border-slate-200 dark:border-slate-700 text-sm text-slate-500 dark:text-slate-400">
+          <Cpu className="w-4 h-4 flex-shrink-0 text-slate-400 dark:text-slate-500" />
+          <span>
+            AI insights require wearable data.{' '}
+            <Link href="/devices" className="text-primary-600 dark:text-primary-400 hover:underline">
+              Connect your Oura Ring →
+            </Link>
+          </span>
+        </div>
+      )}
     </div>
   );
 }

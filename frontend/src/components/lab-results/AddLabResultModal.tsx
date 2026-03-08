@@ -1,9 +1,11 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { X, Plus, Trash2 } from 'lucide-react';
 import { labResultsService } from '@/services/labResults';
 import { CreateLabResultRequest } from '@/types';
+import toast from 'react-hot-toast';
 
 interface AddLabResultModalProps {
   isOpen: boolean;
@@ -26,6 +28,7 @@ const buildInitial = (prefill?: Partial<CreateLabResultRequest>): CreateLabResul
 });
 
 export function AddLabResultModal({ isOpen, onClose, onSuccess, prefill }: AddLabResultModalProps) {
+  const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [formData, setFormData] = useState<CreateLabResultRequest>(() => buildInitial(prefill));
@@ -45,10 +48,32 @@ export function AddLabResultModal({ isOpen, onClose, onSuccess, prefill }: AddLa
     setError(null);
 
     try {
-      await labResultsService.createLabResult(formData);
+      const result = await labResultsService.createLabResult(formData);
       onSuccess();
       onClose();
       resetForm();
+      // Show anomaly prompt if detected (dedup per day)
+      if (result?.anomaly_detected && result?.anomaly_message) {
+        const dedupKey = `lab-anomaly-${new Date().toISOString().split('T')[0]}`;
+        if (!localStorage.getItem(dedupKey)) {
+          localStorage.setItem(dedupKey, '1');
+          toast(
+            (t) => (
+              <div>
+                <p className="font-medium text-amber-700">⚠ Anomaly Detected</p>
+                <p className="text-sm mt-1 text-slate-700">{result.anomaly_message}</p>
+                <button
+                  onClick={() => { router.push('/symptoms'); toast.dismiss(t.id); }}
+                  className="mt-2 text-sm text-teal-600 underline hover:text-teal-700"
+                >
+                  Log symptoms now →
+                </button>
+              </div>
+            ),
+            { duration: 8000 }
+          );
+        }
+      }
     } catch (err: any) {
       setError(err.response?.data?.message || 'Failed to create lab result');
     } finally {

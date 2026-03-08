@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import Any, Dict, List, Optional
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 import json
 import uuid
 import io
@@ -113,6 +113,19 @@ class CorrelationHighlight(BaseModel):
     strength: str
 
 
+class CarePlanProgress(BaseModel):
+    title: str
+    metric_type: str
+    target_value: Optional[float] = None
+    target_unit: Optional[str] = None
+    target_date: Optional[str] = None
+    current_value: Optional[float] = None
+    progress_pct: Optional[float] = None   # 0–100
+    on_track: Optional[bool] = None
+    source: str = "self"                   # 'doctor' | 'self'
+    days_remaining: Optional[int] = None
+
+
 class DoctorPrepReport(BaseModel):
     id: str
     user_id: str
@@ -123,6 +136,7 @@ class DoctorPrepReport(BaseModel):
     health_intelligence: Optional[HealthIntelligenceIndicators] = None
     nutrition_correlations: Optional[List[CorrelationHighlight]] = None
     condition_specific_notes: Optional[List[str]] = None
+    care_plan_progress: Optional[List[CarePlanProgress]] = None
 
 
 class GenerateReportRequest(BaseModel):
@@ -727,6 +741,93 @@ async def generate_report(
     nutrition_correlations = await _get_top_correlations(user_id)
     condition_notes = await _get_condition_notes(user_id)
 
+    # --- Care plan progress ---
+    care_plan_rows = await _supabase_get(
+        "care_plans",
+        f"user_id=eq.{user_id}&status=eq.active&order=created_at.desc&limit=10",
+    )
+
+    care_plan_progress: List[CarePlanProgress] = []
+    if care_plan_rows:
+        # Fetch supporting metrics for current_value computation
+        thirty_ago = (date.today() - timedelta(days=30)).isoformat()
+
+        adherence_rows = await _supabase_get(
+            "medication_adherence_log",
+            f"user_id=eq.{user_id}&scheduled_time=gte.{thirty_ago}&select=was_taken",
+        )
+        adherence_pct: Optional[float] = None
+        if adherence_rows:
+            total = len(adherence_rows)
+            taken = sum(1 for r in adherence_rows if r.get("was_taken"))
+            adherence_pct = round(taken / total * 100) if total else None
+
+        symptom_rows = await _supabase_get(
+            "symptom_journal",
+            f"user_id=eq.{user_id}&date=gte.{thirty_ago}&select=severity",
+        )
+        avg_severity: Optional[float] = None
+        if symptom_rows:
+            sevs = [r.get("severity") for r in symptom_rows if r.get("severity") is not None]
+            avg_severity = round(sum(sevs) / len(sevs), 1) if sevs else None
+
+        profile_rows = await _supabase_get(
+            "profiles", f"id=eq.{user_id}&select=weight_kg&limit=1"
+        )
+        current_weight: Optional[float] = profile_rows[0].get("weight_kg") if profile_rows else None
+
+        today_date = date.today()
+        _metric_current: Dict[str, Optional[float]] = {
+            "medication_adherence": adherence_pct,
+            "symptom_severity": avg_severity,
+            "weight": current_weight,
+        }
+
+        for plan in care_plan_rows:
+            mt = plan.get("metric_type", "general")
+            target_val = plan.get("target_value")
+            target_date_str = plan.get("target_date")
+            current_val = _metric_current.get(mt)
+
+            progress_pct: Optional[float] = None
+            on_track: Optional[bool] = None
+
+            if current_val is not None and target_val is not None and target_val != 0:
+                if mt == "symptom_severity":
+                    # Lower is better — progress = how close to target
+                    on_track = current_val <= target_val
+                    # Invert: 0 severity = 100%, target severity = 50%, 10 = 0%
+                    progress_pct = max(0, min(100, round(100 - (current_val / 10) * 100)))
+                elif mt == "medication_adherence":
+                    progress_pct = min(100, round(current_val, 1))
+                    on_track = current_val >= target_val
+                else:
+                    progress_pct = min(100, round(current_val / target_val * 100, 1))
+                    on_track = current_val >= target_val
+
+            days_remaining: Optional[int] = None
+            if target_date_str:
+                try:
+                    target_dt = date.fromisoformat(target_date_str)
+                    days_remaining = (target_dt - today_date).days
+                except (ValueError, TypeError):
+                    pass
+
+            care_plan_progress.append(
+                CarePlanProgress(
+                    title=plan.get("title", "Unnamed"),
+                    metric_type=mt,
+                    target_value=target_val,
+                    target_unit=plan.get("target_unit"),
+                    target_date=target_date_str,
+                    current_value=current_val,
+                    progress_pct=progress_pct,
+                    on_track=on_track,
+                    source=plan.get("source", "self"),
+                    days_remaining=days_remaining,
+                )
+            )
+
     # Enrich concerns/improvements with intelligence data
     if health_intelligence:
         if health_intelligence.inflammation_risk in ("elevated", "high"):
@@ -774,6 +875,7 @@ async def generate_report(
         health_intelligence=health_intelligence,
         nutrition_correlations=nutrition_correlations,
         condition_specific_notes=condition_notes,
+        care_plan_progress=care_plan_progress if care_plan_progress else None,
     )
 
     logger.info(f"Generated doctor prep report for user {user_id}")
