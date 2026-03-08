@@ -30,8 +30,8 @@ export function BetaSignupForm() {
   if (submitted) {
     return (
       <div className="text-center py-4">
-        <p className="text-lg font-medium text-green-600">You're on the list!</p>
-        <p className="text-sm text-slate-500 mt-1">We'll email you when your spot opens up.</p>
+        <p className="text-lg font-medium" style={{ color: '#00D4AA' }}>You&apos;re on the list!</p>
+        <p className="text-sm mt-1" style={{ color: '#526380' }}>We&apos;ll email you when your spot opens up.</p>
       </div>
     );
   }
@@ -44,7 +44,8 @@ export function BetaSignupForm() {
         onChange={(e) => setEmail(e.target.value)}
         placeholder="Enter your email"
         required
-        className="flex-1 px-4 py-3 rounded-lg border border-slate-300 bg-white text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+        className="flex-1 px-4 py-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#00D4AA]"
+        style={{ backgroundColor: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.10)', color: '#E8EDF5' }}
       />
       <Button type="submit" size="lg" disabled={loading}>
         {loading ? (
