@@ -17,6 +17,10 @@ const SEX_OPTIONS: { value: BiologicalSex; label: string }[] = [
   { value: 'prefer_not_to_say', label: 'Prefer not to say' },
 ];
 
+const inputClass =
+  'w-full px-4 py-2 border rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 ' +
+  'focus:outline-none focus:ring-2 focus:ring-primary-500 transition-colors';
+
 export default function SignupPage() {
   const router = useRouter();
   const { setUser } = useAuthStore();
@@ -29,6 +33,8 @@ export default function SignupPage() {
   const [weight, setWeight] = useState<number | ''>('');
   const [weightUnit, setWeightUnit] = useState<'lb' | 'kg'>('lb');
   const [isLoading, setIsLoading] = useState(false);
+  // Only show inline errors after the user has attempted to submit once
+  const [submitted, setSubmitted] = useState(false);
 
   const weightKg = useMemo(() => {
     if (typeof weight !== 'number' || weight <= 0) return undefined;
@@ -42,13 +48,30 @@ export default function SignupPage() {
     return d.toISOString().split('T')[0];
   }, []);
 
-  const isValid = name.trim() && email && password.length >= 8 && dob && sex && weightKg;
+  // Per-field validation messages (only shown after first submit attempt)
+  const errors = {
+    name: !name.trim() ? 'Full name is required' : '',
+    email: !email ? 'Email is required' : '',
+    password:
+      !password
+        ? 'Password is required'
+        : password.length < 8
+        ? 'Password must be at least 8 characters'
+        : '',
+    dob: !dob ? 'Date of birth is required' : '',
+    sex: !sex ? 'Please select a biological sex' : '',
+    weight: !weightKg ? 'Please enter a valid weight' : '',
+  };
+
+  const hasErrors = Object.values(errors).some(Boolean);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isValid || !weightKg || !sex || !dob) return;
-    setIsLoading(true);
+    setSubmitted(true);
 
+    if (hasErrors || !weightKg || !sex || !dob) return;
+
+    setIsLoading(true);
     try {
       // 1. Create auth user
       const { data, error } = await supabase.auth.signUp({
@@ -65,20 +88,26 @@ export default function SignupPage() {
       });
 
       if (error) throw error;
-      if (!data.user) throw new Error('Signup failed — no user returned');
+      if (!data.user) throw new Error('Signup failed — please try again');
 
-      // 2. Insert into profiles table (canonical store for demographic data)
-      const { error: profileError } = await supabase.from('profiles').insert({
-        id: data.user.id,
-        full_name: name.trim(),
-        date_of_birth: dob,
-        biological_sex: sex,
-        weight_kg: weightKg,
-      });
+      // 2. Upsert profile row (upsert handles the case where a DB trigger
+      //    already created the row, avoiding a duplicate-key error)
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .upsert(
+          {
+            id: data.user.id,
+            full_name: name.trim(),
+            date_of_birth: dob,
+            biological_sex: sex,
+            weight_kg: weightKg,
+          },
+          { onConflict: 'id' },
+        );
 
       if (profileError) {
-        // Non-fatal: profile can be created later; log and continue
-        console.warn('profiles insert failed:', profileError.message);
+        // Non-fatal — profile fields can be completed later
+        console.warn('profiles upsert:', profileError.message);
       }
 
       setUser({
@@ -91,11 +120,22 @@ export default function SignupPage() {
       toast.success('Account created!');
       router.push('/onboarding');
     } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : 'Signup failed');
+      const msg = err instanceof Error ? err.message : 'Signup failed';
+      toast.error(msg);
     } finally {
       setIsLoading(false);
     }
   };
+
+  const fieldBorder = (field: keyof typeof errors) =>
+    submitted && errors[field]
+      ? 'border-red-400 dark:border-red-500'
+      : 'border-slate-300 dark:border-slate-600';
+
+  const FieldError = ({ field }: { field: keyof typeof errors }) =>
+    submitted && errors[field] ? (
+      <p className="mt-1 text-xs text-red-500">{errors[field]}</p>
+    ) : null;
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-900 px-4 py-12">
@@ -111,7 +151,7 @@ export default function SignupPage() {
         </div>
 
         <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-8">
-          <form onSubmit={handleSubmit} className="space-y-5">
+          <form onSubmit={handleSubmit} noValidate className="space-y-5">
 
             {/* Full name */}
             <div>
@@ -123,10 +163,11 @@ export default function SignupPage() {
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                required
-                className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                className={`${inputClass} ${fieldBorder('name')}`}
                 placeholder="Jane Smith"
+                autoComplete="name"
               />
+              <FieldError field="name" />
             </div>
 
             {/* Email */}
@@ -139,10 +180,11 @@ export default function SignupPage() {
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                required
-                className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                className={`${inputClass} ${fieldBorder('email')}`}
                 placeholder="you@example.com"
+                autoComplete="email"
               />
+              <FieldError field="email" />
             </div>
 
             {/* Password */}
@@ -155,12 +197,15 @@ export default function SignupPage() {
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                required
-                minLength={8}
-                className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                className={`${inputClass} ${fieldBorder('password')}`}
                 placeholder="••••••••"
+                autoComplete="new-password"
               />
-              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">At least 8 characters</p>
+              {submitted && errors.password ? (
+                <p className="mt-1 text-xs text-red-500">{errors.password}</p>
+              ) : (
+                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">At least 8 characters</p>
+              )}
             </div>
 
             <hr className="border-slate-200 dark:border-slate-700" />
@@ -171,25 +216,25 @@ export default function SignupPage() {
             {/* Date of birth */}
             <div>
               <label htmlFor="dob" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
-                Date of Birth <span className="text-red-500">*</span>
+                Date of Birth
               </label>
               <input
                 id="dob"
                 type="date"
                 value={dob}
                 onChange={(e) => setDob(e.target.value)}
-                required
                 max={maxDob}
-                className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                className={`${inputClass} ${fieldBorder('dob')}`}
               />
+              <FieldError field="dob" />
             </div>
 
             {/* Biological sex */}
             <div>
               <p className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
-                Biological Sex <span className="text-red-500">*</span>
+                Biological Sex
               </p>
-              <div className="grid grid-cols-2 gap-2">
+              <div className={`grid grid-cols-2 gap-2 rounded-lg p-0.5 ${submitted && errors.sex ? 'ring-1 ring-red-400' : ''}`}>
                 {SEX_OPTIONS.map((opt) => (
                   <button
                     key={opt.value}
@@ -205,24 +250,27 @@ export default function SignupPage() {
                   </button>
                 ))}
               </div>
-              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                Used for clinical reference ranges and metabolic calculations.
-              </p>
+              {submitted && errors.sex ? (
+                <p className="mt-1 text-xs text-red-500">{errors.sex}</p>
+              ) : (
+                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                  Used for clinical reference ranges and metabolic calculations.
+                </p>
+              )}
             </div>
 
             {/* Weight */}
             <div>
               <p className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
-                Weight <span className="text-red-500">*</span>
+                Weight
               </p>
               <div className="flex gap-3">
                 <input
                   type="number"
                   value={weight}
                   onChange={(e) => setWeight(e.target.value === '' ? '' : Number(e.target.value))}
-                  required
                   min={1}
-                  className="flex-1 px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  className={`flex-1 ${inputClass} ${fieldBorder('weight')}`}
                   placeholder={weightUnit === 'lb' ? 'e.g. 160' : 'e.g. 72'}
                 />
                 <div className="flex rounded-lg border border-slate-300 dark:border-slate-600 overflow-hidden">
@@ -242,9 +290,10 @@ export default function SignupPage() {
                   ))}
                 </div>
               </div>
+              <FieldError field="weight" />
             </div>
 
-            <Button type="submit" className="w-full" isLoading={isLoading} disabled={!isValid}>
+            <Button type="submit" className="w-full" isLoading={isLoading}>
               Create Account
             </Button>
           </form>

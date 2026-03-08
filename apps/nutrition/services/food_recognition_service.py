@@ -381,11 +381,52 @@ class FoodRecognitionService:
         except Exception:
             return "image/jpeg"
 
+    def _compress_for_api(self, image_bytes: bytes, max_bytes: int = 4_500_000) -> bytes:
+        """Compress/resize image so it stays under max_bytes (default 4.5 MB).
+
+        Anthropic's hard limit is 5 MB per image.  Large phone photos routinely
+        exceed that, so we resize them down before encoding to base64.
+        """
+        if len(image_bytes) <= max_bytes:
+            return image_bytes
+        try:
+            img = Image.open(io.BytesIO(image_bytes))
+            # Convert to RGB so we can always save as JPEG
+            if img.mode not in ("RGB", "L"):
+                img = img.convert("RGB")
+            quality = 85
+            scale = 1.0
+            while True:
+                buf = io.BytesIO()
+                w = int(img.width * scale)
+                h = int(img.height * scale)
+                out = img.resize((w, h), Image.LANCZOS) if scale < 1.0 else img
+                out.save(buf, format="JPEG", quality=quality, optimize=True)
+                compressed = buf.getvalue()
+                if len(compressed) <= max_bytes:
+                    logger.info(
+                        f"Compressed image {len(image_bytes) // 1024}KB → "
+                        f"{len(compressed) // 1024}KB (scale={scale:.2f}, q={quality})"
+                    )
+                    return compressed
+                # Reduce quality first, then resolution
+                if quality > 60:
+                    quality -= 10
+                else:
+                    scale *= 0.75
+                if scale < 0.1:
+                    # Give up and return whatever we have
+                    return compressed
+        except Exception as exc:
+            logger.warning(f"Image compression failed: {exc} — sending original")
+            return image_bytes
+
     async def _recognize_with_anthropic(self, image_bytes: bytes) -> List[Dict[str, Any]]:
         """Recognize foods using Anthropic Claude Vision API."""
         import anthropic
         import json
 
+        image_bytes = self._compress_for_api(image_bytes)
         client = anthropic.AsyncAnthropic(api_key=self.anthropic_api_key)
         image_base64 = base64.b64encode(image_bytes).decode("utf-8")
         media_type = self._image_media_type(image_bytes)
@@ -741,6 +782,7 @@ Example:
         import anthropic
         import json
 
+        image_bytes = self._compress_for_api(image_bytes)
         client = anthropic.AsyncAnthropic(api_key=self.anthropic_api_key)
         image_base64 = base64.b64encode(image_bytes).decode("utf-8")
         media_type = self._image_media_type(image_bytes)

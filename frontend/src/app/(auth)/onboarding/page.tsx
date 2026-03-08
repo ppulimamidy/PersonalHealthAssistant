@@ -221,7 +221,7 @@ export default function OnboardingPage() {
           is_active: true,
           is_sandbox: true,
         });
-        setTimeout(() => router.push('/timeline'), 1000);
+        setTimeout(() => router.push('/home'), 1000);
       } else if (response.auth_url) {
         globalThis.location.href = response.auth_url;
       } else {
@@ -395,7 +395,7 @@ export default function OnboardingPage() {
 
               <button
                 type="button"
-                onClick={() => router.push('/timeline')}
+                onClick={() => router.push('/home')}
                 className="mt-4 text-sm text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
               >
                 Skip for now

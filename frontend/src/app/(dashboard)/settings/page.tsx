@@ -1,43 +1,39 @@
 'use client';
 
 import { useState } from 'react';
-import { useQuery, useMutation } from '@tanstack/react-query';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { useAuthStore } from '@/stores/authStore';
 import { useSubscriptionStore } from '@/stores/subscriptionStore';
-import { ouraService } from '@/services/oura';
 import { billingService } from '@/services/billing';
 import { supabase } from '@/lib/supabase';
+import Link from 'next/link';
 import {
   User,
   Shield,
   Bell,
-  Link2,
+  Cpu,
   LogOut,
-  Check,
-  X,
-  RefreshCw,
   CreditCard,
-  Zap
+  Zap,
+  ArrowRight,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { ReferralCard } from '@/components/referral/ReferralCard';
 
 export default function SettingsPage() {
-  const { user, profile, ouraConnection, setOuraConnection, setProfile, logout } = useAuthStore();
+  const { user, profile, setProfile, logout } = useAuthStore();
   const subscription = useSubscriptionStore((s) => s.subscription);
   const setSubscription = useSubscriptionStore((s) => s.setSubscription);
   const tier = useSubscriptionStore((s) => s.getTier());
-  const [isSyncing, setIsSyncing] = useState(false);
   const [portalLoading, setPortalLoading] = useState(false);
   const [forceActivating, setForceActivating] = useState(false);
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [isSavingProfile, setIsSavingProfile] = useState(false);
 
   // Edit profile form state
-  const [editAge, setEditAge] = useState<number | ''>('');
-  const [editGender, setEditGender] = useState<'male' | 'female' | 'other' | 'prefer_not_to_say' | ''>('');
+  const [editDob, setEditDob] = useState('');
+  const [editSex, setEditSex] = useState<'male' | 'female' | 'other' | 'prefer_not_to_say' | ''>('');
   const [editWeight, setEditWeight] = useState<number | ''>('');
   const [editWeightUnit, setEditWeightUnit] = useState<'kg' | 'lb'>('lb');
 
@@ -71,8 +67,8 @@ export default function SettingsPage() {
 
   const handleEditProfile = () => {
     // Initialize edit form with current values
-    setEditAge(profile?.age ?? '');
-    setEditGender(profile?.gender ?? '');
+    setEditDob(profile?.date_of_birth ?? '');
+    setEditSex(profile?.biological_sex ?? '');
 
     // Convert weight to lb for display if present
     if (profile?.weight_kg != null) {
@@ -87,18 +83,18 @@ export default function SettingsPage() {
 
   const handleCancelEdit = () => {
     setIsEditingProfile(false);
-    setEditAge('');
-    setEditGender('');
+    setEditDob('');
+    setEditSex('');
     setEditWeight('');
   };
 
   const handleSaveProfile = async () => {
-    if (typeof editAge !== 'number' || editAge < 13 || editAge > 120) {
-      toast.error('Please enter a valid age (13-120)');
+    if (!editDob) {
+      toast.error('Please enter a date of birth');
       return;
     }
-    if (!editGender) {
-      toast.error('Please select a gender');
+    if (!editSex) {
+      toast.error('Please select a biological sex');
       return;
     }
     if (typeof editWeight !== 'number' || editWeight <= 0) {
@@ -112,22 +108,22 @@ export default function SettingsPage() {
       const weightKg = editWeightUnit === 'kg' ? editWeight : editWeight / 2.20462;
       const roundedWeightKg = Math.round(weightKg * 10) / 10;
 
-      const { error } = await supabase.auth.updateUser({
-        data: {
-          age: editAge,
-          gender: editGender,
+      const { error } = await supabase
+        .from('profiles')
+        .update({
+          date_of_birth: editDob,
+          biological_sex: editSex,
           weight_kg: roundedWeightKg,
-        },
-      });
+        })
+        .eq('id', user?.id);
 
       if (error) throw error;
 
-      // Update local state
+      // Update local store
       setProfile({
-        age: editAge,
-        gender: editGender as 'male' | 'female' | 'other' | 'prefer_not_to_say',
+        date_of_birth: editDob,
+        biological_sex: editSex as 'male' | 'female' | 'other' | 'prefer_not_to_say',
         weight_kg: roundedWeightKg,
-        profile_completed: true,
       });
 
       toast.success('Profile updated');
@@ -136,49 +132,6 @@ export default function SettingsPage() {
       toast.error(error?.message || 'Failed to update profile');
     } finally {
       setIsSavingProfile(false);
-    }
-  };
-
-  const { data: connectionStatus, refetch } = useQuery({
-    queryKey: ['oura-connection'],
-    queryFn: ouraService.getConnectionStatus,
-  });
-
-  const disconnectMutation = useMutation({
-    mutationFn: ouraService.disconnect,
-    onSuccess: () => {
-      setOuraConnection(null);
-      toast.success('Oura Ring disconnected');
-      refetch();
-    },
-    onError: () => {
-      toast.error('Failed to disconnect');
-    },
-  });
-
-  const handleSync = async () => {
-    setIsSyncing(true);
-    try {
-      const result = await ouraService.syncData();
-      toast.success(`Synced ${result.synced_records} records`);
-    } catch {
-      toast.error('Sync failed');
-    } finally {
-      setIsSyncing(false);
-    }
-  };
-
-  const handleConnectOura = async () => {
-    try {
-      const response = await ouraService.getAuthUrl();
-      if (response.sandbox_mode) {
-        toast.success('Connected to Oura (Sandbox Mode)');
-        refetch();
-      } else if (response.auth_url) {
-        window.location.href = response.auth_url;
-      }
-    } catch {
-      toast.error('Failed to initiate connection');
     }
   };
 
@@ -231,25 +184,23 @@ export default function SettingsPage() {
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
                     <div>
                       <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
-                        Age
+                        Date of Birth
                       </label>
                       <input
-                        type="number"
-                        value={editAge}
-                        onChange={(e) => setEditAge(e.target.value === '' ? '' : Number(e.target.value))}
-                        min={13}
-                        max={120}
+                        type="date"
+                        value={editDob}
+                        onChange={(e) => setEditDob(e.target.value)}
+                        max={(() => { const d = new Date(); d.setFullYear(d.getFullYear() - 13); return d.toISOString().split('T')[0]; })()}
                         className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-primary-500"
-                        placeholder="e.g. 32"
                       />
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
-                        Gender
+                        Biological Sex
                       </label>
                       <select
-                        value={editGender}
-                        onChange={(e) => setEditGender(e.target.value as 'male' | 'female' | 'other' | 'prefer_not_to_say')}
+                        value={editSex}
+                        onChange={(e) => setEditSex(e.target.value as 'male' | 'female' | 'other' | 'prefer_not_to_say')}
                         className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-primary-500"
                       >
                         <option value="">Select…</option>
@@ -298,14 +249,27 @@ export default function SettingsPage() {
                     <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
                       Age
                     </label>
-                    <p className="text-slate-900 dark:text-slate-100">{profile?.age ?? 'Not set'}</p>
+                    <p className="text-slate-900 dark:text-slate-100">
+                      {profile?.date_of_birth
+                        ? (() => {
+                            const dob = new Date(profile.date_of_birth);
+                            const now = new Date();
+                            let a = now.getFullYear() - dob.getFullYear();
+                            const m = now.getMonth() - dob.getMonth();
+                            if (m < 0 || (m === 0 && now.getDate() < dob.getDate())) a--;
+                            return `${a} yrs`;
+                          })()
+                        : 'Not set'}
+                    </p>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
-                      Gender
+                      Biological Sex
                     </label>
-                    <p className="text-slate-900 dark:text-slate-100">
-                      {profile?.gender === 'prefer_not_to_say' ? 'Prefer not to say' : profile?.gender ?? 'Not set'}
+                    <p className="text-slate-900 dark:text-slate-100 capitalize">
+                      {profile?.biological_sex === 'prefer_not_to_say'
+                        ? 'Prefer not to say'
+                        : profile?.biological_sex ?? 'Not set'}
                     </p>
                   </div>
                   <div>
@@ -322,65 +286,26 @@ export default function SettingsPage() {
           </CardContent>
         </Card>
 
-        {/* Device Connections */}
+        {/* Devices — link to Device Hub */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <Link2 className="w-5 h-5" />
+              <Cpu className="w-5 h-5" />
               Connected Devices
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-900/50 rounded-lg">
-              <div className="flex items-center gap-4">
-                <div className="w-12 h-12 bg-slate-200 dark:bg-slate-700 rounded-full flex items-center justify-center">
-                  <svg viewBox="0 0 24 24" className="w-6 h-6 text-slate-600 dark:text-slate-400" fill="currentColor">
-                    <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" strokeWidth="2" />
-                    <circle cx="12" cy="12" r="4" />
-                  </svg>
-                </div>
-                <div>
-                  <p className="font-medium text-slate-900 dark:text-slate-100">Oura Ring</p>
-                  {connectionStatus?.is_active ? (
-                    <div className="flex items-center gap-1 text-sm text-green-600">
-                      <Check className="w-4 h-4" />
-                      Connected
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-1 text-sm text-slate-500 dark:text-slate-400">
-                      <X className="w-4 h-4" />
-                      Not connected
-                    </div>
-                  )}
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                {connectionStatus?.is_active ? (
-                  <>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={handleSync}
-                      isLoading={isSyncing}
-                    >
-                      <RefreshCw className="w-4 h-4 mr-1" />
-                      Sync
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => disconnectMutation.mutate()}
-                      isLoading={disconnectMutation.isPending}
-                    >
-                      Disconnect
-                    </Button>
-                  </>
-                ) : (
-                  <Button size="sm" onClick={handleConnectOura}>
-                    Connect
-                  </Button>
-                )}
-              </div>
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-slate-500 dark:text-slate-400">
+                Manage wearables and health app connections
+              </p>
+              <Link
+                href="/devices"
+                className="flex items-center gap-1.5 text-sm font-medium text-primary-600 dark:text-primary-400 hover:underline"
+              >
+                Manage devices
+                <ArrowRight className="w-4 h-4" />
+              </Link>
             </div>
           </CardContent>
         </Card>

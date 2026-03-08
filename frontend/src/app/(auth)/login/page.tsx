@@ -35,7 +35,7 @@ export default function LoginPage() {
           name: data.user.user_metadata?.name || 'User',
           created_at: data.user.created_at,
         });
-        router.push('/timeline');
+        router.push('/home');
       }
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'Login failed';
