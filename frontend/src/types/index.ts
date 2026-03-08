@@ -661,6 +661,30 @@ export interface CreateSupplementRequest {
   notes?: string;
 }
 
+export interface PrescriptionScanResult {
+  is_supplement: boolean;
+  image_type: string;
+  // Medication fields
+  medication_name?: string;
+  generic_name?: string;
+  dosage?: string;
+  frequency?: string;
+  route?: string;
+  indication?: string;
+  prescribing_doctor?: string;
+  pharmacy?: string;
+  prescription_number?: string;
+  start_date?: string;
+  notes?: string;
+  // Supplement fields
+  brand?: string;
+  form?: string;
+  purpose?: string;
+  // Meta
+  confidence: number;
+  raw_text?: string;
+}
+
 // Medication Intelligence types
 export interface InteractionSource {
   title: string;
@@ -1264,6 +1288,33 @@ export interface BiomarkerTrendsResponse {
 export interface LabInsightsResponse {
   insights: LabInsight[];
   total: number;
+}
+
+export interface LabResultScanResult {
+  test_type?: string;
+  test_date?: string;
+  lab_name?: string;
+  ordering_provider?: string;
+  biomarkers: Array<{
+    biomarker_code: string;
+    biomarker_name: string;
+    value: number;
+    unit: string;
+    reference_range?: string;
+    status: string;
+  }>;
+  notes?: string;
+  confidence: number;
+  raw_text?: string;
+}
+
+export interface LabProvider {
+  id: string;
+  name: string;
+  description: string;
+  logo?: string;
+  is_available: boolean;
+  data_types: string[];
 }
 
 // Health Twin types (Phase 5)

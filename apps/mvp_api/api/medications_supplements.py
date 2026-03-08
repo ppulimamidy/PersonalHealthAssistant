@@ -7,12 +7,14 @@ Includes drug interaction warnings, refill reminders, and adherence analytics.
 Phase 1 of Health Intelligence Features
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
 from pydantic import BaseModel, Field
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 from datetime import date, datetime, timezone, timedelta
 import uuid
 import json
+import base64
+import io
 
 from common.middleware.auth import get_current_user
 from common.utils.logging import get_logger
@@ -510,3 +512,168 @@ async def get_adherence_stats(
         adherence_rate=round(adherence_rate, 1),
         recent_entries=recent_entries,
     )
+
+
+# ============================================================================
+# PRESCRIPTION / SUPPLEMENT BOTTLE IMAGE SCAN
+# ============================================================================
+
+class PrescriptionScanResult(BaseModel):
+    """Extracted medication or supplement data from a scanned image."""
+    is_supplement: bool = False
+    image_type: str = "unknown"          # prescription_label | bottle | strip | handwritten | other
+    medication_name: Optional[str] = None
+    generic_name: Optional[str] = None
+    dosage: Optional[str] = None
+    frequency: Optional[str] = None
+    route: Optional[str] = None
+    indication: Optional[str] = None
+    prescribing_doctor: Optional[str] = None
+    pharmacy: Optional[str] = None
+    prescription_number: Optional[str] = None
+    start_date: Optional[str] = None
+    notes: Optional[str] = None
+    # Supplement-specific
+    brand: Optional[str] = None
+    form: Optional[str] = None
+    purpose: Optional[str] = None
+    # Meta
+    confidence: float = 0.0
+    raw_text: Optional[str] = None
+
+
+def _compress_image(image_bytes: bytes, max_bytes: int = 4_500_000) -> bytes:
+    """Compress image to stay under Anthropic's 5 MB limit."""
+    if len(image_bytes) <= max_bytes:
+        return image_bytes
+    try:
+        from PIL import Image
+        img = Image.open(io.BytesIO(image_bytes))
+        if img.mode not in ("RGB", "L"):
+            img = img.convert("RGB")
+        quality = 85
+        scale = 1.0
+        while True:
+            buf = io.BytesIO()
+            w = int(img.width * scale)
+            h = int(img.height * scale)
+            out = img.resize((w, h), Image.LANCZOS) if scale < 1.0 else img
+            out.save(buf, format="JPEG", quality=quality, optimize=True)
+            compressed = buf.getvalue()
+            if len(compressed) <= max_bytes:
+                return compressed
+            if quality > 60:
+                quality -= 10
+            else:
+                scale *= 0.75
+            if scale < 0.1:
+                return compressed
+    except Exception:
+        return image_bytes
+
+
+@router.post("/medications/scan-prescription", response_model=PrescriptionScanResult)
+async def scan_prescription_image(
+    image: UploadFile = File(...),
+    current_user: Dict[str, Any] = Depends(get_current_user),
+) -> PrescriptionScanResult:
+    """
+    Extract medication or supplement details from a photo of a prescription label,
+    supplement bottle, pill strip, or handwritten doctor prescription using
+    Claude Vision AI.
+    """
+    import anthropic
+    import os
+
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=503, detail="AI vision service not configured")
+
+    image_bytes = await image.read()
+    image_bytes = _compress_image(image_bytes)
+
+    # Detect MIME type
+    media_type = "image/jpeg"
+    try:
+        from PIL import Image as PILImage
+        img = PILImage.open(io.BytesIO(image_bytes))
+        fmt = (img.format or "JPEG").upper()
+        media_type = {"JPEG": "image/jpeg", "PNG": "image/png",
+                      "GIF": "image/gif", "WEBP": "image/webp"}.get(fmt, "image/jpeg")
+    except Exception:
+        pass
+
+    image_b64 = base64.b64encode(image_bytes).decode("utf-8")
+
+    prompt = """You are analyzing an image of a medication prescription, supplement bottle, pill strip, or handwritten doctor prescription.
+
+Extract ALL medication or supplement information visible in the image.
+
+Return ONLY a valid JSON object with these fields. Omit any field you cannot confidently determine — do NOT guess or invent values:
+{
+  "is_supplement": false,
+  "image_type": "prescription_label|bottle|strip|handwritten|other",
+  "medication_name": "brand name of the drug or supplement",
+  "generic_name": "INN/generic name if different from brand (e.g. atorvastatin for Lipitor)",
+  "dosage": "strength with units e.g. 10mg, 500mg, 1000 IU, 2.5mcg",
+  "frequency": "how often e.g. once daily, twice daily, every 8 hours, take as directed",
+  "route": "oral|topical|injection|inhaled",
+  "indication": "condition it treats e.g. hypertension, Type 2 diabetes, vitamin D deficiency",
+  "prescribing_doctor": "Dr. Full Name if visible on prescription",
+  "pharmacy": "pharmacy name if visible on label",
+  "prescription_number": "Rx number if visible",
+  "start_date": "YYYY-MM-DD format if a fill or start date is visible",
+  "notes": "important warnings, special instructions, food or drug interactions, storage notes",
+  "brand": "brand name if this is a supplement",
+  "form": "capsule|tablet|powder|liquid|gummy — if this is a supplement",
+  "purpose": "what the supplement is for e.g. immune support, bone health",
+  "confidence": 0.90,
+  "raw_text": "all legible text extracted from the image verbatim"
+}
+
+Rules:
+- Set is_supplement to true for vitamins, minerals, herbal products, or dietary supplements
+- Set is_supplement to false for prescription drugs and OTC medications
+- confidence should reflect how clearly the image and text were visible (0.0 to 1.0)
+- Return the JSON object only, no markdown fences or extra text"""
+
+    try:
+        client = anthropic.AsyncAnthropic(api_key=api_key)
+        result = await client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=1200,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": media_type,
+                                "data": image_b64,
+                            },
+                        },
+                        {"type": "text", "text": prompt},
+                    ],
+                }
+            ],
+        )
+
+        content = result.content[0].text.strip()
+        # Strip markdown fences if Claude adds them despite instructions
+        if "```json" in content:
+            content = content[content.find("```json") + 7: content.rfind("```")].strip()
+        elif "```" in content:
+            content = content[content.find("```") + 3: content.rfind("```")].strip()
+
+        extracted: Dict[str, Any] = json.loads(content)
+        return PrescriptionScanResult(**{k: v for k, v in extracted.items()
+                                         if k in PrescriptionScanResult.model_fields})
+
+    except json.JSONDecodeError as e:
+        logger.warning(f"Prescription scan: Claude returned non-JSON: {e}")
+        raise HTTPException(status_code=422, detail="Could not parse AI response. Please try a clearer image.")
+    except Exception as e:
+        logger.error(f"Prescription scan failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Scan failed: {str(e)}")

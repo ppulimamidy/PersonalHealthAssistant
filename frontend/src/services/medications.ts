@@ -7,6 +7,7 @@ import type {
   CreateMedicationRequest,
   CreateSupplementRequest,
   AdherenceStats,
+  PrescriptionScanResult,
 } from '@/types';
 
 export const medicationsService = {
@@ -58,6 +59,16 @@ export const medicationsService = {
   getAdherenceStats: async (days: number = 30): Promise<AdherenceStats> => {
     const response = await api.get('/api/v1/adherence/stats', {
       params: { days },
+    });
+    return response.data;
+  },
+
+  // Prescription / bottle image scan
+  scanPrescription: async (file: File): Promise<PrescriptionScanResult> => {
+    const form = new FormData();
+    form.append('image', file);
+    const response = await api.post('/api/v1/medications/scan-prescription', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
     });
     return response.data;
   },

@@ -1,12 +1,14 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Plus, TrendingUp, AlertCircle, FileText } from 'lucide-react';
+import { Plus, TrendingUp, AlertCircle, FileText, Camera, Link2 } from 'lucide-react';
 import { labResultsService } from '@/services/labResults';
-import { LabResult, BiomarkerTrend, LabInsight } from '@/types';
+import { LabResult, BiomarkerTrend, LabInsight, CreateLabResultRequest } from '@/types';
 import { LabResultCard } from '@/components/lab-results/LabResultCard';
 import { BiomarkerTrendChart } from '@/components/lab-results/BiomarkerTrendChart';
 import { AddLabResultModal } from '@/components/lab-results/AddLabResultModal';
+import { LabResultScanModal } from '@/components/lab-results/LabResultScanModal';
+import { ConnectLabProviderModal } from '@/components/lab-results/ConnectLabProviderModal';
 
 export default function LabResultsPage() {
   const [loading, setLoading] = useState(true);
@@ -14,6 +16,9 @@ export default function LabResultsPage() {
   const [trends, setTrends] = useState<BiomarkerTrend[]>([]);
   const [insights, setInsights] = useState<LabInsight[]>([]);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showScanModal, setShowScanModal] = useState(false);
+  const [showConnectModal, setShowConnectModal] = useState(false);
+  const [scanPrefill, setScanPrefill] = useState<CreateLabResultRequest | undefined>(undefined);
   const [activeTab, setActiveTab] = useState<'results' | 'trends' | 'insights'>('results');
 
   useEffect(() => {
@@ -83,13 +88,29 @@ export default function LabResultsPage() {
             Track and analyze your laboratory test results
           </p>
         </div>
-        <button
-          onClick={() => setShowAddModal(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
-        >
-          <Plus className="w-5 h-5" />
-          Add Lab Result
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowConnectModal(true)}
+            className="flex items-center gap-2 px-4 py-2 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
+          >
+            <Link2 className="w-4 h-4" />
+            Connect Lab
+          </button>
+          <button
+            onClick={() => setShowScanModal(true)}
+            className="flex items-center gap-2 px-4 py-2 border border-teal-500 text-teal-600 dark:text-teal-400 rounded-lg hover:bg-teal-50 dark:hover:bg-teal-900/20 transition-colors"
+          >
+            <Camera className="w-4 h-4" />
+            Scan / Upload
+          </button>
+          <button
+            onClick={() => { setScanPrefill(undefined); setShowAddModal(true); }}
+            className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
+          >
+            <Plus className="w-5 h-5" />
+            Add Lab Result
+          </button>
+        </div>
       </div>
 
       {/* Tabs */}
@@ -147,12 +168,21 @@ export default function LabResultsPage() {
               <p className="text-slate-600 dark:text-slate-400 mb-4">
                 Add your first lab result to start tracking your biomarkers
               </p>
-              <button
-                onClick={() => setShowAddModal(true)}
-                className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
-              >
-                Add Lab Result
-              </button>
+              <div className="flex items-center gap-2 justify-center">
+                <button
+                  onClick={() => setShowScanModal(true)}
+                  className="flex items-center gap-2 px-4 py-2 border border-teal-500 text-teal-600 dark:text-teal-400 rounded-lg hover:bg-teal-50 dark:hover:bg-teal-900/20 transition-colors"
+                >
+                  <Camera className="w-4 h-4" />
+                  Scan / Upload
+                </button>
+                <button
+                  onClick={() => { setScanPrefill(undefined); setShowAddModal(true); }}
+                  className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
+                >
+                  Add Manually
+                </button>
+              </div>
             </div>
           ) : (
             <div className="grid gap-4">
@@ -283,8 +313,26 @@ export default function LabResultsPage() {
       {/* Add Lab Result Modal */}
       <AddLabResultModal
         isOpen={showAddModal}
-        onClose={() => setShowAddModal(false)}
+        onClose={() => { setShowAddModal(false); setScanPrefill(undefined); }}
         onSuccess={loadData}
+        prefill={scanPrefill}
+      />
+
+      {/* Scan Lab Report Modal */}
+      <LabResultScanModal
+        isOpen={showScanModal}
+        onClose={() => setShowScanModal(false)}
+        onApply={(prefill) => {
+          setScanPrefill(prefill);
+          setShowScanModal(false);
+          setShowAddModal(true);
+        }}
+      />
+
+      {/* Connect Lab Provider Modal */}
+      <ConnectLabProviderModal
+        isOpen={showConnectModal}
+        onClose={() => setShowConnectModal(false)}
       />
     </div>
   );

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { X, Plus, Trash2 } from 'lucide-react';
 import { labResultsService } from '@/services/labResults';
 import { CreateLabResultRequest } from '@/types';
@@ -9,28 +9,36 @@ interface AddLabResultModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: () => void;
+  prefill?: Partial<CreateLabResultRequest>;
 }
 
-export function AddLabResultModal({ isOpen, onClose, onSuccess }: AddLabResultModalProps) {
+const buildInitial = (prefill?: Partial<CreateLabResultRequest>): CreateLabResultRequest => ({
+  test_date: new Date().toISOString().split('T')[0],
+  test_type: '',
+  test_category: '',
+  lab_name: '',
+  ordering_provider: '',
+  biomarkers: [{ biomarker_code: '', biomarker_name: '', value: 0, unit: '' }],
+  notes: '',
+  ...prefill,
+  biomarkers: prefill?.biomarkers?.length
+    ? prefill.biomarkers
+    : [{ biomarker_code: '', biomarker_name: '', value: 0, unit: '' }],
+});
+
+export function AddLabResultModal({ isOpen, onClose, onSuccess, prefill }: AddLabResultModalProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [formData, setFormData] = useState<CreateLabResultRequest>(() => buildInitial(prefill));
 
-  const [formData, setFormData] = useState<CreateLabResultRequest>({
-    test_date: new Date().toISOString().split('T')[0],
-    test_type: '',
-    test_category: '',
-    lab_name: '',
-    ordering_provider: '',
-    biomarkers: [
-      {
-        biomarker_code: '',
-        biomarker_name: '',
-        value: 0,
-        unit: '',
-      },
-    ],
-    notes: '',
-  });
+  // Re-initialise form whenever the modal opens (picks up fresh prefill data)
+  useEffect(() => {
+    if (isOpen) {
+      setFormData(buildInitial(prefill));
+      setError(null);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -50,22 +58,7 @@ export function AddLabResultModal({ isOpen, onClose, onSuccess }: AddLabResultMo
   };
 
   const resetForm = () => {
-    setFormData({
-      test_date: new Date().toISOString().split('T')[0],
-      test_type: '',
-      test_category: '',
-      lab_name: '',
-      ordering_provider: '',
-      biomarkers: [
-        {
-          biomarker_code: '',
-          biomarker_name: '',
-          value: 0,
-          unit: '',
-        },
-      ],
-      notes: '',
-    });
+    setFormData(buildInitial());
     setError(null);
   };
 
@@ -104,9 +97,16 @@ export function AddLabResultModal({ isOpen, onClose, onSuccess }: AddLabResultMo
       <div className="bg-white dark:bg-slate-800 rounded-lg shadow-xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
         {/* Header */}
         <div className="sticky top-0 bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 p-6 flex items-center justify-between">
-          <h2 className="text-xl font-semibold text-slate-900 dark:text-slate-100">
-            Add Lab Result
-          </h2>
+          <div className="flex items-center gap-3">
+            <h2 className="text-xl font-semibold text-slate-900 dark:text-slate-100">
+              Add Lab Result
+            </h2>
+            {prefill && prefill.biomarkers && prefill.biomarkers.length > 0 && (
+              <span className="text-xs px-2 py-1 rounded-full bg-teal-100 dark:bg-teal-900/30 text-teal-700 dark:text-teal-300 font-medium">
+                Auto-filled from scan
+              </span>
+            )}
+          </div>
           <button
             onClick={onClose}
             className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors"

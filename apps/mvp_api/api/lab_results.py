@@ -6,6 +6,8 @@ Manage lab test results, biomarker tracking, and AI-generated insights from lab 
 
 # pylint: disable=too-many-locals,too-many-branches,too-many-statements,broad-except,line-too-long
 
+import base64
+import io
 import json
 import os
 import uuid
@@ -13,7 +15,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 import aiohttp
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from pydantic import BaseModel
 
 from common.middleware.auth import get_current_user
@@ -33,6 +35,10 @@ router = APIRouter()
 # OpenAI for AI-generated insights
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 OPENAI_MODEL = os.environ.get("LAB_INSIGHTS_AI_MODEL", "gpt-4o-mini")
+
+# Anthropic for image scanning
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+ANTHROPIC_MODEL = "claude-sonnet-4-6"
 
 # ---------------------------------------------------------------------------
 # Pydantic Models
@@ -143,9 +149,75 @@ class LabInsightsResponse(BaseModel):
     total_count: int
 
 
+class ScannedBiomarker(BaseModel):
+    """A single biomarker extracted from a lab report image."""
+
+    biomarker_code: str
+    biomarker_name: str
+    value: float
+    unit: str
+    reference_range: Optional[str] = None
+    status: str = "normal"  # normal, borderline, abnormal, critical
+
+
+class LabResultScanResult(BaseModel):
+    """Result of scanning a lab report image."""
+
+    test_type: Optional[str] = None
+    test_date: Optional[str] = None
+    lab_name: Optional[str] = None
+    ordering_provider: Optional[str] = None
+    biomarkers: List[ScannedBiomarker] = []
+    notes: Optional[str] = None
+    confidence: float = 0.0
+    raw_text: Optional[str] = None
+
+
+class LabProvider(BaseModel):
+    """A lab provider that can be connected."""
+
+    id: str
+    name: str
+    description: str
+    logo: Optional[str] = None
+    is_available: bool = False
+    data_types: List[str] = []
+
+
 # ---------------------------------------------------------------------------
 # Helper Functions
 # ---------------------------------------------------------------------------
+
+
+def _compress_image(image_bytes: bytes, max_bytes: int = 4_500_000) -> bytes:
+    """Compress image to fit within Anthropic's 5 MB limit."""
+    if len(image_bytes) <= max_bytes:
+        return image_bytes
+    try:
+        from PIL import Image  # type: ignore
+
+        img = Image.open(io.BytesIO(image_bytes))
+        if img.mode not in ("RGB", "L"):
+            img = img.convert("RGB")
+        quality = 85
+        scale = 1.0
+        while True:
+            buf = io.BytesIO()
+            w = int(img.width * scale)
+            h = int(img.height * scale)
+            out = img.resize((w, h), Image.LANCZOS) if scale < 1.0 else img
+            out.save(buf, format="JPEG", quality=quality, optimize=True)
+            compressed = buf.getvalue()
+            if len(compressed) <= max_bytes:
+                return compressed
+            if quality > 60:
+                quality -= 10
+            else:
+                scale *= 0.75
+            if scale < 0.1:
+                return compressed
+    except Exception:
+        return image_bytes
 
 
 def _analyze_biomarker_status(
@@ -619,3 +691,321 @@ async def acknowledge_insight(
         raise HTTPException(status_code=404, detail="Insight not found")
 
     return {"success": True, "message": "Insight acknowledged"}
+
+
+# ---------------------------------------------------------------------------
+# Lab Report Image Scanning
+# ---------------------------------------------------------------------------
+
+
+_LAB_SCAN_PROMPT = """You are a medical laboratory report parser. Extract all information from this lab report into structured JSON.
+
+Extract the following:
+1. test_type: The name of the test panel (e.g. "Lipid Panel", "Complete Blood Count", "Comprehensive Metabolic Panel")
+2. test_date: The date the test was performed (YYYY-MM-DD format, or null if not visible)
+3. lab_name: The name of the laboratory or clinic (e.g. "Quest Diagnostics", "LabCorp")
+4. ordering_provider: The ordering doctor's name (e.g. "Dr. Jane Smith") or null
+5. biomarkers: An array of ALL biomarker results found, each with:
+   - biomarker_code: Short code/abbreviation (e.g. "CHOL", "GLU", "HBA1C", "WBC"). Uppercase. Derive from name if not shown.
+   - biomarker_name: Full name of the biomarker (e.g. "Total Cholesterol", "Glucose", "Hemoglobin A1c")
+   - value: Numeric value as a float
+   - unit: Unit of measurement (e.g. "mg/dL", "g/dL", "%", "mmol/L")
+   - reference_range: Reference range string (e.g. "100-199 mg/dL", "<5.7%") or null
+   - status: "normal", "borderline", "abnormal", or "critical" based on H/L/HH/LL flags or comparison to reference range
+6. notes: Any relevant notes, flags, comments, or patient/accession info from the report
+7. confidence: Your confidence score from 0.0 to 1.0 in the extraction accuracy
+
+Return ONLY valid JSON matching this schema, no markdown, no explanation:
+{
+  "test_type": string|null,
+  "test_date": string|null,
+  "lab_name": string|null,
+  "ordering_provider": string|null,
+  "biomarkers": [...],
+  "notes": string|null,
+  "confidence": number
+}"""
+
+
+def _extract_docx_text(file_bytes: bytes) -> str:
+    """Extract plain text from a .docx or .doc file."""
+    try:
+        import docx  # python-docx
+
+        doc = docx.Document(io.BytesIO(file_bytes))
+        paragraphs = [p.text for p in doc.paragraphs if p.text.strip()]
+        # Also extract table cell text (lab results are often in tables)
+        for table in doc.tables:
+            for row in table.rows:
+                row_text = " | ".join(cell.text.strip() for cell in row.cells if cell.text.strip())
+                if row_text:
+                    paragraphs.append(row_text)
+        return "\n".join(paragraphs)
+    except Exception as exc:
+        logger.warning("DOCX text extraction failed: %s", exc)
+        raise
+
+
+def _build_claude_content(file_bytes: bytes, filename: str, content_type: str) -> List[Dict[str, Any]]:
+    """
+    Build the Claude message content block(s) appropriate for the file type.
+
+    - PDF  → native document block (Claude reads text and layout directly)
+    - DOCX/DOC → extract text → send as plain-text prompt prefix
+    - Image → image block (existing Vision path)
+    """
+    name_lower = (filename or "").lower()
+    ct_lower = (content_type or "").lower()
+
+    # ── PDF ──────────────────────────────────────────────────────────────────
+    if "pdf" in ct_lower or name_lower.endswith(".pdf"):
+        data_b64 = base64.standard_b64encode(file_bytes).decode()
+        return [
+            {
+                "type": "document",
+                "source": {
+                    "type": "base64",
+                    "media_type": "application/pdf",
+                    "data": data_b64,
+                },
+            },
+            {"type": "text", "text": _LAB_SCAN_PROMPT},
+        ]
+
+    # ── Word document ─────────────────────────────────────────────────────────
+    if name_lower.endswith((".docx", ".doc")) or "word" in ct_lower or "officedocument" in ct_lower:
+        text = _extract_docx_text(file_bytes)
+        combined = (
+            "The following is the text content extracted from a Word document lab report.\n\n"
+            f"{text}\n\n"
+            f"{_LAB_SCAN_PROMPT}"
+        )
+        return [{"type": "text", "text": combined}]
+
+    # ── Image (default) ───────────────────────────────────────────────────────
+    compressed = _compress_image(file_bytes)
+    data_b64 = base64.standard_b64encode(compressed).decode()
+    image_mt = ct_lower if ct_lower in ("image/jpeg", "image/png", "image/gif", "image/webp") else "image/jpeg"
+    return [
+        {
+            "type": "image",
+            "source": {"type": "base64", "media_type": image_mt, "data": data_b64},
+        },
+        {"type": "text", "text": _LAB_SCAN_PROMPT},
+    ]
+
+
+def _repair_truncated_json(text: str) -> str:
+    """
+    Attempt to repair JSON that was cut off mid-stream (token limit hit).
+    Strategy: find the last complete biomarker object `}` inside the
+    biomarkers array, close the array, then close the outer object with
+    sensible defaults for any missing top-level keys.
+    """
+    # Find the position of the last fully-closed biomarker object
+    # by scanning backwards for a `}` that is followed only by
+    # whitespace / commas / array/object closers.
+    biomarkers_start = text.find('"biomarkers"')
+    if biomarkers_start == -1:
+        raise ValueError("No biomarkers key found")
+
+    # Truncate at the last `}` that could end a biomarker object
+    last_close = text.rfind("}")
+    if last_close == -1:
+        raise ValueError("No closing brace found")
+
+    # Keep everything up to and including that last `}`
+    truncated = text[: last_close + 1]
+
+    # Close the biomarkers array and the outer object
+    repaired = truncated.rstrip().rstrip(",") + "]}"
+
+    # Verify it at least starts correctly
+    if not repaired.lstrip().startswith("{"):
+        raise ValueError("Cannot repair: does not start with {")
+
+    return repaired
+
+
+def _parse_scan_response(raw_text: str) -> LabResultScanResult:
+    """Parse Claude's JSON response into a LabResultScanResult."""
+    # Strip markdown code fences if present
+    text = raw_text.strip()
+    if text.startswith("```"):
+        parts = text.split("```")
+        text = parts[1] if len(parts) > 1 else text
+        if text.startswith("json"):
+            text = text[4:]
+    text = text.strip()
+
+    # Try clean parse first; fall back to truncation repair
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        logger.warning("JSON truncated — attempting repair")
+        repaired = _repair_truncated_json(text)
+        parsed = json.loads(repaired)
+
+    biomarkers = []
+    for b in parsed.get("biomarkers", []):
+        try:
+            biomarkers.append(
+                ScannedBiomarker(
+                    biomarker_code=str(b.get("biomarker_code", "")).upper() or "UNK",
+                    biomarker_name=str(b.get("biomarker_name", b.get("biomarker_code", "Unknown"))),
+                    value=float(b.get("value", 0)),
+                    unit=str(b.get("unit", "")),
+                    reference_range=b.get("reference_range"),
+                    status=str(b.get("status", "normal")).lower(),
+                )
+            )
+        except Exception as be:
+            logger.warning("Skipping malformed biomarker: %s — %s", b, be)
+
+    return LabResultScanResult(
+        test_type=parsed.get("test_type"),
+        test_date=parsed.get("test_date"),
+        lab_name=parsed.get("lab_name"),
+        ordering_provider=parsed.get("ordering_provider"),
+        biomarkers=biomarkers,
+        notes=parsed.get("notes"),
+        confidence=float(parsed.get("confidence", 0.7)),
+        raw_text=text,
+    )
+
+
+@router.post("/scan-image", response_model=LabResultScanResult)
+async def scan_lab_result_image(
+    file: UploadFile = File(...),
+    current_user: Dict[str, Any] = Depends(get_current_user),
+) -> LabResultScanResult:
+    """
+    Extract lab results from an uploaded file.
+    Supports: images (JPG/PNG/WEBP), PDF, and Word documents (DOCX/DOC).
+    Uses Claude AI for extraction.
+    """
+    if not ANTHROPIC_API_KEY:
+        raise HTTPException(status_code=503, detail="Lab report scanning not configured")
+
+    file_bytes = await file.read()
+    filename = file.filename or ""
+    content_type = file.content_type or ""
+
+    logger.info(
+        "Lab scan request: filename=%s content_type=%s size=%d",
+        filename, content_type, len(file_bytes),
+    )
+
+    try:
+        content_blocks = _build_claude_content(file_bytes, filename, content_type)
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=f"Could not read file: {exc}") from exc
+
+    try:
+        import certifi
+        import ssl
+
+        ssl_ctx = ssl.create_default_context(cafile=certifi.where())
+        connector = aiohttp.TCPConnector(ssl=ssl_ctx)
+
+        async with aiohttp.ClientSession(connector=connector) as session:
+            payload: Dict[str, Any] = {
+                "model": ANTHROPIC_MODEL,
+                "max_tokens": 8192,
+                "messages": [{"role": "user", "content": content_blocks}],
+            }
+            # PDF documents need the beta header
+            headers: Dict[str, str] = {
+                "x-api-key": ANTHROPIC_API_KEY,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            }
+            if any(b.get("type") == "document" for b in content_blocks):
+                headers["anthropic-beta"] = "pdfs-2024-09-25"
+
+            async with session.post(
+                "https://api.anthropic.com/v1/messages",
+                headers=headers,
+                json=payload,
+            ) as resp:
+                if resp.status != 200:
+                    body = await resp.text()
+                    logger.error("Anthropic scan error %s: %s", resp.status, body)
+                    raise HTTPException(status_code=502, detail="AI extraction failed")
+
+                data = await resp.json()
+                raw_text = data["content"][0]["text"]
+                return _parse_scan_response(raw_text)
+
+    except HTTPException:
+        raise
+    except json.JSONDecodeError as exc:
+        logger.error("Failed to parse Claude response as JSON: %s", exc)
+        raise HTTPException(status_code=422, detail="Could not parse lab report")
+    except Exception as exc:
+        logger.error("Lab scan failed: %s", exc)
+        raise HTTPException(status_code=500, detail=f"Scan failed: {exc}")
+
+
+# ---------------------------------------------------------------------------
+# Lab Provider Connections (stubs — third-party integrations)
+# ---------------------------------------------------------------------------
+
+_LAB_PROVIDERS = [
+    LabProvider(
+        id="labcorp",
+        name="LabCorp",
+        description="Access your LabCorp results directly. Covers hundreds of diagnostic tests.",
+        is_available=False,
+        data_types=["blood panels", "urinalysis", "genetic tests", "pathology"],
+    ),
+    LabProvider(
+        id="quest",
+        name="Quest Diagnostics",
+        description="Connect your Quest Diagnostics account to auto-import lab results.",
+        is_available=False,
+        data_types=["comprehensive metabolic", "lipid panels", "CBC", "hormone panels"],
+    ),
+    LabProvider(
+        id="health_gorilla",
+        name="Health Gorilla",
+        description="Aggregated lab data from hundreds of labs via Health Gorilla API.",
+        is_available=False,
+        data_types=["all major lab types", "multi-lab aggregation"],
+    ),
+    LabProvider(
+        id="labcorp_ondemand",
+        name="LabCorp On Demand",
+        description="Order and receive direct-to-consumer lab tests without a doctor's order.",
+        is_available=False,
+        data_types=["direct-to-consumer panels", "wellness tests"],
+    ),
+]
+
+
+@router.get("/providers", response_model=List[LabProvider])
+async def get_lab_providers(
+    current_user: Dict[str, Any] = Depends(get_current_user),
+) -> List[LabProvider]:
+    """Return the list of supported third-party lab providers."""
+    return _LAB_PROVIDERS
+
+
+@router.post("/connect-provider")
+async def connect_lab_provider(
+    provider_id: str,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+):
+    """
+    Initiate connection to a third-party lab provider.
+    Currently a stub — returns a 'coming soon' response.
+    """
+    provider = next((p for p in _LAB_PROVIDERS if p.id == provider_id), None)
+    if not provider:
+        raise HTTPException(status_code=404, detail="Provider not found")
+
+    return {
+        "success": False,
+        "coming_soon": True,
+        "message": f"{provider.name} integration is coming soon. We'll notify you when it's ready.",
+    }
