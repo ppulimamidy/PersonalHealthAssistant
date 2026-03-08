@@ -50,17 +50,5 @@
       ]
     }
   ],
-  "redirects": [
-    {
-      "source": "/home",
-      "destination": "/dashboard",
-      "permanent": true
-    }
-  ],
-  "rewrites": [
-    {
-      "source": "/api/:path*",
-      "destination": "https://your-backend-api.onrender.com/:path*"
-    }
-  ]
+  "rewrites": []
 }
