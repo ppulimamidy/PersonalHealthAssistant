@@ -18,7 +18,6 @@ const buildInitial = (prefill?: Partial<CreateLabResultRequest>): CreateLabResul
   test_category: '',
   lab_name: '',
   ordering_provider: '',
-  biomarkers: [{ biomarker_code: '', biomarker_name: '', value: 0, unit: '' }],
   notes: '',
   ...prefill,
   biomarkers: prefill?.biomarkers?.length
