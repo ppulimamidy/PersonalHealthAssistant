@@ -3,16 +3,19 @@ Specialist Multi-Agent System
 Domain-specific expert agents with orchestrator for holistic health analysis
 """
 
+# pylint: disable=too-many-locals,too-many-branches,too-many-statements,broad-except,import-outside-toplevel,too-few-public-methods,missing-class-docstring,invalid-name
+
+import os
 from datetime import datetime, timedelta
-from typing import List, Dict, Any
+from typing import Any, Dict, List
+
+import anthropic
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel  # pylint: disable=too-few-public-methods
 
+from common.middleware.auth import get_current_user
 from common.utils.logging import get_logger
-from common.database.supabase_client import get_supabase_client
-from common.ai.anthropic_client import get_anthropic_client
-from ..dependencies.auth import get_current_user
-from ..dependencies.usage_gate import UsageGate
+from ..dependencies.usage_gate import UsageGate, _supabase_get
 
 logger = get_logger(__name__)
 router = APIRouter()
@@ -252,30 +255,25 @@ CONFIDENCE: [HIGH/MEDIUM/LOW]
 # ============================================================================
 
 
-async def _gather_sleep_data(user_id: str, days: int, supabase) -> Dict[str, Any]:
+async def _gather_sleep_data(user_id: str, days: int) -> Dict[str, Any]:
     """Gather sleep data for analysis"""
-    end_date = datetime.utcnow()
-    start_date = end_date - timedelta(days=days)
+    start_date = (datetime.utcnow() - timedelta(days=days)).date().isoformat()
 
-    sleep_result = (
-        supabase.table("oura_sleep")
-        .select("*")
-        .eq("user_id", user_id)
-        .gte("date", start_date.date().isoformat())
-        .order("date")
-        .execute()
+    sleep_data = (
+        await _supabase_get(
+            "oura_sleep",
+            f"user_id=eq.{user_id}&date=gte.{start_date}&select=sleep_score,deep_sleep_duration,rem_sleep_duration,sleep_efficiency&order=date.asc",
+        )
+        or []
     )
-
-    sleep_data = sleep_result.data if sleep_result.data else []
 
     if not sleep_data:
         return {"available": False}
 
-    # Calculate averages and trends
     avg_sleep_score = sum(s.get("sleep_score", 0) for s in sleep_data) / len(sleep_data)
     avg_deep_sleep = (
         sum(s.get("deep_sleep_duration", 0) for s in sleep_data) / len(sleep_data) / 60
-    )  # minutes
+    )
     avg_rem_sleep = (
         sum(s.get("rem_sleep_duration", 0) for s in sleep_data) / len(sleep_data) / 60
     )
@@ -290,7 +288,7 @@ async def _gather_sleep_data(user_id: str, days: int, supabase) -> Dict[str, Any
         "avg_deep_sleep_min": round(avg_deep_sleep, 1),
         "avg_rem_sleep_min": round(avg_rem_sleep, 1),
         "avg_efficiency": round(avg_efficiency, 1),
-        "baseline_deep_sleep": 75,  # Could be personalized
+        "baseline_deep_sleep": 75,
         "baseline_rem_sleep": 90,
     }
 
@@ -324,36 +322,30 @@ def _build_preferences_summary(prefs: Dict[str, Any]) -> str:
 
 
 async def _gather_nutrition_data(  # pylint: disable=too-many-locals
-    user_id: str, days: int, supabase
+    user_id: str, days: int
 ) -> Dict[str, Any]:
     """Gather nutrition data and user preferences for analysis."""
-    end_date = datetime.utcnow()
-    start_date = end_date - timedelta(days=days)
+    start_date = (datetime.utcnow() - timedelta(days=days)).isoformat()
 
-    meals_result = (
-        supabase.table("meal_logs")
-        .select("*")
-        .eq("user_id", user_id)
-        .gte("timestamp", start_date.isoformat())
-        .execute()
+    meals = (
+        await _supabase_get(
+            "meal_logs",
+            f"user_id=eq.{user_id}&timestamp=gte.{start_date}&select=timestamp,total_calories,total_protein_g,total_carbs_g,total_fat_g,total_fiber_g",
+        )
+        or []
     )
-
-    meals = meals_result.data if meals_result.data else []
 
     # Fetch user preferences from the nutrition analyst prefs table
     user_prefs: Dict[str, Any] = {}
     try:
-        prefs_result = (
-            supabase.table("nutrition_analyst_prefs")
-            .select("preferences")
-            .eq("user_id", user_id)
-            .limit(1)
-            .execute()
+        prefs_rows = await _supabase_get(
+            "nutrition_analyst_prefs",
+            f"user_id=eq.{user_id}&select=preferences&limit=1",
         )
-        if prefs_result.data:
-            user_prefs = prefs_result.data[0].get("preferences") or {}
+        if prefs_rows:
+            user_prefs = prefs_rows[0].get("preferences") or {}
     except Exception:  # pylint: disable=broad-except
-        pass  # Non-fatal — proceed without preferences
+        pass
 
     if not meals:
         return {"available": False, "user_preferences": user_prefs}
@@ -406,23 +398,17 @@ async def _gather_nutrition_data(  # pylint: disable=too-many-locals
     }
 
 
-async def _gather_cardiovascular_data(
-    user_id: str, days: int, supabase
-) -> Dict[str, Any]:
+async def _gather_cardiovascular_data(user_id: str, days: int) -> Dict[str, Any]:
     """Gather cardiovascular data for analysis"""
-    end_date = datetime.utcnow()
-    start_date = end_date - timedelta(days=days)
+    start_date = (datetime.utcnow() - timedelta(days=days)).date().isoformat()
 
-    readiness_result = (
-        supabase.table("oura_readiness")
-        .select("*")
-        .eq("user_id", user_id)
-        .gte("date", start_date.date().isoformat())
-        .order("date")
-        .execute()
+    readiness_data = (
+        await _supabase_get(
+            "oura_readiness",
+            f"user_id=eq.{user_id}&date=gte.{start_date}&select=hrv_balance,resting_heart_rate,recovery_index&order=date.asc",
+        )
+        or []
     )
-
-    readiness_data = readiness_result.data if readiness_result.data else []
 
     if not readiness_data:
         return {"available": False}
@@ -444,21 +430,17 @@ async def _gather_cardiovascular_data(
     }
 
 
-async def _gather_activity_data(user_id: str, days: int, supabase) -> Dict[str, Any]:
+async def _gather_activity_data(user_id: str, days: int) -> Dict[str, Any]:
     """Gather activity/movement data for analysis"""
-    end_date = datetime.utcnow()
-    start_date = end_date - timedelta(days=days)
+    start_date = (datetime.utcnow() - timedelta(days=days)).date().isoformat()
 
-    activity_result = (
-        supabase.table("oura_activity")
-        .select("*")
-        .eq("user_id", user_id)
-        .gte("date", start_date.date().isoformat())
-        .order("date")
-        .execute()
+    activity_data = (
+        await _supabase_get(
+            "oura_activity",
+            f"user_id=eq.{user_id}&date=gte.{start_date}&select=steps,activity_score,high_activity_time&order=date.asc",
+        )
+        or []
     )
-
-    activity_data = activity_result.data if activity_result.data else []
 
     if not activity_data:
         return {"available": False}
@@ -480,20 +462,17 @@ async def _gather_activity_data(user_id: str, days: int, supabase) -> Dict[str, 
     }
 
 
-async def _gather_symptom_data(user_id: str, days: int, supabase) -> Dict[str, Any]:
+async def _gather_symptom_data(user_id: str, days: int) -> Dict[str, Any]:
     """Gather symptom/mental health data for analysis"""
-    end_date = datetime.utcnow()
-    start_date = end_date - timedelta(days=days)
+    start_date = (datetime.utcnow() - timedelta(days=days)).date().isoformat()
 
-    symptoms_result = (
-        supabase.table("symptom_journal")
-        .select("*")
-        .eq("user_id", user_id)
-        .gte("symptom_date", start_date.date().isoformat())
-        .execute()
+    symptoms = (
+        await _supabase_get(
+            "symptom_journal",
+            f"user_id=eq.{user_id}&symptom_date=gte.{start_date}&select=symptom_type,mood,stress_level",
+        )
+        or []
     )
-
-    symptoms = symptoms_result.data if symptoms_result.data else []
 
     if not symptoms:
         return {"available": False}
@@ -726,16 +705,17 @@ async def generate_meta_analysis(  # pylint: disable=too-many-locals
     Pro+ feature
     """
     try:
-        supabase = get_supabase_client()
-        anthropic_client = get_anthropic_client()
-        user_id = current_user["sub"]
+        anthropic_client = anthropic.AsyncAnthropic(
+            api_key=os.environ.get("ANTHROPIC_API_KEY", "")
+        )
+        user_id = current_user["id"]
 
         # Gather data for all specialists
-        sleep_data = await _gather_sleep_data(user_id, days, supabase)
-        nutrition_data = await _gather_nutrition_data(user_id, days, supabase)
-        cardiovascular_data = await _gather_cardiovascular_data(user_id, days, supabase)
-        activity_data = await _gather_activity_data(user_id, days, supabase)
-        symptom_data = await _gather_symptom_data(user_id, days, supabase)
+        sleep_data = await _gather_sleep_data(user_id, days)
+        nutrition_data = await _gather_nutrition_data(user_id, days)
+        cardiovascular_data = await _gather_cardiovascular_data(user_id, days)
+        activity_data = await _gather_activity_data(user_id, days)
+        symptom_data = await _gather_symptom_data(user_id, days)
 
         # Call specialist agents
         specialist_insights = []

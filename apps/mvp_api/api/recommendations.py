@@ -13,10 +13,12 @@ personalized nutrition recommendations. Patterns detected:
 
 import json
 import os
+import ssl
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 import aiohttp
+import certifi
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
 
@@ -26,8 +28,8 @@ from ..dependencies.usage_gate import UsageGate, _supabase_get
 logger = get_logger(__name__)
 router = APIRouter()
 
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
-OPENAI_MODEL = os.environ.get("RECOMMENDATION_AI_MODEL", "gpt-4o-mini")
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+ANTHROPIC_MODEL = os.environ.get("RECOMMENDATION_AI_MODEL", "claude-sonnet-4-6")
 USE_SANDBOX = os.environ.get("USE_SANDBOX", "true").lower() in ("true", "1", "yes")
 
 
@@ -200,6 +202,269 @@ PATTERN_FOODS: Dict[str, List[Dict[str, str]]] = {
 }
 
 
+# ---------------------------------------------------------------------------
+# Condition-specific food rules (rule-based, no AI needed)
+# ---------------------------------------------------------------------------
+
+# Keys are canonical condition_name values from health_conditions table.
+# "remove": food names to drop from suggestions
+# "replace": substitutions — key is food name to remove, value is replacement dict
+# "add": extra foods always appended when condition active
+CONDITION_FOOD_RULES: Dict[str, Dict[str, Any]] = {
+    "type_2_diabetes": {
+        "remove": [],
+        "replace": {
+            "Sweet potatoes": {
+                "name": "Cauliflower rice",
+                "reason": "Low-GI alternative to starchy carbs — keeps blood sugar stable",
+                "category": "recovery",
+            },
+            "Bananas": {
+                "name": "Berries (strawberries, raspberries)",
+                "reason": "Low-GI fruit with antioxidants, minimal blood glucose impact",
+                "category": "recovery",
+            },
+            "Tart cherry juice": {
+                "name": "Tart cherries (whole)",
+                "reason": "Recovery anthocyanins without concentrated juice sugar",
+                "category": "recovery",
+            },
+        },
+        "add": [
+            {
+                "name": "Ceylon cinnamon",
+                "reason": "Improves insulin sensitivity and post-meal glucose uptake",
+                "category": "anti_inflammatory",
+            },
+            {
+                "name": "Legumes (lentils, chickpeas)",
+                "reason": "Low GI, high fiber — slow carb absorption, satiety",
+                "category": "nutrition",
+            },
+        ],
+    },
+    "hypertension": {
+        "remove": [],
+        "replace": {
+            "Bone broth": {
+                "name": "Low-sodium vegetable broth",
+                "reason": "Mineral support for tissue repair without sodium burden",
+                "category": "recovery",
+            },
+        },
+        "add": [
+            {
+                "name": "Beets",
+                "reason": "Dietary nitrates converted to nitric oxide — vasodilation, lower BP",
+                "category": "anti_inflammatory",
+            },
+            {
+                "name": "Flaxseeds",
+                "reason": "Omega-3 ALA and lignans support blood pressure regulation",
+                "category": "anti_inflammatory",
+            },
+        ],
+    },
+    "ibs": {
+        "remove": [],
+        "replace": {
+            "Leafy greens (spinach, kale)": {
+                "name": "Cooked zucchini or carrots",
+                "reason": "Low-FODMAP cooked vegetables, gentle on the gut",
+                "category": "anti_inflammatory",
+            },
+            "Walnuts": {
+                "name": "Macadamia nuts",
+                "reason": "Low-FODMAP nut alternative with heart-healthy fats",
+                "category": "anti_inflammatory",
+            },
+        },
+        "add": [
+            {
+                "name": "Peppermint tea",
+                "reason": "Relaxes intestinal smooth muscle, relieves IBS cramping",
+                "category": "sleep",
+            },
+            {
+                "name": "Rice (plain, well-cooked)",
+                "reason": "Gentle binding carbohydrate, low-FODMAP recovery fuel",
+                "category": "recovery",
+            },
+        ],
+    },
+    "pcos": {
+        "remove": [],
+        "replace": {},
+        "add": [
+            {
+                "name": "Spearmint tea",
+                "reason": "Shown to reduce excess androgen levels associated with PCOS",
+                "category": "anti_inflammatory",
+            },
+            {
+                "name": "Inositol-rich foods (citrus, legumes)",
+                "reason": "Improves insulin sensitivity and ovarian function in PCOS",
+                "category": "nutrition",
+            },
+            {
+                "name": "Flaxseeds",
+                "reason": "Lignans help modulate estrogen metabolism",
+                "category": "nutrition",
+            },
+        ],
+    },
+    "hypothyroidism": {
+        "remove": [],
+        "replace": {},
+        "add": [
+            {
+                "name": "Brazil nuts (1-2/day)",
+                "reason": "Selenium is critical for T4→T3 conversion in the thyroid",
+                "category": "nutrition",
+            },
+            {
+                "name": "Pumpkin seeds",
+                "reason": "Zinc supports thyroid hormone production and immune function",
+                "category": "recovery",
+            },
+        ],
+    },
+    "anxiety": {
+        "remove": [],
+        "replace": {},
+        "add": [
+            {
+                "name": "Fermented foods (kefir, kimchi)",
+                "reason": "Gut-brain axis: probiotics reduce cortisol and support GABA",
+                "category": "anti_inflammatory",
+            },
+            {
+                "name": "Dark chocolate (>70%)",
+                "reason": "Magnesium + flavonoids reduce cortisol and anxiety markers",
+                "category": "sleep",
+            },
+        ],
+    },
+    "depression": {
+        "remove": [],
+        "replace": {},
+        "add": [
+            {
+                "name": "Fatty fish (salmon, sardines)",
+                "reason": "EPA/DHA omega-3 linked to clinically meaningful reductions in depression",
+                "category": "anti_inflammatory",
+            },
+            {
+                "name": "Fermented foods",
+                "reason": "Microbiome diversity supports serotonin: ~90% produced in gut",
+                "category": "nutrition",
+            },
+        ],
+    },
+    "autoimmune": {
+        "remove": [],
+        "replace": {},
+        "add": [
+            {
+                "name": "Turmeric with black pepper",
+                "reason": "Curcumin + piperine suppress NF-κB inflammatory pathway",
+                "category": "anti_inflammatory",
+            },
+            {
+                "name": "Omega-3 rich fish (mackerel, herring)",
+                "reason": "EPA/DHA reduce pro-inflammatory eicosanoids",
+                "category": "anti_inflammatory",
+            },
+        ],
+    },
+    "high_cholesterol": {
+        "remove": [],
+        "replace": {
+            "Eggs": {
+                "name": "Egg whites + 1 yolk",
+                "reason": "Maintains protein/choline benefit while reducing dietary cholesterol",
+                "category": "protein",
+            },
+        },
+        "add": [
+            {
+                "name": "Oats (steel-cut)",
+                "reason": "Beta-glucan fiber binds bile acids, lowers LDL cholesterol",
+                "category": "nutrition",
+            },
+            {
+                "name": "Psyllium husk",
+                "reason": "Soluble fiber shown to reduce LDL by 5-10%",
+                "category": "nutrition",
+            },
+        ],
+    },
+    "celiac_disease": {
+        "remove": [],
+        "replace": {
+            "Oats (steel-cut)": {
+                "name": "Certified gluten-free oats",
+                "reason": "Provides beta-glucan benefits without celiac cross-contamination risk",
+                "category": "nutrition",
+            },
+        },
+        "add": [
+            {
+                "name": "Quinoa",
+                "reason": "Complete protein, gluten-free grain for recovery nutrition",
+                "category": "protein",
+            },
+        ],
+    },
+}
+
+
+def _apply_condition_filters(
+    food_list: List[Dict[str, str]],
+    condition_names: List[str],
+) -> List[Dict[str, str]]:
+    """
+    Filter and augment a food suggestion list based on user's health conditions.
+    Applies replacements first, then removals, then condition-specific additions.
+    Returns a deduplicated list.
+    """
+    if not condition_names:
+        return food_list
+
+    result = list(food_list)
+    added_names: set = {f["name"] for f in result}
+    extra: List[Dict[str, str]] = []
+
+    for condition in condition_names:
+        # Normalize: lower, replace spaces with underscore
+        key = condition.lower().replace(" ", "_").replace("-", "_")
+        rules = CONDITION_FOOD_RULES.get(key, {})
+        if not rules:
+            continue
+
+        # Apply replacements
+        replacements = rules.get("replace", {})
+        for i, food in enumerate(result):
+            if food["name"] in replacements:
+                result[i] = replacements[food["name"]]
+                added_names.discard(food["name"])
+                added_names.add(result[i]["name"])
+
+        # Apply removals (for foods not already replaced)
+        remove_names = set(rules.get("remove", []))
+        result = [f for f in result if f["name"] not in remove_names]
+        added_names -= remove_names
+
+        # Collect additions (deduplicated)
+        for food in rules.get("add", []):
+            if food["name"] not in added_names:
+                extra.append(food)
+                added_names.add(food["name"])
+
+    # Condition-specific additions go at the front (highest relevance)
+    return extra + result
+
+
 def _safe_avg(vals: List[float]) -> float:
     return sum(vals) / len(vals) if vals else 0.0
 
@@ -207,6 +472,7 @@ def _safe_avg(vals: List[float]) -> float:
 def _detect_patterns(
     oura_daily: Dict[str, Dict[str, float]],
     nutrition_daily: Dict[str, Dict[str, float]],
+    condition_names: Optional[List[str]] = None,
 ) -> List[PatternDetection]:
     """Detect metabolic patterns from recent data."""
     if not oura_daily:
@@ -247,15 +513,16 @@ def _detect_patterns(
 
         if score >= 2:
             severity = "high" if score >= 3 else "moderate"
+            foods = _apply_condition_filters(
+                PATTERN_FOODS["overtraining"], condition_names or []
+            )
             patterns.append(
                 PatternDetection(
                     pattern="overtraining",
                     label="Overtraining Risk",
                     severity=severity,
                     signals=signals,
-                    food_suggestions=[
-                        FoodSuggestion(**f) for f in PATTERN_FOODS["overtraining"]
-                    ],
+                    food_suggestions=[FoodSuggestion(**f) for f in foods],
                 )
             )
 
@@ -285,15 +552,16 @@ def _detect_patterns(
 
         if score >= 2:
             severity = "high" if score >= 3 else "moderate"
+            foods = _apply_condition_filters(
+                PATTERN_FOODS["inflammation"], condition_names or []
+            )
             patterns.append(
                 PatternDetection(
                     pattern="inflammation",
                     label="Inflammation Indicators",
                     severity=severity,
                     signals=signals,
-                    food_suggestions=[
-                        FoodSuggestion(**f) for f in PATTERN_FOODS["inflammation"]
-                    ],
+                    food_suggestions=[FoodSuggestion(**f) for f in foods],
                 )
             )
 
@@ -325,15 +593,16 @@ def _detect_patterns(
 
         if score >= 2:
             severity = "high" if score >= 3 else "moderate"
+            foods = _apply_condition_filters(
+                PATTERN_FOODS["poor_recovery"], condition_names or []
+            )
             patterns.append(
                 PatternDetection(
                     pattern="poor_recovery",
                     label="Poor Recovery",
                     severity=severity,
                     signals=signals,
-                    food_suggestions=[
-                        FoodSuggestion(**f) for f in PATTERN_FOODS["poor_recovery"]
-                    ],
+                    food_suggestions=[FoodSuggestion(**f) for f in foods],
                 )
             )
 
@@ -364,15 +633,16 @@ def _detect_patterns(
 
         if score >= 2:
             severity = "high" if score >= 3 else "moderate"
+            foods = _apply_condition_filters(
+                PATTERN_FOODS["sleep_disruption"], condition_names or []
+            )
             patterns.append(
                 PatternDetection(
                     pattern="sleep_disruption",
                     label="Sleep Disruption",
                     severity=severity,
                     signals=signals,
-                    food_suggestions=[
-                        FoodSuggestion(**f) for f in PATTERN_FOODS["sleep_disruption"]
-                    ],
+                    food_suggestions=[FoodSuggestion(**f) for f in foods],
                 )
             )
 
@@ -411,8 +681,8 @@ async def _generate_ai_recommendations(
     profile: Optional[Dict[str, Any]],
     conditions: List[Dict[str, Any]],
 ) -> Tuple[List[Recommendation], str]:
-    """Use AI to personalize recommendations based on patterns + profile."""
-    if not OPENAI_API_KEY or not patterns:
+    """Use Anthropic Claude to personalize recommendations based on patterns + profile."""
+    if not ANTHROPIC_API_KEY or not patterns:
         return _fallback_recommendations(patterns), _fallback_summary(patterns)
 
     # Build context
@@ -488,24 +758,28 @@ Respond in JSON:
 Important: Do not provide medical diagnoses. Frame as observed patterns and suggestions."""
 
     try:
+        ssl_ctx = ssl.create_default_context(cafile=certifi.where())
+        connector = aiohttp.TCPConnector(ssl=ssl_ctx)
         timeout = aiohttp.ClientTimeout(total=15)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
+        async with aiohttp.ClientSession(
+            connector=connector, timeout=timeout
+        ) as session:
             async with session.post(
-                "https://api.openai.com/v1/chat/completions",
+                "https://api.anthropic.com/v1/messages",
                 headers={
-                    "Authorization": f"Bearer {OPENAI_API_KEY}",
+                    "x-api-key": ANTHROPIC_API_KEY,
+                    "anthropic-version": "2023-06-01",
                     "Content-Type": "application/json",
                 },
                 json={
-                    "model": OPENAI_MODEL,
+                    "model": ANTHROPIC_MODEL,
+                    "max_tokens": 1024,
                     "messages": [{"role": "user", "content": prompt}],
-                    "temperature": 0.7,
-                    "response_format": {"type": "json_object"},
                 },
             ) as resp:
                 if resp.status != 200:
                     logger.warning(
-                        "OpenAI API returned %s for recommendations", resp.status
+                        "Anthropic API returned %s for recommendations", resp.status
                     )
                     return _fallback_recommendations(patterns), _fallback_summary(
                         patterns
@@ -513,7 +787,12 @@ Important: Do not provide medical diagnoses. Frame as observed patterns and sugg
 
                 result = await resp.json()
 
-        content = result["choices"][0]["message"]["content"]
+        content = result["content"][0]["text"]
+        # Extract JSON block if wrapped in markdown
+        if "```json" in content:
+            content = content.split("```json")[1].split("```")[0].strip()
+        elif "```" in content:
+            content = content.split("```")[1].split("```")[0].strip()
         parsed = json.loads(content)
 
         recs = []
@@ -643,7 +922,7 @@ async def _generate_recovery_plan(
 
     foods_to_limit = list(dict.fromkeys(foods_to_limit))
 
-    if not OPENAI_API_KEY or not patterns:
+    if not ANTHROPIC_API_KEY or not patterns:
         return RecoveryPlan(
             title="Recovery Nutrition Plan",
             overview=_fallback_summary(patterns),
@@ -705,26 +984,34 @@ Respond in JSON:
 Keep it practical and actionable. No medical diagnoses."""
 
     try:
+        ssl_ctx = ssl.create_default_context(cafile=certifi.where())
+        connector = aiohttp.TCPConnector(ssl=ssl_ctx)
         timeout = aiohttp.ClientTimeout(total=15)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
+        async with aiohttp.ClientSession(
+            connector=connector, timeout=timeout
+        ) as session:
             async with session.post(
-                "https://api.openai.com/v1/chat/completions",
+                "https://api.anthropic.com/v1/messages",
                 headers={
-                    "Authorization": f"Bearer {OPENAI_API_KEY}",
+                    "x-api-key": ANTHROPIC_API_KEY,
+                    "anthropic-version": "2023-06-01",
                     "Content-Type": "application/json",
                 },
                 json={
-                    "model": OPENAI_MODEL,
+                    "model": ANTHROPIC_MODEL,
+                    "max_tokens": 1024,
                     "messages": [{"role": "user", "content": prompt}],
-                    "temperature": 0.7,
-                    "response_format": {"type": "json_object"},
                 },
             ) as resp:
                 if resp.status != 200:
-                    raise ValueError(f"OpenAI returned {resp.status}")
+                    raise ValueError(f"Anthropic returned {resp.status}")
                 result = await resp.json()
 
-        content = result["choices"][0]["message"]["content"]
+        content = result["content"][0]["text"]
+        if "```json" in content:
+            content = content.split("```json")[1].split("```")[0].strip()
+        elif "```" in content:
+            content = content.split("```")[1].split("```")[0].strip()
         parsed = json.loads(content)
 
         return RecoveryPlan(
@@ -796,13 +1083,16 @@ async def get_recommendations(
         "good" if len(oura_daily) >= 7 and len(nutrition_daily) >= 5 else "limited"
     )
 
-    # Detect patterns
-    patterns = _detect_patterns(oura_daily, nutrition_daily)
-
-    # Get user profile + conditions for personalization
+    # Get user profile + conditions first (needed for condition-aware food lists)
     user_id = current_user["id"]
     profile = await _get_user_health_profile(user_id)
     conditions = await _get_user_conditions(user_id)
+    condition_names = [
+        c.get("condition_name", "") for c in conditions if c.get("condition_name")
+    ]
+
+    # Detect patterns with condition-aware food filtering
+    patterns = _detect_patterns(oura_daily, nutrition_daily, condition_names)
 
     # Generate AI-enhanced recommendations
     recommendations, ai_summary = await _generate_ai_recommendations(
@@ -829,11 +1119,14 @@ async def get_recovery_plan(
     bearer = request.headers.get("Authorization")
     oura_daily, nutrition_daily = await _get_recent_data(current_user, bearer)
 
-    patterns = _detect_patterns(oura_daily, nutrition_daily)
-
     user_id = current_user["id"]
     profile = await _get_user_health_profile(user_id)
     conditions = await _get_user_conditions(user_id)
+    condition_names = [
+        c.get("condition_name", "") for c in conditions if c.get("condition_name")
+    ]
+
+    patterns = _detect_patterns(oura_daily, nutrition_daily, condition_names)
 
     plan = await _generate_recovery_plan(patterns, profile, conditions)
     return plan

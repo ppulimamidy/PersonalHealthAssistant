@@ -52,6 +52,7 @@ from .api.care_plans import router as care_plans_router
 from .api.sharing import router as sharing_router
 from .api.caregiver import router as caregiver_router
 from .api.notifications import router as notifications_router
+from .api.interventions import router as interventions_router
 
 logger = get_logger(__name__)
 settings = get_settings()
@@ -185,11 +186,20 @@ app.include_router(
 app.include_router(profile_router, prefix="/api/v1/profile", tags=["Profile"])
 app.include_router(export_router, prefix="/api/v1/export", tags=["Export"])
 app.include_router(goals_router, prefix="/api/v1/goals", tags=["Goals"])
-app.include_router(weekly_checkins_router, prefix="/api/v1/checkins", tags=["Check-ins"])
+app.include_router(
+    weekly_checkins_router, prefix="/api/v1/checkins", tags=["Check-ins"]
+)
 app.include_router(care_plans_router, prefix="/api/v1/care-plans", tags=["Care Plans"])
 app.include_router(sharing_router, prefix="/api/v1/share", tags=["Care Team Sharing"])
 app.include_router(caregiver_router, prefix="/api/v1/caregiver", tags=["Caregiver"])
-app.include_router(notifications_router, prefix="/api/v1/notifications", tags=["Notifications"])
+app.include_router(
+    notifications_router, prefix="/api/v1/notifications", tags=["Notifications"]
+)
+app.include_router(
+    interventions_router,
+    prefix="/api/v1/interventions",
+    tags=["N-of-1 Interventions"],
+)
 
 
 @app.get("/health")

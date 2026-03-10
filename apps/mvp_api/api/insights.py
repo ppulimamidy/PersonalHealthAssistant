@@ -5,6 +5,7 @@ Endpoints for AI-generated health insights with explainability.
 
 # pylint: disable=too-many-locals,too-many-branches,too-many-statements,broad-except,import-outside-toplevel,too-few-public-methods,missing-class-docstring,invalid-name,line-too-long
 
+import hashlib
 import json
 import os
 import uuid
@@ -32,6 +33,22 @@ logger = get_logger(__name__)
 OPENAI_API_KEY_INSIGHTS = os.environ.get("OPENAI_API_KEY", "")
 
 router = APIRouter()
+
+
+def _stable_insight_id(user_id: str, metric_key: str, week_bucket: str) -> str:
+    """Return a deterministic UUID-shaped string for a given insight key.
+
+    Using MD5 (non-cryptographic, just for stable ID generation) so that the
+    same insight regenerated in a later request keeps the same ID, enabling
+    GET /insights/{id} to resolve from the saved_insights snapshot table.
+    """
+    raw = f"{user_id}:{metric_key}:{week_bucket}"
+    digest = hashlib.md5(raw.encode()).hexdigest()
+    # Format as UUID: 8-4-4-4-12
+    return (
+        f"{digest[:8]}-{digest[8:12]}-{digest[12:16]}-{digest[16:20]}-{digest[20:32]}"
+    )
+
 
 # Sandbox mode
 USE_SANDBOX = os.environ.get("USE_SANDBOX", "true").lower() in ("true", "1", "yes")
@@ -750,6 +767,17 @@ async def get_insights(
             logger.warning("Failed to fetch dismissed insights: %s", exc)
 
     result = insights[:limit]
+
+    # Assign deterministic IDs so GET /insights/{id} can resolve them.
+    # The ID is derived the same way as in _save_insight_snapshot, so the
+    # stored row and the live response always share the same ID.
+    if user_id and user_id != "sandbox-user-123":
+        _today = datetime.utcnow()
+        for ins in result:
+            mk = f"{ins.category}_{ins.type}"
+            if ins.data_points:
+                mk = ins.data_points[0].metric.lower().replace(" ", "_")[:100]
+            ins.id = _stable_insight_id(user_id, mk, _week_bucket(_today))
 
     # Persist snapshots for 30-day follow-up (best-effort, fire-and-forget)
     if user_id and user_id != "sandbox-user-123":
@@ -1551,6 +1579,9 @@ async def _save_insight_snapshot(user_id: str, insight: AIInsight) -> None:
     # Best-effort extract numeric value
     metric_value = insight.data_points[0].value if insight.data_points else None
 
+    week = _week_bucket(insight.created_at)
+    stable_id = _stable_insight_id(user_id, metric_key, week)
+
     try:
         await _upsert(
             "saved_insights",
@@ -1563,7 +1594,8 @@ async def _save_insight_snapshot(user_id: str, insight: AIInsight) -> None:
                 "category": insight.category,
                 "metric_value": metric_value,
                 "metric_unit": "",
-                "week_bucket": _week_bucket(insight.created_at),
+                "week_bucket": week,
+                "insight_id": stable_id,
             },
         )
     except Exception as exc:
@@ -1780,12 +1812,54 @@ async def get_insight_detail(
 ):
     """
     Get detailed information about a specific insight.
+    First tries the saved_insights snapshot table (stable IDs); falls back to
+    regenerating the insights list if not found there.
     """
-    # In production, fetch from database
-    # For MVP, regenerate and find matching ID
-    insights = await get_insights(limit=10, current_user=current_user)
+    user_id = current_user.get("id", "")
 
-    for insight in insights:
+    # Primary: resolve from persisted snapshot
+    if user_id and user_id != "sandbox-user-123":
+        try:
+            rows = await _supabase_get(
+                "saved_insights",
+                f"user_id=eq.{user_id}&insight_id=eq.{insight_id}&limit=1",
+            )
+            if rows:
+                row = rows[0]
+                return AIInsight(
+                    id=insight_id,
+                    type=InsightType(row.get("insight_type", "recommendation")),
+                    category=InsightCategory(row.get("category", "general")),
+                    title=row.get("title", ""),
+                    summary=row.get("summary", ""),
+                    explanation="",
+                    confidence=0.8,
+                    data_points=(
+                        [
+                            DataPoint(
+                                metric=row.get("metric_key", "metric")
+                                .replace("_", " ")
+                                .title(),
+                                value=float(row["metric_value"]),
+                                date=(row.get("week_bucket") or "")[:10],
+                                trend="stable",
+                            )
+                        ]
+                        if row.get("metric_value") is not None
+                        else []
+                    ),
+                    created_at=datetime.fromisoformat(
+                        (
+                            row.get("created_at") or datetime.utcnow().isoformat()
+                        ).replace("Z", "+00:00")
+                    ),
+                )
+        except Exception as exc:
+            logger.warning("get_insight_detail DB lookup failed: %s", exc)
+
+    # Fallback: regenerate and search by ID
+    live_insights = await get_insights(limit=10, current_user=current_user)
+    for insight in live_insights:
         if insight.id == insight_id:
             return insight
 

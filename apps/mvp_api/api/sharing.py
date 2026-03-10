@@ -36,8 +36,9 @@ router = APIRouter()
 
 # ── Pydantic models ────────────────────────────────────────────────────────────
 
+
 class CreateShareRequest(BaseModel):
-    label: Optional[str] = None        # e.g. "Dr. Smith – Primary Care"
+    label: Optional[str] = None  # e.g. "Dr. Smith – Primary Care"
     permissions: Optional[List[str]] = None  # defaults to all sections
     expires_days: Optional[int] = None  # None = never expires
 
@@ -60,10 +61,12 @@ _DEFAULT_PERMISSIONS = [
     "symptoms",
     "care_plans",
     "insights",
+    "interventions",
 ]
 
 
 # ── Authenticated endpoints ────────────────────────────────────────────────────
+
 
 @router.get("/", response_model=List[ShareLink])
 async def list_shares(current_user: dict = Depends(get_current_user)):
@@ -100,7 +103,10 @@ async def create_share(
     expires_at = None
     if body.expires_days:
         from datetime import timedelta
-        expires_at = (datetime.now(timezone.utc) + timedelta(days=body.expires_days)).isoformat()
+
+        expires_at = (
+            datetime.now(timezone.utc) + timedelta(days=body.expires_days)
+        ).isoformat()
 
     row = await _supabase_insert(
         "shared_access",
@@ -144,6 +150,7 @@ async def revoke_share(
 
 # ── Public endpoint (no auth) ─────────────────────────────────────────────────
 
+
 @router.get("/public/{token}")
 async def get_shared_summary(token: str):
     """
@@ -172,6 +179,7 @@ async def get_shared_summary(token: str):
 
     # 3. Record access (fire-and-forget — don't await)
     import asyncio
+
     asyncio.ensure_future(
         _supabase_patch(
             "shared_access",
@@ -216,6 +224,7 @@ async def get_shared_summary(token: str):
 
         # 30-day adherence
         from datetime import date, timedelta
+
         thirty_ago = (date.today() - timedelta(days=30)).isoformat()
         adherence_rows = await _supabase_get(
             "medication_adherence_log",
@@ -223,11 +232,14 @@ async def get_shared_summary(token: str):
         )
         if adherence_rows:
             taken = sum(1 for r in adherence_rows if r.get("was_taken"))
-            summary["medication_adherence_pct"] = round(taken / len(adherence_rows) * 100)
+            summary["medication_adherence_pct"] = round(
+                taken / len(adherence_rows) * 100
+            )
 
     # Lab results
     if "lab_results" in permissions:
         from datetime import date, timedelta
+
         one_year_ago = (date.today() - timedelta(days=365)).isoformat()
         lab_rows = await _supabase_get(
             "lab_results",
@@ -238,6 +250,7 @@ async def get_shared_summary(token: str):
     # Symptoms
     if "symptoms" in permissions:
         from datetime import date, timedelta
+
         thirty_ago = (date.today() - timedelta(days=30)).isoformat()
         symptom_rows = await _supabase_get(
             "symptom_journal",
@@ -246,8 +259,14 @@ async def get_shared_summary(token: str):
         summary["symptoms"] = symptom_rows
 
         if symptom_rows:
-            severities = [r.get("severity", 0) for r in symptom_rows if r.get("severity") is not None]
-            summary["avg_symptom_severity"] = round(sum(severities) / len(severities), 1) if severities else None
+            severities = [
+                r.get("severity", 0)
+                for r in symptom_rows
+                if r.get("severity") is not None
+            ]
+            summary["avg_symptom_severity"] = (
+                round(sum(severities) / len(severities), 1) if severities else None
+            )
 
     # Care plans (with computed current_value for trajectory display)
     if "care_plans" in permissions:
@@ -259,8 +278,11 @@ async def get_shared_summary(token: str):
         if plan_rows:
             from .care_plans import _compute_current_value as _cpv
             from datetime import date, timedelta as _td
+
             for plan in plan_rows:
-                plan["current_value"] = await _cpv(plan.get("metric_type", "general"), grantor_id)
+                plan["current_value"] = await _cpv(
+                    plan.get("metric_type", "general"), grantor_id
+                )
         summary["care_plans"] = plan_rows
 
     # Insights
@@ -270,5 +292,57 @@ async def get_shared_summary(token: str):
             f"user_id=eq.{grantor_id}&is_dismissed=eq.false&order=created_at.desc&select=title,summary,insight_type,category,created_at&limit=5",
         )
         summary["insights"] = insight_rows
+
+    # N-of-1 intervention outcomes — completed trials with deltas + AI summaries
+    if "interventions" in permissions:
+        from datetime import date, timedelta
+
+        ninety_ago = (date.today() - timedelta(days=90)).isoformat()
+        iv_rows = await _supabase_get(
+            "active_interventions",
+            f"user_id=eq.{grantor_id}&status=eq.completed"
+            f"&updated_at=gte.{ninety_ago}"
+            f"&order=updated_at.desc"
+            f"&select=id,title,recommendation_pattern,duration_days,adherence_days,outcome_delta,updated_at"
+            f"&limit=10",
+        )
+        # Enrich with adherence_pct and flatten outcome_summary from agent_memory
+        enriched = []
+        for row in iv_rows or []:
+            duration = max(row.get("duration_days", 7), 1)
+            adherence = row.get("adherence_days", 0) or 0
+            intervention_id = row.get("id", "")
+            # Try to pull the AI summary from agent_memory for this intervention
+            outcome_summary = None
+            mem_rows = await _supabase_get(
+                "agent_memory",
+                f"user_id=eq.{grantor_id}&memory_type=eq.learned_pattern"
+                f"&memory_key=like.intervention_outcome_%25_{intervention_id[:8]}"
+                f"&limit=1",
+            )
+            if mem_rows:
+                mv = mem_rows[0].get("memory_value") or {}
+                if isinstance(mv, str):
+                    import json as _json
+
+                    try:
+                        mv = _json.loads(mv)
+                    except Exception:
+                        mv = {}
+                outcome_summary = mv.get("summary")
+            enriched.append(
+                {
+                    "id": intervention_id,
+                    "title": row.get("title"),
+                    "recommendation_pattern": row.get("recommendation_pattern"),
+                    "duration_days": row.get("duration_days"),
+                    "adherence_days": adherence,
+                    "adherence_pct": round((adherence / duration) * 100, 1),
+                    "outcome_delta": row.get("outcome_delta") or {},
+                    "outcome_summary": outcome_summary,
+                    "completed_at": row.get("updated_at"),
+                }
+            )
+        summary["interventions"] = enriched
 
     return summary

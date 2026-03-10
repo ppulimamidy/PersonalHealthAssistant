@@ -43,15 +43,53 @@ NUTRITION_SERVICE_URL = os.environ.get(
 NUTRITION_TIMEOUT_S = float(os.environ.get("NUTRITION_SERVICE_TIMEOUT_S", "8.0"))
 USE_SANDBOX = os.environ.get("USE_SANDBOX", "true").lower() in ("true", "1", "yes")
 
-# OpenAI for AI summary generation
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
-OPENAI_MODEL = os.environ.get("CORRELATION_AI_MODEL", "gpt-4o-mini")
+# Anthropic for AI summary generation
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+ANTHROPIC_MODEL = os.environ.get("CORRELATION_AI_MODEL", "claude-sonnet-4-6")
 
 CACHE_TTL_HOURS = 6
 MIN_OVERLAPPING_DAYS = 5
 # Advanced Correlation Engine: multi-lag analysis (1-14 days), Granger up to 14 lags
 MAX_LAG_DAYS = 14
 GRANGER_MAX_LAG = 14
+
+# Relaxed thresholds for condition-specific pairs
+CONDITION_MIN_R = 0.3
+CONDITION_MAX_P = 0.15
+
+# Which metrics belong to each data source — used to classify condition variables
+_NUTRITION_VARS: frozenset = frozenset(
+    {
+        "total_calories",
+        "total_protein_g",
+        "total_carbs_g",
+        "total_fat_g",
+        "total_fiber_g",
+        "total_sugar_g",
+        "total_sodium_mg",
+        "glycemic_load_est",
+        "last_meal_hour",
+        "protein_pct",
+        "carb_pct",
+        "fat_pct",
+    }
+)
+_OURA_VARS: frozenset = frozenset(
+    {
+        "sleep_score",
+        "sleep_efficiency",
+        "deep_sleep_hours",
+        "total_sleep_hours",
+        "hrv_balance",
+        "resting_heart_rate",
+        "readiness_score",
+        "recovery_index",
+        "temperature_deviation",
+        "steps",
+        "activity_score",
+        "active_calories",
+    }
+)
 
 # ---------------------------------------------------------------------------
 # Pydantic response models
@@ -333,6 +371,81 @@ def _reg_incomplete_beta(x: float, a: float, b: float, max_iter: int = 100) -> f
     return front * f
 
 
+def _f_dist_p_value(f_stat: float, df1: int, df2: int) -> float:
+    """
+    Upper-tail p-value for the F-distribution: P(F > f_stat).
+    Uses the regularised incomplete beta identity:
+        p = 1 - I_{x}(df1/2, df2/2)  where x = df1*f / (df1*f + df2)
+    """
+    if f_stat <= 0 or df1 <= 0 or df2 <= 0:
+        return 1.0
+    x = (df1 * f_stat) / (df1 * f_stat + df2)
+    cdf = _reg_incomplete_beta(x, df1 / 2.0, df2 / 2.0)
+    return max(0.0, min(1.0, 1.0 - cdf))
+
+
+def _ols_rss(X_rows: List[List[float]], y: List[float]) -> Optional[float]:
+    """
+    Fit OLS via the normal equations  (X'X)⁻¹ X'y  using Gaussian elimination
+    with partial pivoting.  Returns residual sum of squares, or None if the
+    system is (near-)singular or there are too few observations.
+    Pure Python — no numpy / scipy dependency.
+    """
+    n = len(y)
+    if not X_rows or n == 0:
+        return None
+    k = len(X_rows[0])
+    if n < k + 2:
+        return None
+
+    # Build X'X (k×k) and X'y (k,)
+    XtX = [[0.0] * k for _ in range(k)]
+    Xty = [0.0] * k
+    for i in range(n):
+        xi = X_rows[i]
+        for a in range(k):
+            Xty[a] += xi[a] * y[i]
+            for b in range(a, k):
+                v = xi[a] * xi[b]
+                XtX[a][b] += v
+                if b != a:
+                    XtX[b][a] += v
+
+    # Solve (X'X) beta = X'y via Gauss-Jordan with partial pivoting
+    # Augmented matrix [XtX | Xty]
+    aug = [XtX[i][:] + [Xty[i]] for i in range(k)]
+
+    for col in range(k):
+        # Partial pivoting
+        max_row = max(range(col, k), key=lambda r: abs(aug[r][col]))
+        aug[col], aug[max_row] = aug[max_row], aug[col]
+        pivot = aug[col][col]
+        if abs(pivot) < 1e-12:
+            return None  # singular — can't fit model
+        # Normalise pivot row
+        inv_pivot = 1.0 / pivot
+        aug[col] = [v * inv_pivot for v in aug[col]]
+        # Eliminate column in all other rows
+        for row in range(k):
+            if row == col:
+                continue
+            factor = aug[row][col]
+            if abs(factor) < 1e-15:
+                continue
+            for j in range(col, k + 1):
+                aug[row][j] -= factor * aug[col][j]
+
+    beta = [aug[i][k] for i in range(k)]
+
+    # Compute RSS = Σ (y_i - ŷ_i)²
+    rss = 0.0
+    for i in range(n):
+        pred = sum(X_rows[i][j] * beta[j] for j in range(k))
+        resid = y[i] - pred
+        rss += resid * resid
+    return rss
+
+
 # ---------------------------------------------------------------------------
 # Data fetching helpers
 # ---------------------------------------------------------------------------
@@ -480,6 +593,22 @@ def _extract_oura_daily(timeline: list) -> Dict[str, Dict[str, float]]:
 # ---------------------------------------------------------------------------
 
 
+def _infer_category(nutr_metric: str, oura_metric: str) -> str:
+    """Derive a correlation category string from the metric names."""
+    sleep_oura = {
+        "sleep_score",
+        "sleep_efficiency",
+        "deep_sleep_hours",
+        "total_sleep_hours",
+    }
+    activity_oura = {"steps", "activity_score", "active_calories"}
+    if oura_metric in sleep_oura:
+        return "nutrition_sleep"
+    if oura_metric in activity_oura:
+        return "nutrition_activity"
+    return "nutrition_readiness"
+
+
 def _one_correlation(
     nutr_metric: str,
     oura_metric: str,
@@ -489,6 +618,8 @@ def _one_correlation(
     nutrition_daily: Dict[str, Dict[str, float]],
     oura_daily: Dict[str, Dict[str, float]],
     use_spearman: bool = False,
+    min_r: float = 0.4,
+    max_p: float = 0.10,
 ) -> Optional[Dict[str, Any]]:
     """Build aligned series and compute one correlation (Pearson or Spearman)."""
     x_vals: List[float] = []
@@ -510,7 +641,9 @@ def _one_correlation(
             continue
         x_vals.append(x)
         y_vals.append(y)
-        points.append({"date": oura_date, "a_value": round(x, 2), "b_value": round(y, 2)})
+        points.append(
+            {"date": oura_date, "a_value": round(x, 2), "b_value": round(y, 2)}
+        )
 
     if len(x_vals) < MIN_OVERLAPPING_DAYS:
         return None
@@ -522,7 +655,7 @@ def _one_correlation(
         r, p = _pearson_r(x_vals, y_vals)
         correlation_type = "pearson"
 
-    if abs(r) < 0.4 or p >= 0.10:
+    if abs(r) < min_r or p >= max_p:
         return None
 
     abs_r = abs(r)
@@ -551,28 +684,49 @@ def _one_correlation(
 def _compute_correlations(
     nutrition_daily: Dict[str, Dict[str, float]],
     oura_daily: Dict[str, Dict[str, float]],
+    condition_vars: Optional[List[str]] = None,
+    learned_priors: Optional[List[Dict[str, Any]]] = None,
 ) -> List[Dict[str, Any]]:
     """
     Compute pairwise correlations (Pearson + Spearman for non-linear).
-    Fixed-lag pairs (same-day + lag-1) plus multi-lag analysis (1 to MAX_LAG_DAYS).
-    Returns list of significant correlation dicts; uses stronger of Pearson/Spearman per pair.
+
+    Three passes:
+      1) Fixed-lag pairs from CORRELATION_PAIRS  (standard thresholds)
+      2) Multi-lag analysis (1 to MAX_LAG_DAYS) for KEY_PAIRS_MULTILAG
+      3) Condition-specific pairs derived from the user's active health conditions
+         — uses relaxed thresholds (CONDITION_MIN_R / CONDITION_MAX_P) so weaker
+         but clinically-relevant signals are not filtered out
+
+    Returns list of significant correlation dicts sorted by |r| descending.
     """
     all_dates = sorted(set(nutrition_daily.keys()) | set(oura_daily.keys()))
     best_by_pair: Dict[Tuple[str, str], Dict[str, Any]] = {}
 
-    # 1) Fixed-lag pairs (Pearson + Spearman: use stronger for non-linear relationships)
+    # 1) Fixed-lag pairs (Pearson + Spearman: keep stronger)
     for nutr_metric, oura_metric, category, lag in CORRELATION_PAIRS:
         best_c = None
         for use_spearman in (False, True):
             c = _one_correlation(
-                nutr_metric, oura_metric, category, lag,
-                all_dates, nutrition_daily, oura_daily, use_spearman=use_spearman,
+                nutr_metric,
+                oura_metric,
+                category,
+                lag,
+                all_dates,
+                nutrition_daily,
+                oura_daily,
+                use_spearman=use_spearman,
             )
-            if c and (best_c is None or abs(c["correlation_coefficient"]) > abs(best_c["correlation_coefficient"])):
+            if c and (
+                best_c is None
+                or abs(c["correlation_coefficient"])
+                > abs(best_c["correlation_coefficient"])
+            ):
                 best_c = c
         if best_c:
             key = (nutr_metric, oura_metric)
-            if key not in best_by_pair or abs(best_c["correlation_coefficient"]) > abs(best_by_pair[key]["correlation_coefficient"]):
+            if key not in best_by_pair or abs(best_c["correlation_coefficient"]) > abs(
+                best_by_pair[key]["correlation_coefficient"]
+            ):
                 best_by_pair[key] = best_c
 
     # 2) Multi-lag analysis (1 to MAX_LAG_DAYS) for key pairs
@@ -585,13 +739,97 @@ def _compute_correlations(
             for lag in range(1, max_lag + 1):
                 for use_spearman in (False, True):
                     c = _one_correlation(
-                        nutr_metric, oura_metric, category, lag,
-                        all_dates, nutrition_daily, oura_daily, use_spearman=use_spearman,
+                        nutr_metric,
+                        oura_metric,
+                        category,
+                        lag,
+                        all_dates,
+                        nutrition_daily,
+                        oura_daily,
+                        use_spearman=use_spearman,
                     )
                     if c and abs(c["correlation_coefficient"]) > best_r:
                         best_r = abs(c["correlation_coefficient"])
                         best_c = c
-            if best_c and (key not in best_by_pair or best_r > abs(best_by_pair[key]["correlation_coefficient"])):
+            if best_c and (
+                key not in best_by_pair
+                or best_r > abs(best_by_pair[key]["correlation_coefficient"])
+            ):
+                best_by_pair[key] = best_c
+
+    # 3) Condition-specific pairs — relaxed thresholds so condition-relevant weak
+    #    signals surface even when they wouldn't pass the standard |r|>=0.4 gate.
+    if condition_vars:
+        cond_nutr = [v for v in condition_vars if v in _NUTRITION_VARS]
+        cond_oura = [v for v in condition_vars if v in _OURA_VARS]
+        for nutr_metric in cond_nutr:
+            for oura_metric in cond_oura:
+                key = (nutr_metric, oura_metric)
+                category = _infer_category(nutr_metric, oura_metric)
+                best_r = (
+                    abs(best_by_pair[key]["correlation_coefficient"])
+                    if key in best_by_pair
+                    else 0.0
+                )
+                best_c = best_by_pair.get(key)
+                # Test lags 0, 1, 2 with both Pearson and Spearman
+                for lag in (0, 1, 2):
+                    for use_spearman in (False, True):
+                        c = _one_correlation(
+                            nutr_metric,
+                            oura_metric,
+                            category,
+                            lag,
+                            all_dates,
+                            nutrition_daily,
+                            oura_daily,
+                            use_spearman=use_spearman,
+                            min_r=CONDITION_MIN_R,
+                            max_p=CONDITION_MAX_P,
+                        )
+                        if c and abs(c["correlation_coefficient"]) > best_r:
+                            best_r = abs(c["correlation_coefficient"])
+                            best_c = c
+                if best_c:
+                    best_by_pair[key] = best_c
+
+    # 4) Learned-prior pairs from N-of-1 intervention outcomes.
+    # Use even-more-relaxed thresholds (|r|>=0.25, p<0.20) since these are
+    # metric pairs the user has personally validated as relevant.
+    if learned_priors:
+        PRIOR_MIN_R = 0.25
+        PRIOR_MAX_P = 0.20
+        for prior in learned_priors:
+            nutr_metric = prior.get("nutrition_metric", "")
+            oura_metric = prior.get("oura_metric", "")
+            if not nutr_metric or not oura_metric:
+                continue
+            key = (nutr_metric, oura_metric)
+            category = _infer_category(nutr_metric, oura_metric)
+            best_r = (
+                abs(best_by_pair[key]["correlation_coefficient"])
+                if key in best_by_pair
+                else 0.0
+            )
+            best_c = best_by_pair.get(key)
+            for lag in (0, 1, 2):
+                for use_spearman in (False, True):
+                    c = _one_correlation(
+                        nutr_metric,
+                        oura_metric,
+                        category,
+                        lag,
+                        all_dates,
+                        nutrition_daily,
+                        oura_daily,
+                        use_spearman=use_spearman,
+                        min_r=PRIOR_MIN_R,
+                        max_p=PRIOR_MAX_P,
+                    )
+                    if c and abs(c["correlation_coefficient"]) > best_r:
+                        best_r = abs(c["correlation_coefficient"])
+                        best_c = c
+            if best_c:
                 best_by_pair[key] = best_c
 
     results = list(best_by_pair.values())
@@ -647,22 +885,28 @@ def _granger_causality_test(
         if rss_restricted <= 0 or rss_unrestricted < 0:
             continue
 
-        # F-statistic: ((RSS_r - RSS_u) / lag) / (RSS_u / (n - 2*lag - 1))
+        # F-statistic: ((RSS_r - RSS_u) / lag) / (RSS_u / (n_train - 2*lag - 1))
+        # df1 = lag (number of X-lag restrictions being tested)
+        # df2 = n_train - 2*lag - 1 (residual df of unrestricted model)
         df1 = lag
         df2 = n_train - 2 * lag - 1
 
         if df2 <= 0:
             continue
 
-        f_stat = ((rss_restricted - rss_unrestricted) / df1) / (rss_unrestricted / df2)
+        rss_diff = rss_restricted - rss_unrestricted
+        if rss_diff <= 0:
+            # X lags did not reduce RSS — no causal evidence at this lag
+            continue
 
-        # Approximate p-value using F-distribution approximation
-        # For simplicity, use a threshold: F > 3.0 is roughly p < 0.05 for typical df
-        if f_stat > 3.0:  # Conservative threshold
-            p_approx = 1.0 / (1.0 + f_stat / 3.0)  # Rough approximation
-            if p_approx < best_p:
-                best_p = p_approx
-                best_lag = lag
+        f_stat = (rss_diff / df1) / (rss_unrestricted / df2)
+
+        # Exact upper-tail p-value via F-distribution / regularised incomplete beta
+        p_exact = _f_dist_p_value(f_stat, df1, df2)
+
+        if p_exact < best_p:
+            best_p = p_exact
+            best_lag = lag
 
     if best_lag and best_p < 0.10:
         return (best_lag, best_p)
@@ -671,65 +915,43 @@ def _granger_causality_test(
 
 
 def _compute_ar_residuals(y_series: List[float], lag: int) -> Optional[float]:
-    """Compute RSS for AR(lag) model: Y_t = α + β₁Y_{t-1} + ... + β_lag Y_{t-lag}."""
+    """
+    RSS for the restricted AR(lag) model fitted via OLS:
+        Y_t = α + β₁ Y_{t-1} + … + β_lag Y_{t-lag}
+    Design matrix has an intercept column plus `lag` lagged-Y columns.
+    """
     n = len(y_series)
     y_train = y_series[lag:]
-    n_train = len(y_train)
-
-    if n_train < 3:
+    if len(y_train) < lag + 3:
         return None
 
-    # Build lagged Y matrix
-    X_lags = []
-    for i in range(lag, n):
-        lags = [y_series[i - j] for j in range(1, lag + 1)]
-        X_lags.append(lags)
-
-    # Simple linear regression: Y = X*beta + intercept
-    # Using normal equations (closed form)
-    y_mean = sum(y_train) / len(y_train)
-    y_centered = [y - y_mean for y in y_train]
-
-    # Predict using mean (simplest baseline)
-    rss = sum(yc * yc for yc in y_centered)
-    return rss
+    X_rows = [
+        [1.0] + [y_series[i - j] for j in range(1, lag + 1)] for i in range(lag, n)
+    ]
+    return _ols_rss(X_rows, y_train)
 
 
 def _compute_ar_with_exog_residuals(
     y_series: List[float], x_series: List[float], lag: int
 ) -> Optional[float]:
-    """Compute RSS for ARX(lag) model: Y_t = α + β*Y_lags + γ*X_lags."""
+    """
+    RSS for the unrestricted ARX(lag) model fitted via OLS:
+        Y_t = α + β₁ Y_{t-1} + … + β_lag Y_{t-lag}
+                + γ₁ X_{t-1} + … + γ_lag X_{t-lag}
+    Design matrix: intercept + lag Y-lags + lag X-lags  (2*lag + 1 columns).
+    """
     n = len(y_series)
     y_train = y_series[lag:]
-    n_train = len(y_train)
-
-    if n_train < 3:
+    if len(y_train) < 2 * lag + 3:
         return None
 
-    # Build lagged Y and X features
-    features = []
-    for i in range(lag, n):
-        y_lags = [y_series[i - j] for j in range(1, lag + 1)]
-        x_lags = [x_series[i - j] for j in range(1, lag + 1)]
-        features.append(y_lags + x_lags)
-
-    # Simple approach: compare variance reduction
-    # If X helps, RSS should decrease
-    # For now, use a heuristic: assume X contributes ~20% of variance reduction
-    baseline_rss = _compute_ar_residuals(y_series, lag)
-    if baseline_rss is None:
-        return None
-
-    # Approximate improvement by checking correlation between X and Y
-    # This is a simplified approximation for Granger test
-    x_train = x_series[lag:]
-    r, _ = _pearson_r(x_train, y_train)
-
-    # If X correlates with Y, it helps prediction
-    improvement_factor = 1.0 - 0.3 * abs(r)  # 30% max improvement
-    rss_with_x = baseline_rss * improvement_factor
-
-    return max(rss_with_x, 0.0)
+    X_rows = [
+        [1.0]
+        + [y_series[i - j] for j in range(1, lag + 1)]
+        + [x_series[i - j] for j in range(1, lag + 1)]
+        for i in range(lag, n)
+    ]
+    return _ols_rss(X_rows, y_train)
 
 
 def _compute_causal_graph(
@@ -831,11 +1053,11 @@ async def _generate_ai_summary(
     correlations: List[Dict[str, Any]], period_days: int
 ) -> Tuple[List[Dict[str, Any]], str]:
     """
-    Use OpenAI to generate plain-English descriptions for each correlation
+    Use Anthropic Claude to generate plain-English descriptions for each correlation
     and an overall summary paragraph.
     Returns (updated_correlations, summary_text).
     """
-    if not OPENAI_API_KEY or not correlations:
+    if not ANTHROPIC_API_KEY or not correlations:
         # Fallback: generate simple descriptions without AI
         for c in correlations:
             c["effect_description"] = _fallback_description(c)
@@ -866,7 +1088,7 @@ Examples:
 
 Then write ONE overall summary paragraph (2-4 sentences). When relevant, mention: causal confidence (e.g. "moderate causal confidence from lag and direction"), effect timing, and note: "Controlled for: same-day sleep duration from wearable when available; limited control for alcohol or stress unless in data."
 
-Respond in JSON format:
+Respond in JSON format only (no markdown, no code fences):
 {{
   "descriptions": ["description for correlation 1", "description for correlation 2", ...],
   "summary": "Overall summary paragraph"
@@ -875,33 +1097,51 @@ Respond in JSON format:
 Important: Do not provide medical diagnoses. Frame everything as observed patterns."""
 
     try:
-        timeout = aiohttp.ClientTimeout(total=15)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
+        import json
+        import ssl
+        import certifi
+
+        ssl_ctx = ssl.create_default_context(cafile=certifi.where())
+        connector = aiohttp.TCPConnector(ssl=ssl_ctx)
+        timeout = aiohttp.ClientTimeout(total=20)
+
+        async with aiohttp.ClientSession(
+            connector=connector, timeout=timeout
+        ) as session:
             async with session.post(
-                "https://api.openai.com/v1/chat/completions",
+                "https://api.anthropic.com/v1/messages",
                 headers={
-                    "Authorization": f"Bearer {OPENAI_API_KEY}",
-                    "Content-Type": "application/json",
+                    "x-api-key": ANTHROPIC_API_KEY,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json",
                 },
                 json={
-                    "model": OPENAI_MODEL,
+                    "model": ANTHROPIC_MODEL,
+                    "max_tokens": 1024,
                     "messages": [{"role": "user", "content": prompt}],
-                    "temperature": 0.7,
-                    "response_format": {"type": "json_object"},
                 },
             ) as resp:
                 if resp.status != 200:
-                    logger.warning("OpenAI API returned %s", resp.status)
+                    body = await resp.text()
+                    logger.warning(
+                        "Anthropic API returned %s: %s", resp.status, body[:200]
+                    )
                     for c in correlations:
                         c["effect_description"] = _fallback_description(c)
                     return correlations, _fallback_summary(correlations, period_days)
 
                 result = await resp.json()
 
-        import json
+        raw_text = result["content"][0]["text"]
+        # Strip markdown fences if present
+        clean = raw_text.strip()
+        if clean.startswith("```"):
+            clean = clean.split("```", 2)[1]
+            if clean.startswith("json"):
+                clean = clean[4:]
+            clean = clean.rsplit("```", 1)[0].strip()
 
-        content = result["choices"][0]["message"]["content"]
-        parsed = json.loads(content)
+        parsed = json.loads(clean)
         descriptions = parsed.get("descriptions", [])
         summary = parsed.get("summary", "")
 
@@ -1052,13 +1292,89 @@ async def _compute_and_cache(
         )
         return result
 
-    # 4. Compute correlations
-    raw_correlations = _compute_correlations(nutrition_daily, oura_daily)
+    # 4. Fetch user's active health-condition variables (non-blocking; empty list on failure)
+    try:
+        from .health_conditions import get_condition_variables
 
-    # 5. AI summary
+        condition_vars = await get_condition_variables(user_id)
+    except Exception:
+        condition_vars = []
+
+    if condition_vars:
+        logger.info(
+            "Correlation engine: %d condition variable(s) will lower thresholds for %s",
+            len(condition_vars),
+            user_id,
+        )
+
+    # 4b. Read agent_memory learned_patterns as personalised priors.
+    # Each completed N-of-1 intervention writes an outcome delta to agent_memory.
+    # Here we surface those pattern → metric pairs and relax thresholds so the
+    # correlation engine continues to surface metrics the user has already
+    # responded to — even when global statistical thresholds aren't met.
+    learned_priors: List[Dict[str, Any]] = []
+    try:
+        prior_rows = await _supabase_get(
+            "agent_memory",
+            f"user_id=eq.{user_id}&memory_type=eq.learned_pattern&is_active=eq.true"
+            f"&order=confidence_score.desc&limit=20",
+        )
+        for row in prior_rows or []:
+            mv = row.get("memory_value") or {}
+            if isinstance(mv, str):
+                try:
+                    mv = __import__("json").loads(mv)
+                except Exception:
+                    continue
+            delta = mv.get("outcome_delta") or {}
+            pattern = mv.get("pattern", "")
+            # Map pattern to the nutrition metrics that were likely involved
+            pattern_nutrition_map: Dict[str, List[str]] = {
+                "overtraining": ["total_calories", "total_protein_g", "total_carbs_g"],
+                "inflammation": [
+                    "total_sugar_g",
+                    "total_carbs_g",
+                    "glycemic_load_estimate",
+                ],
+                "poor_recovery": ["total_protein_g", "total_calories", "total_fat_g"],
+                "sleep_disruption": [
+                    "last_meal_hour",
+                    "total_sugar_g",
+                    "total_calories",
+                ],
+            }
+            for oura_metric, pct_change in delta.items():
+                if oura_metric in _OURA_VARS and abs(pct_change) > 3:
+                    for nut_metric in pattern_nutrition_map.get(pattern, []):
+                        learned_priors.append(
+                            {
+                                "nutrition_metric": nut_metric,
+                                "oura_metric": oura_metric,
+                                "expected_direction": "positive"
+                                if pct_change > 0
+                                else "negative",
+                                "confidence": row.get("confidence_score", 0.5),
+                            }
+                        )
+        if learned_priors:
+            logger.info(
+                "Correlation engine: %d learned prior(s) from N-of-1 outcomes for %s",
+                len(learned_priors),
+                user_id,
+            )
+    except Exception as exc:
+        logger.warning("Could not load learned priors from agent_memory: %s", exc)
+        learned_priors = []
+
+    # 5. Compute correlations (condition vars + learned priors extend pair set)
+    raw_correlations = _compute_correlations(
+        nutrition_daily, oura_daily, condition_vars, learned_priors
+    )
+
+    # 6. AI summary
     correlations, summary = await _generate_ai_summary(raw_correlations, period_days)
 
-    # 6. Cache
+    # 7. Cache
     await _save_to_cache(
         user_id,
         period_days,
@@ -1225,8 +1541,16 @@ async def get_causal_graph(
     # Fetch nutrition data
     nutrition_daily = await _fetch_nutrition_daily(bearer, days)
 
-    # Compute correlations
-    correlations = _compute_correlations(nutrition_daily, oura_daily)
+    # Fetch condition variables so condition-specific pairs are included in the graph
+    try:
+        from .health_conditions import get_condition_variables
+
+        condition_vars = await get_condition_variables(user_id)
+    except Exception:
+        condition_vars = []
+
+    # Compute correlations (with condition-aware pairs)
+    correlations = _compute_correlations(nutrition_daily, oura_daily, condition_vars)
 
     if not correlations:
         return CausalGraph(

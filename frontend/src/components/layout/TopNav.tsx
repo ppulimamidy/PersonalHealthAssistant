@@ -39,12 +39,13 @@ const TABS: TabDef[] = [
   {
     name: 'Insights',
     href: '/timeline',
-    subRoutes: ['/timeline', '/trends', '/correlations', '/predictions', '/meta-analysis'],
+    subRoutes: ['/timeline', '/trends', '/correlations', '/predictions', '/meta-analysis', '/interventions'],
     subItems: [
       { name: 'Timeline', href: '/timeline' },
       { name: 'Trends', href: '/trends' },
       { name: 'Correlations', href: '/correlations' },
       { name: 'Predictions', href: '/predictions' },
+      { name: 'Experiments', href: '/interventions' },
       { name: 'Meta-Analysis', href: '/meta-analysis' },
     ],
   },

@@ -1,15 +1,19 @@
 """
-Data Export API — generates a full health history PDF and FHIR R4 bundle.
+Data Export API — generates a full health history PDF, FHIR R4 bundle,
+and comprehensive JSON/CSV exports.
 Uses ReportLab (already in requirements.txt).
 """
 
+# pylint: disable=too-many-locals,too-many-branches,too-many-statements,broad-except,import-outside-toplevel,too-few-public-methods,invalid-name,line-too-long,too-many-lines,too-many-arguments,redefined-builtin,raise-missing-from
+
+import csv
 import io
 import json
 import uuid as _uuid
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from fastapi.responses import Response
 
 from common.middleware.auth import get_current_user
@@ -792,4 +796,278 @@ async def export_fhir(
         content=json.dumps(bundle, indent=2),
         media_type="application/fhir+json",
         headers={"Content-Disposition": "attachment; filename=health_fhir.json"},
+    )
+
+
+@router.get("/health-data")
+async def export_health_data(
+    format: str = Query(
+        default="json", regex="^(json|csv)$"
+    ),  # pylint: disable=redefined-builtin
+    days: int = Query(default=90, ge=1, le=365),
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Export comprehensive health data as JSON or CSV.
+
+    format=json  →  application/json, nested structure with all health records
+    format=csv   →  text/csv, flat table (one row per event/measurement)
+    days         →  look-back window (default 90, max 365)
+    """
+    user_id = current_user["id"]
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    cutoff_date = (datetime.now(timezone.utc) - timedelta(days=days)).date().isoformat()
+
+    # ── Gather all data ───────────────────────────────────────────────────────
+    profile_rows = await _supabase_get(
+        "profiles",
+        f"id=eq.{user_id}&select=date_of_birth,biological_sex,weight_kg,height_cm&limit=1",
+    )
+    profile = (profile_rows or [{}])[0]
+
+    meds = (
+        await _supabase_get(
+            "medications",
+            f"user_id=eq.{user_id}&is_active=eq.true&select=medication_name,dosage,frequency,start_date&order=start_date.desc",
+        )
+        or []
+    )
+    supplements = (
+        await _supabase_get(
+            "supplements",
+            f"user_id=eq.{user_id}&is_active=eq.true&select=supplement_name,dosage,frequency&order=created_at.desc",
+        )
+        or []
+    )
+    conditions = (
+        await _supabase_get(
+            "health_conditions",
+            f"user_id=eq.{user_id}&is_active=eq.true&select=condition_name,severity,created_at",
+        )
+        or []
+    )
+    lab_results = (
+        await _supabase_get(
+            "lab_results",
+            f"user_id=eq.{user_id}&test_date=gte.{cutoff_date}&select=test_type,test_date,lab_name,biomarkers&order=test_date.desc&limit=50",
+        )
+        or []
+    )
+    symptoms = (
+        await _supabase_get(
+            "symptom_journal",
+            f"user_id=eq.{user_id}&symptom_date=gte.{cutoff_date}&select=symptom_date,symptom_type,severity,mood,notes&order=symptom_date.desc&limit=100",
+        )
+        or []
+    )
+    adherence_rows = (
+        await _supabase_get(
+            "medication_adherence_log",
+            f"user_id=eq.{user_id}&scheduled_time=gte.{cutoff}&select=scheduled_time,was_taken,medication_id&order=scheduled_time.desc&limit=500",
+        )
+        or []
+    )
+    sleep_rows = (
+        await _supabase_get(
+            "oura_sleep",
+            f"user_id=eq.{user_id}&date=gte.{cutoff_date}&select=date,sleep_score,total_sleep_duration,deep_sleep_duration,rem_sleep_duration,sleep_efficiency&order=date.desc&limit=120",
+        )
+        or []
+    )
+    activity_rows = (
+        await _supabase_get(
+            "oura_activity",
+            f"user_id=eq.{user_id}&date=gte.{cutoff_date}&select=date,activity_score,steps,calories_active&order=date.desc&limit=120",
+        )
+        or []
+    )
+    readiness_rows = (
+        await _supabase_get(
+            "oura_readiness",
+            f"user_id=eq.{user_id}&date=gte.{cutoff_date}&select=date,readiness_score,hrv_balance,resting_heart_rate&order=date.desc&limit=120",
+        )
+        or []
+    )
+
+    # ── JSON export ───────────────────────────────────────────────────────────
+    if format == "json":
+        payload = {
+            "exported_at": datetime.now(timezone.utc).isoformat(),
+            "days": days,
+            "profile": profile,
+            "medications": meds,
+            "supplements": supplements,
+            "health_conditions": conditions,
+            "lab_results": lab_results,
+            "symptoms": symptoms,
+            "medication_adherence": adherence_rows,
+            "sleep": sleep_rows,
+            "activity": activity_rows,
+            "readiness": readiness_rows,
+        }
+        return Response(
+            content=json.dumps(payload, indent=2, default=str),
+            media_type="application/json",
+            headers={
+                "Content-Disposition": f"attachment; filename=health_data_{cutoff_date}.json"
+            },
+        )
+
+    # ── CSV export ────────────────────────────────────────────────────────────
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+
+    def _section(name: str) -> None:
+        writer.writerow([])
+        writer.writerow([f"### {name} ###"])
+
+    # Profile
+    _section("Profile")
+    writer.writerow(["date_of_birth", "biological_sex", "weight_kg", "height_cm"])
+    writer.writerow(
+        [
+            profile.get("date_of_birth", ""),
+            profile.get("biological_sex", ""),
+            profile.get("weight_kg", ""),
+            profile.get("height_cm", ""),
+        ]
+    )
+
+    # Medications
+    _section("Medications (active)")
+    writer.writerow(["medication_name", "dosage", "frequency", "start_date"])
+    for m in meds:
+        writer.writerow(
+            [
+                m.get("medication_name", ""),
+                m.get("dosage", ""),
+                m.get("frequency", ""),
+                m.get("start_date", ""),
+            ]
+        )
+
+    # Supplements
+    _section("Supplements (active)")
+    writer.writerow(["supplement_name", "dosage", "frequency"])
+    for s in supplements:
+        writer.writerow(
+            [s.get("supplement_name", ""), s.get("dosage", ""), s.get("frequency", "")]
+        )
+
+    # Health conditions
+    _section("Health Conditions")
+    writer.writerow(["condition_name", "severity", "created_at"])
+    for c in conditions:
+        writer.writerow(
+            [
+                c.get("condition_name", ""),
+                c.get("severity", ""),
+                c.get("created_at", "")[:10],
+            ]
+        )
+
+    # Lab results (biomarkers flattened)
+    _section("Lab Results")
+    writer.writerow(
+        [
+            "test_date",
+            "test_type",
+            "lab_name",
+            "biomarker_name",
+            "value",
+            "unit",
+            "status",
+        ]
+    )
+    for lab in lab_results:
+        for b in lab.get("biomarkers") or []:
+            writer.writerow(
+                [
+                    lab.get("test_date", ""),
+                    lab.get("test_type", ""),
+                    lab.get("lab_name", ""),
+                    b.get("biomarker_name", ""),
+                    b.get("value", ""),
+                    b.get("unit", ""),
+                    b.get("status", ""),
+                ]
+            )
+
+    # Symptoms
+    _section("Symptom Journal")
+    writer.writerow(["symptom_date", "symptom_type", "severity", "mood", "notes"])
+    for sym in symptoms:
+        writer.writerow(
+            [
+                sym.get("symptom_date", ""),
+                sym.get("symptom_type", ""),
+                sym.get("severity", ""),
+                sym.get("mood", ""),
+                (sym.get("notes") or "").replace("\n", " "),
+            ]
+        )
+
+    # Medication adherence
+    _section("Medication Adherence")
+    writer.writerow(["scheduled_time", "was_taken"])
+    for row in adherence_rows:
+        writer.writerow([row.get("scheduled_time", "")[:16], row.get("was_taken", "")])
+
+    # Sleep
+    _section("Sleep (Oura)")
+    writer.writerow(
+        [
+            "date",
+            "sleep_score",
+            "total_sleep_min",
+            "deep_sleep_min",
+            "rem_sleep_min",
+            "efficiency_pct",
+        ]
+    )
+    for row in sleep_rows:
+        writer.writerow(
+            [
+                row.get("date", ""),
+                row.get("sleep_score", ""),
+                round((row.get("total_sleep_duration") or 0) / 60, 1),
+                round((row.get("deep_sleep_duration") or 0) / 60, 1),
+                round((row.get("rem_sleep_duration") or 0) / 60, 1),
+                row.get("sleep_efficiency", ""),
+            ]
+        )
+
+    # Activity
+    _section("Activity (Oura)")
+    writer.writerow(["date", "activity_score", "steps", "calories_active"])
+    for row in activity_rows:
+        writer.writerow(
+            [
+                row.get("date", ""),
+                row.get("activity_score", ""),
+                row.get("steps", ""),
+                row.get("calories_active", ""),
+            ]
+        )
+
+    # Readiness
+    _section("Readiness (Oura)")
+    writer.writerow(["date", "readiness_score", "hrv_balance", "resting_heart_rate"])
+    for row in readiness_rows:
+        writer.writerow(
+            [
+                row.get("date", ""),
+                row.get("readiness_score", ""),
+                row.get("hrv_balance", ""),
+                row.get("resting_heart_rate", ""),
+            ]
+        )
+
+    csv_content = buf.getvalue()
+    return Response(
+        content=csv_content,
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": f"attachment; filename=health_data_{cutoff_date}.csv"
+        },
     )

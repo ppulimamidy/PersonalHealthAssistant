@@ -21,7 +21,8 @@ export type SharePermission =
   | 'lab_results'
   | 'symptoms'
   | 'care_plans'
-  | 'insights';
+  | 'insights'
+  | 'interventions';
 
 export interface ShareLink {
   id: string;
@@ -53,6 +54,17 @@ export interface SharedHealthSummary {
   avg_symptom_severity?: number;
   care_plans?: Array<{ title: string; metric_type?: string; target_value?: number; target_unit?: string; target_date?: string; source?: string; current_value?: number }>;
   insights?: Array<{ title: string; summary?: string; insight_type?: string; category?: string; created_at: string }>;
+  interventions?: Array<{
+    id: string;
+    title: string;
+    recommendation_pattern: string;
+    duration_days: number;
+    adherence_days: number;
+    adherence_pct: number;
+    outcome_delta?: Record<string, number>;
+    outcome_summary?: string;
+    completed_at?: string;
+  }>;
 }
 
 // ── Caregiver / managed profiles ──────────────────────────────────────────────
@@ -1777,4 +1789,61 @@ export interface MetaAnalysisReport {
   overall_confidence: number;
   data_completeness: number;
   evidence_quality: string;
+}
+
+// ── N-of-1 Interventions ────────────────────────────────────────────────────
+
+export interface InterventionCheckin {
+  id: string;
+  intervention_id: string;
+  checkin_date: string;
+  adhered: boolean;
+  notes?: string;
+  created_at: string;
+}
+
+export interface InterventionOutcome {
+  baseline_metrics: Record<string, number | null>;
+  outcome_metrics: Record<string, number | null>;
+  outcome_delta: Record<string, number>; // metric -> % change
+  adherence_pct: number;
+  summary?: string;
+  completed_at: string;
+}
+
+export type InterventionStatus = 'active' | 'completed' | 'abandoned';
+export type InterventionPattern =
+  | 'overtraining'
+  | 'inflammation'
+  | 'poor_recovery'
+  | 'sleep_disruption';
+
+export interface ActiveIntervention {
+  id: string;
+  user_id: string;
+  recommendation_pattern: InterventionPattern;
+  title: string;
+  description?: string;
+  duration_days: number;
+  started_at: string;
+  ends_at: string;
+  status: InterventionStatus;
+  baseline_metrics?: Record<string, number | null>;
+  outcome_metrics?: Record<string, number | null>;
+  outcome_delta?: Record<string, number>;
+  adherence_days: number;
+  data_sources: string[];  // ['oura'] | ['apple_health'] | ['google_health'] | ...
+  created_at: string;
+  updated_at: string;
+  // Computed by API
+  days_remaining?: number;
+  adherence_pct?: number;
+  checkins?: InterventionCheckin[];
+}
+
+export interface StartInterventionRequest {
+  recommendation_pattern: InterventionPattern;
+  title: string;
+  description?: string;
+  duration_days?: number;
 }

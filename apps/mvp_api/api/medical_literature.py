@@ -18,7 +18,7 @@ from typing import Dict, List, Literal, Optional
 from xml.etree import ElementTree as ET
 
 import aiohttp
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
 
 from common.middleware.auth import get_current_user
@@ -46,6 +46,13 @@ NCBI_API_KEY = os.environ.get("NCBI_API_KEY", "")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 
 RAG_CONVERSATION_TITLE = "Research Conversation"
+
+# In-memory store for user-uploaded PDF text (keyed by "pdf:<uuid>").
+# These are ephemeral (lost on restart) which is fine for MVP RAG sessions.
+_pdf_contexts: Dict[str, str] = {}
+
+# Maximum PDF size accepted (10 MB)
+_PDF_MAX_BYTES = 10 * 1024 * 1024
 
 
 # ============================================================================
@@ -521,13 +528,27 @@ def _build_articles_context(article_rows: List[Dict]) -> str:
         first_author = ""
         if authors:
             first = authors[0] if isinstance(authors[0], str) else str(authors[0])
-            first_author = first.split()[0] if first and first.split() else ""  # Last name (first token)
+            first_author = (
+                first.split()[0] if first and first.split() else ""
+            )  # Last name (first token)
         ev_level = r.get("evidence_level") or "other"
-        ev_label = {"meta_analysis": "Meta-analysis", "rct": "RCT", "observational": "Observational"}.get(ev_level, "Other")
-        cite_hint = f" (Cite as: [{first_author} et al. {journal or 'N/A'} {str(pub)[:4] if pub else 'n.d.'}])" if first_author or journal or pub else ""
+        ev_label = {
+            "meta_analysis": "Meta-analysis",
+            "rct": "RCT",
+            "observational": "Observational",
+        }.get(ev_level, "Other")
+        cite_hint = (
+            f" (Cite as: [{first_author} et al. {journal or 'N/A'} {str(pub)[:4] if pub else 'n.d.'}])"
+            if first_author or journal or pub
+            else ""
+        )
         parts.append(
             f"[Article {i}] {title}\n"
-            + (f"Evidence: {ev_label}. Journal: {journal}. Date: {pub}.{cite_hint}\n" if journal or pub else f"Evidence: {ev_label}.{cite_hint}\n")
+            + (
+                f"Evidence: {ev_label}. Journal: {journal}. Date: {pub}.{cite_hint}\n"
+                if journal or pub
+                else f"Evidence: {ev_label}.{cite_hint}\n"
+            )
             + (f"Abstract: {abstract}\n" if abstract else "")
         )
     return "\n".join(parts)
@@ -843,6 +864,83 @@ async def list_bookmarks(current_user: dict = Depends(get_current_user)):
     ]
 
 
+def _extract_pdf_text(pdf_bytes: bytes) -> str:
+    """Extract plain text from PDF bytes using pypdf."""
+    try:
+        from pypdf import PdfReader  # pylint: disable=import-outside-toplevel
+        import io as _io  # pylint: disable=import-outside-toplevel
+
+        reader = PdfReader(_io.BytesIO(pdf_bytes))
+        pages_text = []
+        for page in reader.pages:
+            text = page.extract_text() or ""
+            if text.strip():
+                pages_text.append(text)
+        return "\n\n".join(pages_text)
+    except ImportError as exc:
+        raise HTTPException(
+            status_code=501,
+            detail="PDF processing is not available (pypdf not installed).",
+        ) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Could not read PDF: {exc}",
+        ) from exc
+
+
+@router.post("/rag/upload-pdf")
+async def upload_pdf_for_rag(
+    file: UploadFile = File(...),
+    current_user: dict = Depends(UsageGate("medical_literature")),
+):
+    """
+    Upload a PDF document to use as RAG context.
+    Returns a context_id (prefixed with 'pdf:') that you can pass to
+    POST /rag/chat in the context_article_ids list.
+
+    Pro+ feature — ephemeral: PDF text is kept in memory and cleared on restart.
+    """
+    import uuid as _uuid  # pylint: disable=import-outside-toplevel
+
+    if not file.filename or not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=422, detail="Only PDF files are accepted.")
+
+    pdf_bytes = await file.read()
+    if len(pdf_bytes) > _PDF_MAX_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"PDF exceeds the {_PDF_MAX_BYTES // (1024 * 1024)} MB limit.",
+        )
+    if not pdf_bytes:
+        raise HTTPException(status_code=422, detail="Uploaded file is empty.")
+
+    extracted_text = _extract_pdf_text(pdf_bytes)
+    if not extracted_text.strip():
+        raise HTTPException(
+            status_code=422,
+            detail="No readable text could be extracted from this PDF.",
+        )
+
+    context_id = f"pdf:{_uuid.uuid4()}"
+    _pdf_contexts[context_id] = extracted_text[:40_000]  # cap at ~40 k chars
+
+    word_count = len(extracted_text.split())
+    logger.info(
+        "User %s uploaded PDF '%s' → %s (%d words)",
+        current_user.get("id"),
+        file.filename,
+        context_id,
+        word_count,
+    )
+    return {
+        "context_id": context_id,
+        "filename": file.filename,
+        "word_count": word_count,
+        "message": "PDF uploaded. Pass the context_id in context_article_ids when calling POST /rag/chat.",
+    }
+
+
 @router.post("/rag/chat", response_model=RAGConversation)
 async def rag_chat(
     request: RAGMessageRequest,
@@ -862,12 +960,12 @@ async def rag_chat(
         sources=[],
     )
 
-    # Build context from selected articles and call OpenAI
+    # Build context from selected articles / uploaded PDFs and call OpenAI
     context_article_ids = request.context_article_ids or []
     if not context_article_ids:
         assistant_message = RAGMessage(
             role="assistant",
-            content="Please select one or more research articles to use as context for this conversation.",
+            content="Please select one or more research articles (or upload a PDF) to use as context for this conversation.",
             timestamp=now,
             sources=[],
         )
@@ -880,11 +978,30 @@ async def rag_chat(
             updated_at=now,
         )
 
-    article_rows = await _fetch_articles_by_ids(context_article_ids)
-    if not article_rows:
+    # Split IDs into PDF contexts vs PubMed article IDs
+    pdf_ids = [cid for cid in context_article_ids if cid.startswith("pdf:")]
+    pubmed_ids = [cid for cid in context_article_ids if not cid.startswith("pdf:")]
+
+    context_parts: List[str] = []
+
+    # Inject PDF text chunks
+    for pdf_id in pdf_ids:
+        pdf_text = _pdf_contexts.get(pdf_id)
+        if pdf_text:
+            context_parts.append(f"[PDF Document: {pdf_id}]\n\n{pdf_text[:20_000]}")
+        else:
+            logger.warning("PDF context %s not found (may have expired)", pdf_id)
+
+    # Fetch PubMed articles
+    if pubmed_ids:
+        article_rows = await _fetch_articles_by_ids(pubmed_ids)
+        if article_rows:
+            context_parts.append(_build_articles_context(article_rows))
+
+    if not context_parts:
         assistant_message = RAGMessage(
             role="assistant",
-            content="Could not load the selected articles. They may have been removed.",
+            content="Could not load the selected context. Articles may have been removed or PDF sessions may have expired.",
             timestamp=now,
             sources=[],
         )
@@ -897,12 +1014,13 @@ async def rag_chat(
             updated_at=now,
         )
 
-    context_text = _build_articles_context(article_rows)
+    context_text = "\n\n---\n\n".join(context_parts)
     system = (
-        "You are a medical research assistant. Answer the user's question using ONLY the following research articles. "
-        "Cite articles by number, e.g. [Article 1]. If the articles do not contain relevant information, say so. "
-        "Keep answers concise and evidence-based.\n\n---\nCONTEXT (research articles):\n\n"
-        + context_text
+        "You are a medical research assistant. Answer the user's question using ONLY the following context "
+        "(research articles and/or uploaded PDF documents). "
+        "Cite sources by name or article number, e.g. [Article 1] or [PDF Document]. "
+        "If the context does not contain relevant information, say so. "
+        "Keep answers concise and evidence-based.\n\n---\nCONTEXT:\n\n" + context_text
     )
     assistant_content = await _openai_chat_completion(system, request.message)
     if not assistant_content:

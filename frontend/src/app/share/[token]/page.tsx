@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
-import { Activity, AlertTriangle, HeartPulse } from 'lucide-react';
+import { Activity, AlertTriangle, HeartPulse, TrendingUp, TrendingDown, FlaskConical } from 'lucide-react';
 import { sharingService } from '@/services/sharing';
 import type { SharedHealthSummary } from '@/types';
 
@@ -283,6 +283,71 @@ export default function SharePage() {
                       </p>
                     </div>
                   ))}
+                </div>
+              </Section>
+            )}
+
+            {/* Experiments */}
+            {data.interventions && data.interventions.length > 0 && (
+              <Section title="Personal Experiments (90 days)">
+                <p className="text-xs mb-4 leading-relaxed" style={{ color: '#526380' }}>
+                  Self-tracked experiments testing the effect of dietary and lifestyle changes on health metrics. Patient-observed · not clinically verified.
+                </p>
+                <div className="space-y-4">
+                  {data.interventions.map((iv, i) => {
+                    const deltaPairs = Object.entries(iv.outcome_delta || {}).filter(([, v]) => Math.abs(v) > 1);
+                    const pattern = iv.recommendation_pattern?.replace(/_/g, ' ') ?? '';
+                    return (
+                      <div
+                        key={i}
+                        className="rounded-lg p-3"
+                        style={{ backgroundColor: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.05)' }}
+                      >
+                        <div className="flex items-start gap-2 mb-2">
+                          <FlaskConical className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: '#00D4AA' }} />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium" style={{ color: '#C8D5E8' }}>{iv.title}</p>
+                            <p className="text-xs capitalize mt-0.5" style={{ color: '#526380' }}>
+                              {pattern} · {iv.duration_days}d trial · {iv.adherence_pct.toFixed(0)}% adherence
+                              {iv.completed_at ? ` · completed ${new Date(iv.completed_at).toLocaleDateString()}` : ''}
+                            </p>
+                          </div>
+                        </div>
+                        {iv.outcome_summary && (
+                          <p className="text-xs leading-relaxed mb-2 italic" style={{ color: '#8B97A8' }}>
+                            {iv.outcome_summary}
+                          </p>
+                        )}
+                        {deltaPairs.length > 0 && (
+                          <div className="flex flex-wrap gap-1.5 mt-1">
+                            {deltaPairs
+                              .sort(([, a], [, b]) => Math.abs(b) - Math.abs(a))
+                              .slice(0, 6)
+                              .map(([metric, pct]) => {
+                                const isPos = pct > 0;
+                                const label = metric.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+                                return (
+                                  <span
+                                    key={metric}
+                                    className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full"
+                                    style={{
+                                      backgroundColor: isPos ? 'rgba(0,212,170,0.12)' : 'rgba(248,113,113,0.12)',
+                                      color: isPos ? '#00D4AA' : '#F87171',
+                                    }}
+                                  >
+                                    {isPos
+                                      ? <TrendingUp className="w-2.5 h-2.5" />
+                                      : <TrendingDown className="w-2.5 h-2.5" />
+                                    }
+                                    {label} {isPos ? '+' : ''}{pct.toFixed(1)}%
+                                  </span>
+                                );
+                              })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </Section>
             )}

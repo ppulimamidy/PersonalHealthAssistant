@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import {
   Users, Search, HeartPulse, Pill, FlaskConical, AlertTriangle,
   Target, ChevronDown, ChevronUp, CheckCircle, X, UserPlus,
-  Clock, ChevronRight, Bell,
+  Clock, ChevronRight, Bell, TrendingUp, TrendingDown,
 } from 'lucide-react';
 import { sharingService } from '@/services/sharing';
 import { carePlansService } from '@/services/carePlans';
@@ -128,6 +128,76 @@ function PatientSummaryPanel({ data }: { data: SharedHealthSummary }) {
         </div>
       )}
 
+      {/* Experiments */}
+      {data.interventions && data.interventions.length > 0 && (
+        <div>
+          <p className="text-xs font-medium mb-2 flex items-center gap-1.5" style={{ color: '#526380' }}>
+            <FlaskConical className="w-3.5 h-3.5" /> EXPERIMENTS ({data.interventions.length})
+          </p>
+          <p className="text-[11px] mb-2 leading-snug" style={{ color: '#3D4F66' }}>
+            Patient-observed · not clinically verified
+          </p>
+          <div className="space-y-2">
+            {data.interventions.map((iv, i) => {
+              const deltaPairs = Object.entries(iv.outcome_delta || {}).filter(([, v]) => Math.abs(v) > 1);
+              return (
+                <div
+                  key={i}
+                  className="rounded-lg p-3"
+                  style={{ backgroundColor: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.05)' }}
+                >
+                  <div className="flex items-start justify-between gap-2 mb-1">
+                    <p className="text-sm font-medium leading-snug" style={{ color: '#C8D5E8' }}>{iv.title}</p>
+                    <span
+                      className="text-[10px] font-semibold px-1.5 py-0.5 rounded flex-shrink-0"
+                      style={{
+                        backgroundColor: iv.adherence_pct >= 70 ? 'rgba(0,212,170,0.12)' : 'rgba(251,191,36,0.1)',
+                        color: iv.adherence_pct >= 70 ? '#00D4AA' : '#FBB124',
+                      }}
+                    >
+                      {iv.adherence_pct.toFixed(0)}% adhered
+                    </span>
+                  </div>
+                  <p className="text-xs capitalize mb-1.5" style={{ color: '#526380' }}>
+                    {iv.recommendation_pattern?.replace(/_/g, ' ')} · {iv.duration_days}d
+                    {iv.completed_at ? ` · ${new Date(iv.completed_at).toLocaleDateString()}` : ''}
+                  </p>
+                  {iv.outcome_summary && (
+                    <p className="text-xs italic mb-1.5 leading-snug" style={{ color: '#8B97A8' }}>
+                      {iv.outcome_summary}
+                    </p>
+                  )}
+                  {deltaPairs.length > 0 && (
+                    <div className="flex flex-wrap gap-1">
+                      {deltaPairs
+                        .sort(([, a], [, b]) => Math.abs(b) - Math.abs(a))
+                        .slice(0, 4)
+                        .map(([metric, pct]) => {
+                          const isPos = pct > 0;
+                          const label = metric.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+                          return (
+                            <span
+                              key={metric}
+                              className="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded-full"
+                              style={{
+                                backgroundColor: isPos ? 'rgba(0,212,170,0.1)' : 'rgba(248,113,113,0.1)',
+                                color: isPos ? '#00D4AA' : '#F87171',
+                              }}
+                            >
+                              {isPos ? <TrendingUp className="w-2.5 h-2.5" /> : <TrendingDown className="w-2.5 h-2.5" />}
+                              {label} {isPos ? '+' : ''}{pct.toFixed(1)}%
+                            </span>
+                          );
+                        })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {data.care_plans && data.care_plans.length > 0 && (
         <div>
           <p className="text-xs font-medium mb-3 flex items-center gap-1.5" style={{ color: '#526380' }}>
@@ -215,6 +285,14 @@ function PreAppointmentSummary({ data }: { data: SharedHealthSummary }) {
   }
   if (data.conditions && data.conditions.length > 0)
     lines.push(`Known conditions: ${data.conditions.slice(0, 4).join(', ')}.`);
+  if (data.interventions && data.interventions.length > 0) {
+    const improvements = data.interventions.flatMap((iv) =>
+      Object.values(iv.outcome_delta || {}).filter((v) => v > 3)
+    ).length;
+    lines.push(
+      `${data.interventions.length} completed experiment(s)${improvements > 0 ? ` — ${improvements} positive metric shift(s) observed` : ''}.`
+    );
+  }
   if (lines.length === 0) return null;
   return (
     <div className="p-4 rounded-xl mt-1"
