@@ -5,11 +5,12 @@ Endpoints for AI-generated health insights with explainability.
 
 # pylint: disable=too-many-locals,too-many-branches,too-many-statements,broad-except,import-outside-toplevel,too-few-public-methods,missing-class-docstring,invalid-name,line-too-long
 
+import json
 import os
 import uuid
 from datetime import datetime
 from enum import Enum
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 import aiohttp
@@ -18,7 +19,7 @@ from pydantic import BaseModel
 
 from common.middleware.auth import get_current_user
 from common.utils.logging import get_logger
-from ..dependencies.usage_gate import UsageGate, _supabase_get
+from ..dependencies.usage_gate import RateLimit, UsageGate, _supabase_get
 
 logger = get_logger(__name__)
 
@@ -735,6 +736,7 @@ async def get_insights(
     user_id = current_user.get("id", "")
     if user_id and user_id != "sandbox-user-123":
         import asyncio
+
         for ins in result:
             asyncio.ensure_future(_save_insight_snapshot(user_id, ins))
 
@@ -962,7 +964,7 @@ async def _gather_correlated_context(current_user: dict) -> dict:
             "user_medication_alerts",
             f"user_id=eq.{user_id}&is_dismissed=eq.false&select=title,description,severity&limit=10",
         )
-        context["medication_alerts"] = [
+        _med_alert_list: List[Any] = [
             {
                 "title": a.get("title"),
                 "description": a.get("description"),
@@ -970,6 +972,7 @@ async def _gather_correlated_context(current_user: dict) -> dict:
             }
             for a in (alerts or [])
         ]
+        context["medication_alerts"] = _med_alert_list  # type: ignore[assignment]
     except Exception as e:
         logger.warning("Medication alerts fetch for correlated insights: %s", e)
 
@@ -1086,11 +1089,12 @@ async def _gather_correlated_context(current_user: dict) -> dict:
 
         query_parts = []
         if context.get("medications"):
-            query_parts.append(" ".join(context["medications"][:2]))
+            query_parts.append(" ".join(context["medications"][:2]))  # type: ignore[index]
         if context.get("health_conditions"):
-            query_parts.append(context["health_conditions"][0].split("(")[0].strip())
+            query_parts.append(context["health_conditions"][0].split("(")[0].strip())  # type: ignore[index]
         if context.get("symptom_summary"):
-            query_parts.append(context["symptom_summary"].split(";")[0].strip()[:50])
+            _ss = str(context["symptom_summary"])
+            query_parts.append(_ss.split(";")[0].strip()[:50])
         if query_parts:
             on_demand_query = " ".join(query_parts)[:100]
             pmids = await _pubmed_search(on_demand_query, max_results=2)
@@ -1293,6 +1297,7 @@ async def _generate_correlated_insights_ai(context: dict) -> List[dict]:
 
 @router.get("/correlated", response_model=List[CorrelatedInsight])
 async def get_correlated_insights(
+    _rl: None = Depends(RateLimit("correlated_insights", max_per_minute=10)),
     current_user: dict = Depends(UsageGate("ai_insights")),
 ):
     """
@@ -1357,19 +1362,27 @@ async def get_correlated_insights(
             )
         )
 
-    # When still empty (e.g. no OpenAI key, or OpenAI failed, and no fallbacks), return one placeholder
-    # so the UI can show a message instead of a blank list
+    # When still empty, distinguish between "no AI key" and "genuinely no data"
     if not out:
+        if not (OPENAI_API_KEY_INSIGHTS and OPENAI_API_KEY_INSIGHTS.strip()):
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "AI insights require OPENAI_API_KEY to be configured on the server. "
+                    "Set OPENAI_API_KEY in your deployment environment to enable this feature."
+                ),
+            )
+        # Key is set but not enough health data yet
         out.append(
             CorrelatedInsight(
                 id=str(uuid.uuid4()),
                 insight_type="general",
-                title="Insights will appear here",
+                title="Not enough data yet",
                 recommendation=(
-                    "Add medications, log symptoms, connect your wearable, or ensure the server has "
-                    "OPENAI_API_KEY set to generate personalized insights. This is not medical advice."
+                    "Add more health data — connect your wearable, log symptoms, or enter medications — "
+                    "to generate personalized insights. This is not medical advice."
                 ),
-                evidence="When enough data is available and AI is configured, correlated insights will appear here.",
+                evidence="Personalized insights appear once you have logged enough health activity.",
                 factors_considered=[],
                 confidence=0.0,
             )
@@ -1431,33 +1444,65 @@ async def get_insight_delta(
     p_sleep = _avg([e.sleep.sleep_score for e in previous if e.sleep])
     if r_sleep is not None and p_sleep is not None:
         d = r_sleep - p_sleep
-        out.append(MetricDelta(metric="sleep_score", label="Sleep Score", unit="pts",
-                               current=round(r_sleep, 1), previous=round(p_sleep, 1),
-                               delta=round(d, 1), direction=_direction(d, 2.0)))
+        out.append(
+            MetricDelta(
+                metric="sleep_score",
+                label="Sleep Score",
+                unit="pts",
+                current=round(r_sleep, 1),
+                previous=round(p_sleep, 1),
+                delta=round(d, 1),
+                direction=_direction(d, 2.0),
+            )
+        )
 
     r_steps = _avg([e.activity.steps for e in recent if e.activity])
     p_steps = _avg([e.activity.steps for e in previous if e.activity])
     if r_steps is not None and p_steps is not None:
         d = r_steps - p_steps
-        out.append(MetricDelta(metric="steps", label="Daily Steps", unit="steps",
-                               current=round(r_steps), previous=round(p_steps),
-                               delta=round(d), direction=_direction(d, 200)))
+        out.append(
+            MetricDelta(
+                metric="steps",
+                label="Daily Steps",
+                unit="steps",
+                current=round(r_steps),
+                previous=round(p_steps),
+                delta=round(d),
+                direction=_direction(d, 200),
+            )
+        )
 
     r_read = _avg([e.readiness.readiness_score for e in recent if e.readiness])
     p_read = _avg([e.readiness.readiness_score for e in previous if e.readiness])
     if r_read is not None and p_read is not None:
         d = r_read - p_read
-        out.append(MetricDelta(metric="readiness", label="Readiness", unit="pts",
-                               current=round(r_read, 1), previous=round(p_read, 1),
-                               delta=round(d, 1), direction=_direction(d, 2.0)))
+        out.append(
+            MetricDelta(
+                metric="readiness",
+                label="Readiness",
+                unit="pts",
+                current=round(r_read, 1),
+                previous=round(p_read, 1),
+                delta=round(d, 1),
+                direction=_direction(d, 2.0),
+            )
+        )
 
     r_hrv = _avg([e.readiness.hrv_balance for e in recent if e.readiness])
     p_hrv = _avg([e.readiness.hrv_balance for e in previous if e.readiness])
     if r_hrv is not None and p_hrv is not None:
         d = r_hrv - p_hrv
-        out.append(MetricDelta(metric="hrv", label="HRV Balance", unit="ms",
-                               current=round(r_hrv, 1), previous=round(p_hrv, 1),
-                               delta=round(d, 1), direction=_direction(d, 2.0)))
+        out.append(
+            MetricDelta(
+                metric="hrv",
+                label="HRV Balance",
+                unit="ms",
+                current=round(r_hrv, 1),
+                previous=round(p_hrv, 1),
+                delta=round(d, 1),
+                direction=_direction(d, 2.0),
+            )
+        )
 
     return out
 
@@ -1511,17 +1556,18 @@ async def _save_insight_snapshot(user_id: str, insight: AIInsight) -> None:
 
 # ── Follow-ups endpoint ────────────────────────────────────────────────────────
 
+
 class InsightFollowUp(BaseModel):
     metric_key: str
     original_title: str
     original_summary: str
     original_value: Optional[float]
-    original_date: str          # week_bucket ISO date
+    original_date: str  # week_bucket ISO date
     current_value: Optional[float]
     delta: Optional[float]
-    direction: str              # "better" | "worse" | "stable" | "unknown"
-    label: str                  # human-readable e.g. "Sleep Score"
-    source: str = "oura"        # "oura" | "app_data"
+    direction: str  # "better" | "worse" | "stable" | "unknown"
+    label: str  # human-readable e.g. "Sleep Score"
+    source: str = "oura"  # "oura" | "app_data"
 
 
 @router.get("/followups", response_model=List[InsightFollowUp])
@@ -1538,12 +1584,15 @@ async def get_insight_followups(
     user_id = current_user["id"]
     today = datetime.utcnow().date()
     window_start = (today - _td(days=42)).isoformat()
-    window_end   = (today - _td(days=28)).isoformat()
+    window_end = (today - _td(days=28)).isoformat()
 
-    old_rows = await _get(
-        "saved_insights",
-        f"user_id=eq.{user_id}&week_bucket=gte.{window_start}&week_bucket=lte.{window_end}&order=week_bucket.desc&select=*&limit=10",
-    ) or []
+    old_rows = (
+        await _get(
+            "saved_insights",
+            f"user_id=eq.{user_id}&week_bucket=gte.{window_start}&week_bucket=lte.{window_end}&order=week_bucket.desc&select=*&limit=10",
+        )
+        or []
+    )
 
     if not old_rows:
         return []
@@ -1587,14 +1636,24 @@ async def get_insight_followups(
     thirty_ago = (today - _td(days=30)).isoformat()
 
     async def _current_symptom_severity() -> Optional[float]:
-        rows = await _get("symptom_journal",
-            f"user_id=eq.{user_id}&symptom_date=gte.{thirty_ago}&select=severity&limit=200") or []
+        rows = (
+            await _get(
+                "symptom_journal",
+                f"user_id=eq.{user_id}&symptom_date=gte.{thirty_ago}&select=severity&limit=200",
+            )
+            or []
+        )
         sevs = [r["severity"] for r in rows if r.get("severity") is not None]
         return round(sum(sevs) / len(sevs), 1) if sevs else None
 
     async def _current_adherence() -> Optional[float]:
-        rows = await _get("medication_adherence_log",
-            f"user_id=eq.{user_id}&scheduled_time=gte.{thirty_ago}&select=was_taken&limit=500") or []
+        rows = (
+            await _get(
+                "medication_adherence_log",
+                f"user_id=eq.{user_id}&scheduled_time=gte.{thirty_ago}&select=was_taken&limit=500",
+            )
+            or []
+        )
         if not rows:
             return None
         return round(sum(1 for r in rows if r.get("was_taken")) / len(rows) * 100)
@@ -1606,6 +1665,7 @@ async def get_insight_followups(
 
     # App-data current values (fetch concurrently)
     import asyncio as _asyncio
+
     _app_vals = await _asyncio.gather(
         _current_symptom_severity(),
         _current_adherence(),
@@ -1613,11 +1673,19 @@ async def get_insight_followups(
         return_exceptions=True,
     )
     _app_current_map: dict = {
-        "symptom_severity": _app_vals[0] if not isinstance(_app_vals[0], Exception) else None,
-        "avg_symptom_severity_(30d)": _app_vals[0] if not isinstance(_app_vals[0], Exception) else None,
-        "medication_adherence": _app_vals[1] if not isinstance(_app_vals[1], Exception) else None,
+        "symptom_severity": _app_vals[0]
+        if not isinstance(_app_vals[0], Exception)
+        else None,
+        "avg_symptom_severity_(30d)": _app_vals[0]
+        if not isinstance(_app_vals[0], Exception)
+        else None,
+        "medication_adherence": _app_vals[1]
+        if not isinstance(_app_vals[1], Exception)
+        else None,
         "weight": _app_vals[2] if not isinstance(_app_vals[2], Exception) else None,
-        "weight_(kg)": _app_vals[2] if not isinstance(_app_vals[2], Exception) else None,
+        "weight_(kg)": _app_vals[2]
+        if not isinstance(_app_vals[2], Exception)
+        else None,
     }
 
     metric_labels = {
@@ -1652,33 +1720,40 @@ async def get_insight_followups(
 
         # Determine source and current value
         is_app_data = mk in _app_current_map
-        current_val = _app_current_map.get(mk) if is_app_data else _oura_current_map.get(mk)
+        current_val = (
+            _app_current_map.get(mk) if is_app_data else _oura_current_map.get(mk)
+        )
         source = "app_data" if is_app_data else "oura"
 
         delta: Optional[float] = None
         direction = "unknown"
         if original_val is not None and current_val is not None:
-            delta = round(current_val - original_val, 1)
+            _d: float = round(current_val - original_val, 1)
+            delta = _d
             lower_better = "symptom" in mk or "severity" in mk
             if lower_better:
-                direction = "better" if delta < -1 else "worse" if delta > 1 else "stable"
+                direction = "better" if _d < -1 else "worse" if _d > 1 else "stable"
             else:
-                direction = "better" if delta > 2 else "worse" if delta < -2 else "stable"
+                direction = "better" if _d > 2 else "worse" if _d < -2 else "stable"
 
         label = metric_labels.get(mk, mk.replace("_", " ").title())
 
-        followups.append(InsightFollowUp(
-            metric_key=mk,
-            original_title=row.get("title", ""),
-            original_summary=row.get("summary", ""),
-            original_value=original_val,
-            original_date=row.get("week_bucket", ""),
-            current_value=round(current_val, 1) if current_val is not None else None,
-            delta=delta,
-            direction=direction,
-            label=label,
-            source=source,
-        ))
+        followups.append(
+            InsightFollowUp(
+                metric_key=mk,
+                original_title=row.get("title", ""),
+                original_summary=row.get("summary", ""),
+                original_value=original_val,
+                original_date=row.get("week_bucket", ""),
+                current_value=round(current_val, 1)
+                if current_val is not None
+                else None,
+                delta=delta,
+                direction=direction,
+                label=label,
+                source=source,
+            )
+        )
 
     return followups[:6]
 

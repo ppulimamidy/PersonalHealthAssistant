@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field
 from common.middleware.auth import get_current_user
 from common.utils.logging import get_logger
 from ..dependencies.usage_gate import (
+    RateLimit,
     UsageGate,
     _supabase_get,
     _supabase_upsert,
@@ -49,7 +50,12 @@ _DEFAULT_AGENTS = [
         "agent_type": "health_coach",
         "agent_name": "Health Coach",
         "agent_description": "Your personal health and wellness guide",
-        "capabilities": ["general_health_advice", "goal_setting", "motivation", "lifestyle_recommendations"],
+        "capabilities": [
+            "general_health_advice",
+            "goal_setting",
+            "motivation",
+            "lifestyle_recommendations",
+        ],
         "system_prompt": "You are a compassionate and knowledgeable health coach. Help users set realistic health goals, provide evidence-based wellness advice, and offer motivation and support. Always encourage users to consult healthcare professionals for medical decisions.",
         "model": _DEFAULT_MODEL,
         "temperature": 0.7,
@@ -61,7 +67,12 @@ _DEFAULT_AGENTS = [
         "agent_type": "nutrition_analyst",
         "agent_name": "Nutrition Analyst",
         "agent_description": "Expert in nutrition patterns and meal planning",
-        "capabilities": ["nutrition_analysis", "meal_planning", "dietary_recommendations", "nutrient_tracking"],
+        "capabilities": [
+            "nutrition_analysis",
+            "meal_planning",
+            "dietary_recommendations",
+            "nutrient_tracking",
+        ],
         "system_prompt": "You are a nutrition expert specializing in analyzing eating patterns and providing personalized meal recommendations. Use data from the user's meal logs and health metrics to identify patterns and suggest improvements. Be specific and actionable in your advice.",
         "model": _DEFAULT_MODEL,
         "temperature": 0.7,
@@ -73,7 +84,12 @@ _DEFAULT_AGENTS = [
         "agent_type": "symptom_investigator",
         "agent_name": "Symptom Investigator",
         "agent_description": "Analyzes symptoms and identifies patterns",
-        "capabilities": ["symptom_analysis", "pattern_recognition", "correlation_detection", "medical_information"],
+        "capabilities": [
+            "symptom_analysis",
+            "pattern_recognition",
+            "correlation_detection",
+            "medical_information",
+        ],
         "system_prompt": "You are a medical data analyst specializing in symptom pattern recognition. Help users understand their symptoms by analyzing trends, correlations with lifestyle factors, and potential triggers. Always recommend consulting healthcare professionals for diagnosis and treatment.",
         "model": _DEFAULT_MODEL,
         "temperature": 0.7,
@@ -85,7 +101,12 @@ _DEFAULT_AGENTS = [
         "agent_type": "research_assistant",
         "agent_name": "Research Assistant",
         "agent_description": "Finds and synthesizes medical research",
-        "capabilities": ["literature_search", "research_synthesis", "evidence_summary", "study_interpretation"],
+        "capabilities": [
+            "literature_search",
+            "research_synthesis",
+            "evidence_summary",
+            "study_interpretation",
+        ],
         "system_prompt": "You are a medical research assistant. Help users understand relevant medical research by searching PubMed, synthesizing findings from multiple studies, and explaining complex medical information in accessible language. Always cite sources and explain limitations of research.",
         "model": _DEFAULT_MODEL,
         "temperature": 0.7,
@@ -97,7 +118,12 @@ _DEFAULT_AGENTS = [
         "agent_type": "medication_advisor",
         "agent_name": "Medication Advisor",
         "agent_description": "Provides medication and supplement insights",
-        "capabilities": ["medication_tracking", "interaction_checking", "adherence_support", "side_effect_monitoring"],
+        "capabilities": [
+            "medication_tracking",
+            "interaction_checking",
+            "adherence_support",
+            "side_effect_monitoring",
+        ],
         "system_prompt": "You are a medication information specialist. Help users track medications and supplements, understand potential interactions, monitor for side effects, and improve adherence. Always emphasize the importance of consulting pharmacists and doctors for medical advice.",
         "model": _DEFAULT_MODEL,
         "temperature": 0.7,
@@ -261,10 +287,14 @@ class Agent:
         parts = []
 
         first_name = context.get("first_name") or context.get("user_name") or "the user"
-        parts.append(f"User's name: {context.get('user_name', first_name)} (address them as {first_name})")
+        parts.append(
+            f"User's name: {context.get('user_name', first_name)} (address them as {first_name})"
+        )
 
         if context.get("health_conditions"):
-            parts.append(f"Diagnosed health conditions: {', '.join(context['health_conditions'])}")
+            parts.append(
+                f"Diagnosed health conditions: {', '.join(context['health_conditions'])}"
+            )
 
         if context.get("medications"):
             med_strs = []
@@ -291,7 +321,9 @@ class Agent:
                 val = f"{l.get('value', '')} {l.get('unit', '')}".strip()
                 date = l.get("date", "")
                 status = l.get("status", "")
-                status_str = f" [{status}]" if status and status.lower() != "normal" else ""
+                status_str = (
+                    f" [{status}]" if status and status.lower() != "normal" else ""
+                )
                 lab_strs.append(f"{test}: {val}{status_str} ({date})")
             parts.append(f"Recent lab results: {'; '.join(lab_strs)}")
 
@@ -313,10 +345,14 @@ class Agent:
             plan_strs = []
             for p in context["care_plans"]:
                 title = p.get("title", "Unnamed plan")
-                source_tag = " [Doctor-prescribed]" if p.get("source") == "doctor" else ""
+                source_tag = (
+                    " [Doctor-prescribed]" if p.get("source") == "doctor" else ""
+                )
                 target = ""
                 if p.get("target_value") is not None:
-                    target = f" — target: {p['target_value']} {p.get('target_unit') or ''}"
+                    target = (
+                        f" — target: {p['target_value']} {p.get('target_unit') or ''}"
+                    )
                     if p.get("current_value") is not None:
                         target += f" (current: {p['current_value']} {p.get('target_unit') or ''})"
                 if p.get("target_date"):
@@ -328,9 +364,13 @@ class Agent:
         if context.get("adherence_pct") is not None:
             pct = context["adherence_pct"]
             if pct < 60:
-                adherence_note = f"{pct}% (critically low — patient missing more than 4 in 10 doses)"
+                adherence_note = (
+                    f"{pct}% (critically low — patient missing more than 4 in 10 doses)"
+                )
             elif pct < 80:
-                adherence_note = f"{pct}% (below target — patient missing roughly 1 in 5 doses)"
+                adherence_note = (
+                    f"{pct}% (below target — patient missing roughly 1 in 5 doses)"
+                )
             else:
                 adherence_note = f"{pct}% (good)"
             parts.append(f"Medication adherence (last 30 days): {adherence_note}")
@@ -344,7 +384,9 @@ class Agent:
         if context.get("avg_pain") is not None:
             wellbeing_parts.append(f"pain {context['avg_pain']}/10")
         if wellbeing_parts:
-            parts.append(f"Avg weekly wellbeing (last 4 check-ins): {', '.join(wellbeing_parts)}")
+            parts.append(
+                f"Avg weekly wellbeing (last 4 check-ins): {', '.join(wellbeing_parts)}"
+            )
 
         # --- Prior AI insights ---
         if context.get("recent_insights"):
@@ -561,7 +603,9 @@ async def _maybe_collect_prefs(
     If the last assistant turn was onboarding, extract and save preferences.
     Returns (updated_prefs, updated_user_message).
     """
-    if _prefs_are_set(prefs) or not _last_assistant_was_onboarding(conversation_history):
+    if _prefs_are_set(prefs) or not _last_assistant_was_onboarding(
+        conversation_history
+    ):
         return prefs, user_message
     extracted = await _extract_prefs_from_message(user_message)
     if extracted and _prefs_are_set(extracted):
@@ -620,7 +664,9 @@ class NutritionAnalystAgent(Agent):
             )
 
         # Load preferences, collecting them if this is the first turn
-        prefs: Optional[Dict[str, Any]] = await _get_nutrition_prefs(user_id) if user_id else None
+        prefs: Optional[Dict[str, Any]] = (
+            await _get_nutrition_prefs(user_id) if user_id else None
+        )
         if user_id:
             prefs, user_message = await _maybe_collect_prefs(
                 user_id, prefs, conversation_history, user_message
@@ -758,7 +804,8 @@ async def _get_user_context(
                 p.get("full_name")
                 or p.get("name")
                 or (
-                    f"{p.get('first_name', '')} {p.get('last_name', '')}".strip() or None
+                    f"{p.get('first_name', '')} {p.get('last_name', '')}".strip()
+                    or None
                 )
             )
 
@@ -891,9 +938,15 @@ async def _get_user_context(
         f"user_id=eq.{user_id}&order=week_start.desc&select=week_start,energy_level,mood_rating,pain_level&limit=4",
     )
     if checkins:
-        energy_vals = [c.get("energy_level") for c in checkins if c.get("energy_level") is not None]
-        mood_vals = [c.get("mood_rating") for c in checkins if c.get("mood_rating") is not None]
-        pain_vals = [c.get("pain_level") for c in checkins if c.get("pain_level") is not None]
+        energy_vals = [
+            c.get("energy_level") for c in checkins if c.get("energy_level") is not None
+        ]
+        mood_vals = [
+            c.get("mood_rating") for c in checkins if c.get("mood_rating") is not None
+        ]
+        pain_vals = [
+            c.get("pain_level") for c in checkins if c.get("pain_level") is not None
+        ]
         if energy_vals:
             context["avg_energy"] = round(sum(energy_vals) / len(energy_vals), 1)
         if mood_vals:
@@ -1061,6 +1114,7 @@ async def list_agents(current_user: dict = Depends(get_current_user)):
 @router.post("/chat", response_model=Conversation)
 async def send_message(
     request: SendMessageRequest,
+    _rl: None = Depends(RateLimit("ai_chat", max_per_minute=20)),
     current_user: dict = Depends(UsageGate("ai_agents")),
 ):
     """Send message to AI agent and get response."""
@@ -1187,7 +1241,8 @@ async def get_conversation(
         row = _local_conversations[conversation_id]
     else:
         rows = await _supabase_get(
-            "agent_conversations", f"id=eq.{conversation_id}&user_id=eq.{user_id}&limit=1"
+            "agent_conversations",
+            f"id=eq.{conversation_id}&user_id=eq.{user_id}&limit=1",
         )
         if not rows:
             raise HTTPException(status_code=404, detail="Conversation not found")
@@ -1198,7 +1253,9 @@ async def get_conversation(
     if agent:
         agent_name = agent.agent_name
     else:
-        agent_rows = await _supabase_get("ai_agents", f"id=eq.{row['primary_agent_id']}")
+        agent_rows = await _supabase_get(
+            "ai_agents", f"id=eq.{row['primary_agent_id']}"
+        )
         agent_name = agent_rows[0]["agent_name"] if agent_rows else "Assistant"
 
     messages = _parse_messages(row.get("messages"))

@@ -9,6 +9,7 @@ Manage lab test results, biomarker tracking, and AI-generated insights from lab 
 import base64
 import io
 import json
+import math
 import os
 import uuid
 from datetime import date, datetime, timedelta, timezone
@@ -16,11 +17,12 @@ from typing import Any, Dict, List, Optional
 
 import aiohttp
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from common.middleware.auth import get_current_user
 from common.utils.logging import get_logger
 from ..dependencies.usage_gate import (
+    RateLimit,
     UsageGate,
     _supabase_get,
     _supabase_insert,
@@ -52,7 +54,16 @@ class Biomarker(BaseModel):
     value: float
     unit: str
     reference_range: Optional[str] = None
-    status: str  # normal, borderline, abnormal, critical
+    status: str  # normal, borderline, abnormal, critical, unknown
+
+    @field_validator("value")
+    @classmethod
+    def value_must_be_finite(cls, v: float) -> float:
+        if not math.isfinite(v):
+            raise ValueError(
+                "Biomarker value must be a finite number (not NaN or infinity)"
+            )
+        return v
 
 
 class CreateLabResultRequest(BaseModel):
@@ -223,6 +234,222 @@ def _compress_image(image_bytes: bytes, max_bytes: int = 4_500_000) -> bytes:
         return image_bytes
 
 
+# ---------------------------------------------------------------------------
+# Biomarker reference ranges (module-level for efficiency)
+# ---------------------------------------------------------------------------
+
+# "High concern" ranges: (normal_min, normal_max, high_borderline, high_critical, unit)
+# Abnormal: < normal_min  OR  > high_borderline
+# Critical: > high_critical  OR  < normal_min (for biomarkers with a critical low not defined here)
+# Borderline: normal_max < value <= high_borderline
+_BIO_HIGH_BAD: Dict[str, tuple] = {
+    # Lipids
+    "total_cholesterol": (125, 200, 239, 400, "mg/dL"),
+    "ldl": (0, 100, 159, 400, "mg/dL"),  # LDL has no clinical "critical" cutoff alone
+    "triglycerides": (0, 150, 199, 500, "mg/dL"),
+    "vldl": (2, 30, 40, 50, "mg/dL"),
+    "non_hdl_cholesterol": (0, 130, 159, 190, "mg/dL"),
+    # Blood sugar / diabetes
+    "glucose": (65, 100, 125, 400, "mg/dL"),
+    "hba1c": (4.0, 5.7, 6.4, 10.0, "%"),
+    "insulin": (2, 25, 30, 100, "μIU/mL"),
+    "c_peptide": (0.8, 3.1, 4.0, 7.0, "ng/mL"),
+    # Kidney / uric acid
+    "blood_urea_nitrogen": (7, 25, 30, 50, "mg/dL"),
+    "creatinine": (0.6, 1.35, 1.7, 4.0, "mg/dL"),
+    "uric_acid": (2.5, 7.0, 8.0, 12.0, "mg/dL"),
+    # Liver enzymes
+    "alanine_aminotransferase": (7, 56, 80, 200, "U/L"),
+    "aspartate_aminotransferase": (10, 40, 60, 150, "U/L"),
+    "alkaline_phosphatase": (44, 147, 200, 500, "U/L"),
+    "gamma_glutamyltransferase": (5, 78, 100, 300, "U/L"),
+    "total_bilirubin": (0.1, 1.2, 2.0, 5.0, "mg/dL"),
+    "direct_bilirubin": (0.0, 0.3, 0.5, 1.5, "mg/dL"),
+    "lactate_dehydrogenase": (140, 280, 350, 500, "U/L"),
+    # Thyroid
+    "tsh": (0.4, 4.5, 6.0, 20.0, "mIU/L"),
+    # Inflammation
+    "crp": (0, 3.0, 5.0, 10.0, "mg/L"),
+    "hs_crp": (0, 1.0, 3.0, 10.0, "mg/L"),
+    "esr": (0, 20, 40, 80, "mm/hr"),
+    "homocysteine": (5, 15, 30, 50, "μmol/L"),
+    "fibrinogen": (200, 400, 500, 700, "mg/dL"),
+    # Cardiac
+    "troponin_i": (0, 0.04, 0.1, 0.4, "ng/mL"),
+    "bnp": (0, 100, 300, 900, "pg/mL"),
+    "nt_pro_bnp": (0, 125, 400, 900, "pg/mL"),
+    # WBC
+    "white_blood_cells": (4.5, 11.0, 15.0, 30.0, "K/μL"),
+    # Hormones
+    "cortisol": (6, 23, 30, 60, "μg/dL"),
+    # PSA
+    "psa": (0, 4.0, 6.5, 10.0, "ng/mL"),
+}
+
+# Symmetric ranges: (critical_low, borderline_low, normal_min, normal_max, borderline_high, critical_high, unit)
+# None = boundary not applicable in that direction
+_BIO_SYMMETRIC: Dict[str, tuple] = {
+    # CBC
+    "hemoglobin": (7.0, 10.0, 11.5, 17.5, 18.5, 21.0, "g/dL"),
+    "hematocrit": (20, 30, 35, 52, 55, 65, "%"),
+    "red_blood_cells": (3.0, 3.5, 4.0, 6.2, 6.5, 7.0, "M/μL"),
+    "platelets": (50, 100, 150, 400, 500, 1000, "K/μL"),
+    "mcv": (60, 72, 80, 100, 110, 120, "fL"),
+    "mch": (20, 24, 27, 33, 36, 42, "pg"),
+    "mchc": (28, 30, 32, 36, 37, 40, "g/dL"),
+    "neutrophils": (0.5, 1.5, 1.8, 7.7, 10, 20, "K/μL"),
+    "lymphocytes": (0.5, 0.8, 1.0, 4.8, 6.0, 10.0, "K/μL"),
+    "monocytes": (0, 0.1, 0.1, 1.0, 1.5, 3.0, "K/μL"),
+    "eosinophils": (0, 0.0, 0.0, 0.5, 0.7, 1.5, "K/μL"),
+    # Electrolytes  (Na≤130 severe hyponatremia; K>6.0 severe hyperkalemia)
+    "sodium": (130, 131, 136, 145, 150, 160, "mEq/L"),
+    "potassium": (2.5, 3.0, 3.5, 5.0, 5.5, 6.0, "mEq/L"),
+    "chloride": (90, 95, 98, 107, 110, 120, "mEq/L"),
+    "bicarbonate": (15, 18, 22, 29, 32, 40, "mEq/L"),
+    "calcium": (6.5, 7.5, 8.5, 10.2, 10.8, 12.0, "mg/dL"),
+    "total_protein": (4.0, 5.5, 6.3, 8.2, 8.8, 10.0, "g/dL"),
+    "albumin": (2.0, 3.0, 3.5, 5.0, 5.3, 6.0, "g/dL"),
+    "magnesium": (0.8, 1.4, 1.7, 2.2, 2.5, 3.0, "mg/dL"),
+    "phosphorus": (1.5, 2.0, 2.5, 4.5, 5.0, 7.0, "mg/dL"),
+    # Thyroid (both low and high matter)
+    "free_t4": (0.4, 0.6, 0.8, 1.8, 2.0, 3.0, "ng/dL"),
+    "free_t3": (1.5, 2.0, 2.3, 4.2, 4.8, 7.0, "pg/mL"),
+    "total_t4": (2.0, 4.0, 5.0, 12.0, 13.0, 18.0, "μg/dL"),
+    "total_t3": (60, 70, 80, 200, 220, 300, "ng/dL"),
+    # GFR: <15 = kidney failure (critical), 15-50 = abnormal (CKD stage 3-4), 50-60 = borderline
+    "gfr": (15, 50, 60, 150, None, None, "mL/min/1.73m²"),
+    # Vitamins / minerals
+    "vitamin_d": (0, 10, 30, 100, 125, 150, "ng/mL"),
+    "vitamin_b12": (0, 150, 200, 900, 1200, 2000, "pg/mL"),
+    "folate": (0, 2.0, 2.7, 17.0, 20.0, 30.0, "ng/mL"),
+    "ferritin": (0, 7, 12, 336, 400, 1000, "ng/mL"),
+    "serum_iron": (20, 45, 60, 170, 200, 350, "μg/dL"),
+    "tibc": (150, 200, 250, 370, 400, 500, "μg/dL"),
+    "transferrin_saturation": (0, 10, 20, 50, 55, 80, "%"),
+    "zinc": (30, 50, 60, 120, 140, 200, "μg/dL"),
+    # HDL: <20 = critical, 20-40 = abnormal (no borderline—below 40 is clinically significant)
+    "hdl": (20, None, 40, 200, None, None, "mg/dL"),
+    # Hormones
+    "testosterone": (100, 200, 300, 1000, 1200, 2000, "ng/dL"),
+    "dhea_s": (30, 65, 80, 560, 600, 800, "μg/dL"),
+    "estradiol": (5, 10, 20, 200, 300, 500, "pg/mL"),
+    "igf_1": (50, 100, 115, 307, 350, 500, "ng/mL"),
+}
+
+# Common aliases → canonical key used above
+_BIO_ALIASES: Dict[str, str] = {
+    # CBC
+    "hgb": "hemoglobin",
+    "hb": "hemoglobin",
+    "hct": "hematocrit",
+    "pcv": "hematocrit",
+    "wbc": "white_blood_cells",
+    "leukocytes": "white_blood_cells",
+    "rbc": "red_blood_cells",
+    "erythrocytes": "red_blood_cells",
+    "plt": "platelets",
+    "thrombocytes": "platelets",
+    "neut": "neutrophils",
+    "neutrophil": "neutrophils",
+    "segs": "neutrophils",
+    "lymphs": "lymphocytes",
+    "lymph": "lymphocytes",
+    "mono": "monocytes",
+    "monos": "monocytes",
+    "eos": "eosinophils",
+    "eosino": "eosinophils",
+    "baso": "basophils",
+    # CMP
+    "na": "sodium",
+    "k": "potassium",
+    "cl": "chloride",
+    "co2": "bicarbonate",
+    "hco3": "bicarbonate",
+    "bicarb": "bicarbonate",
+    "bun": "blood_urea_nitrogen",
+    "urea": "blood_urea_nitrogen",
+    "cr": "creatinine",
+    "crea": "creatinine",
+    "ca": "calcium",
+    "tp": "total_protein",
+    "protein_total": "total_protein",
+    "alb": "albumin",
+    "tbil": "total_bilirubin",
+    "bilirubin": "total_bilirubin",
+    "dbil": "direct_bilirubin",
+    "alt": "alanine_aminotransferase",
+    "sgpt": "alanine_aminotransferase",
+    "ast": "aspartate_aminotransferase",
+    "sgot": "aspartate_aminotransferase",
+    "alp": "alkaline_phosphatase",
+    "alk_phos": "alkaline_phosphatase",
+    "ggt": "gamma_glutamyltransferase",
+    "gamma_gt": "gamma_glutamyltransferase",
+    "ldh": "lactate_dehydrogenase",
+    "egfr": "gfr",
+    "creatinine_clearance": "gfr",
+    # Lipids
+    "tc": "total_cholesterol",
+    "chol": "total_cholesterol",
+    "ldl_c": "ldl",
+    "ldl_cholesterol": "ldl",
+    "hdl_c": "hdl",
+    "hdl_cholesterol": "hdl",
+    "trig": "triglycerides",
+    "trigs": "triglycerides",
+    "tg": "triglycerides",
+    # Thyroid
+    "ft4": "free_t4",
+    "t4_free": "free_t4",
+    "ft3": "free_t3",
+    "t3_free": "free_t3",
+    "t4": "total_t4",
+    "t3": "total_t3",
+    # Vitamins
+    "vit_d": "vitamin_d",
+    "25_oh_vitamin_d": "vitamin_d",
+    "25ohd": "vitamin_d",
+    "vit_b12": "vitamin_b12",
+    "b12": "vitamin_b12",
+    "cobalamin": "vitamin_b12",
+    "folic_acid": "folate",
+    "ferr": "ferritin",
+    "fe": "serum_iron",
+    "iron": "serum_iron",
+    "tsat": "transferrin_saturation",
+    "mg": "magnesium",
+    "zn": "zinc",
+    "ua": "uric_acid",
+    "urate": "uric_acid",
+    # Inflammation
+    "hscrp": "hs_crp",
+    "high_sensitivity_crp": "hs_crp",
+    "sed_rate": "esr",
+    "homocys": "homocysteine",
+    "fibrin": "fibrinogen",
+    # Hormones
+    "test": "testosterone",
+    "total_testosterone": "testosterone",
+    "e2": "estradiol",
+    "dheas": "dhea_s",
+    "cortisol_am": "cortisol",
+    "igf1": "igf_1",
+    "igf_i": "igf_1",
+    # Cardiac
+    "tni": "troponin_i",
+    "troponin": "troponin_i",
+    "ntprobnp": "nt_pro_bnp",
+    "nt_bnp": "nt_pro_bnp",
+    # Misc
+    "a1c": "hba1c",
+    "hemoglobin_a1c": "hba1c",
+    "glycated_hemoglobin": "hba1c",
+    "insulin_fasting": "insulin",
+    "psa_total": "psa",
+    "ph": "phosphorus",
+}
+
+
 def _analyze_biomarker_status(
     value: float,
     biomarker_code: str,
@@ -233,44 +460,62 @@ def _analyze_biomarker_status(
     """
     Analyze biomarker status based on reference ranges.
     Returns (status, reference_range_str).
+    Status: 'normal' | 'borderline' | 'abnormal' | 'critical' | 'unknown'
     """
-    # This is a simplified version. In production, you'd query biomarker_references table
-    # For now, using hardcoded common ranges
+    if not math.isfinite(value):
+        return "unknown", "N/A"
 
-    ranges = {
-        "total_cholesterol": (125, 240, 200, 300, "mg/dL"),
-        "ldl": (0, 160, 100, 190, "mg/dL"),
-        "hdl": (40, 120, 60, 20, "mg/dL"),  # male ranges
-        "triglycerides": (0, 150, 100, 500, "mg/dL"),
-        "glucose": (65, 110, 100, 400, "mg/dL"),
-        "hba1c": (4.0, 6.4, 5.6, 10.0, "%"),
-        "tsh": (0.4, 4.5, 2.5, 20.0, "mIU/L"),
-        "vitamin_d": (30, 100, 80, 150, "ng/mL"),
-        "crp": (0, 3.0, 1.0, 10.0, "mg/L"),
-    }
+    code = (
+        biomarker_code.lower()
+        .replace(" ", "_")
+        .replace("-", "_")
+        .replace("/", "_")
+        .strip("_")
+    )
+    code = _BIO_ALIASES.get(code, code)
 
-    code_lower = biomarker_code.lower().replace(" ", "_")
+    # ── High-bad ranges ──────────────────────────────────────────────────────
+    if code in _BIO_HIGH_BAD:
+        norm_min, norm_max, border_hi, crit_hi, ref_unit = _BIO_HIGH_BAD[code]
+        ref_range = f"{norm_min}–{norm_max} {ref_unit}"
+        if norm_min is not None and value < norm_min:
+            return "abnormal", ref_range
+        if crit_hi is not None and value > crit_hi:
+            return "critical", ref_range
+        if value > norm_max:
+            if border_hi is not None and value <= border_hi:
+                return "borderline", ref_range
+            return "abnormal", ref_range
+        return "normal", ref_range
 
-    if code_lower not in ranges:
-        return "normal", "N/A"
+    # ── Symmetric ranges ─────────────────────────────────────────────────────
+    if code in _BIO_SYMMETRIC:
+        (
+            crit_lo,
+            border_lo,
+            norm_min,
+            norm_max,
+            border_hi,
+            crit_hi,
+            ref_unit,
+        ) = _BIO_SYMMETRIC[code]
+        ref_range = f"{norm_min}–{norm_max} {ref_unit}"
+        if crit_lo is not None and value <= crit_lo:
+            return "critical", ref_range
+        if norm_min is not None and value < norm_min:
+            if border_lo is not None and value >= border_lo:
+                return "borderline", ref_range
+            return "abnormal", ref_range
+        if crit_hi is not None and value >= crit_hi:
+            return "critical", ref_range
+        if norm_max is not None and value > norm_max:
+            if border_hi is not None and value <= border_hi:
+                return "borderline", ref_range
+            return "abnormal", ref_range
+        return "normal", ref_range
 
-    normal_min, normal_max, optimal_max, critical_high, ref_unit = ranges[code_lower]
-
-    # Determine status
-    if value < normal_min:
-        status = "abnormal"
-    elif value > critical_high:
-        status = "critical"
-    elif value > normal_max:
-        status = "abnormal"
-    elif value > optimal_max:
-        status = "borderline"
-    else:
-        status = "normal"
-
-    ref_range = f"{normal_min}-{normal_max} {ref_unit}"
-
-    return status, ref_range
+    # ── Unknown biomarker — do NOT silently default to "normal" ─────────────
+    return "unknown", "Reference range not available"
 
 
 async def _generate_lab_summary(
@@ -468,18 +713,26 @@ async def create_lab_result(
             f"user_id=eq.{user_id}&test_type=eq.{request.test_type}&order=test_date.desc&limit=3&select=biomarkers,test_date",
         )
         persistently_abnormal: list = []
-        new_abnormal_names = {b["name"] for b in biomarkers_data if b.get("status") in ("abnormal", "critical")}
+        new_abnormal_names = {
+            b["name"]
+            for b in biomarkers_data
+            if b.get("status") in ("abnormal", "critical")
+        }
         for prior in prior_labs:
             prior_bm = prior.get("biomarkers")
             if isinstance(prior_bm, str):
                 import json as _json
+
                 try:
                     prior_bm = _json.loads(prior_bm)
                 except Exception:
                     prior_bm = []
             if isinstance(prior_bm, list):
                 for pb in prior_bm:
-                    if pb.get("name") in new_abnormal_names and pb.get("status") in ("abnormal", "critical"):
+                    if pb.get("name") in new_abnormal_names and pb.get("status") in (
+                        "abnormal",
+                        "critical",
+                    ):
                         persistently_abnormal.append(pb["name"])
                         break
 
@@ -787,7 +1040,9 @@ def _extract_docx_text(file_bytes: bytes) -> str:
         # Also extract table cell text (lab results are often in tables)
         for table in doc.tables:
             for row in table.rows:
-                row_text = " | ".join(cell.text.strip() for cell in row.cells if cell.text.strip())
+                row_text = " | ".join(
+                    cell.text.strip() for cell in row.cells if cell.text.strip()
+                )
                 if row_text:
                     paragraphs.append(row_text)
         return "\n".join(paragraphs)
@@ -796,7 +1051,9 @@ def _extract_docx_text(file_bytes: bytes) -> str:
         raise
 
 
-def _build_claude_content(file_bytes: bytes, filename: str, content_type: str) -> List[Dict[str, Any]]:
+def _build_claude_content(
+    file_bytes: bytes, filename: str, content_type: str
+) -> List[Dict[str, Any]]:
     """
     Build the Claude message content block(s) appropriate for the file type.
 
@@ -823,7 +1080,11 @@ def _build_claude_content(file_bytes: bytes, filename: str, content_type: str) -
         ]
 
     # ── Word document ─────────────────────────────────────────────────────────
-    if name_lower.endswith((".docx", ".doc")) or "word" in ct_lower or "officedocument" in ct_lower:
+    if (
+        name_lower.endswith((".docx", ".doc"))
+        or "word" in ct_lower
+        or "officedocument" in ct_lower
+    ):
         text = _extract_docx_text(file_bytes)
         combined = (
             "The following is the text content extracted from a Word document lab report.\n\n"
@@ -835,7 +1096,11 @@ def _build_claude_content(file_bytes: bytes, filename: str, content_type: str) -
     # ── Image (default) ───────────────────────────────────────────────────────
     compressed = _compress_image(file_bytes)
     data_b64 = base64.standard_b64encode(compressed).decode()
-    image_mt = ct_lower if ct_lower in ("image/jpeg", "image/png", "image/gif", "image/webp") else "image/jpeg"
+    image_mt = (
+        ct_lower
+        if ct_lower in ("image/jpeg", "image/png", "image/gif", "image/webp")
+        else "image/jpeg"
+    )
     return [
         {
             "type": "image",
@@ -902,7 +1167,9 @@ def _parse_scan_response(raw_text: str) -> LabResultScanResult:
             biomarkers.append(
                 ScannedBiomarker(
                     biomarker_code=str(b.get("biomarker_code", "")).upper() or "UNK",
-                    biomarker_name=str(b.get("biomarker_name", b.get("biomarker_code", "Unknown"))),
+                    biomarker_name=str(
+                        b.get("biomarker_name", b.get("biomarker_code", "Unknown"))
+                    ),
                     value=float(b.get("value", 0)),
                     unit=str(b.get("unit", "")),
                     reference_range=b.get("reference_range"),
@@ -927,6 +1194,7 @@ def _parse_scan_response(raw_text: str) -> LabResultScanResult:
 @router.post("/scan-image", response_model=LabResultScanResult)
 async def scan_lab_result_image(
     file: UploadFile = File(...),
+    _rl: None = Depends(RateLimit("lab_scan", max_per_minute=5)),
     current_user: Dict[str, Any] = Depends(get_current_user),
 ) -> LabResultScanResult:
     """
@@ -935,7 +1203,9 @@ async def scan_lab_result_image(
     Uses Claude AI for extraction.
     """
     if not ANTHROPIC_API_KEY:
-        raise HTTPException(status_code=503, detail="Lab report scanning not configured")
+        raise HTTPException(
+            status_code=503, detail="Lab report scanning not configured"
+        )
 
     file_bytes = await file.read()
     filename = file.filename or ""
@@ -943,13 +1213,17 @@ async def scan_lab_result_image(
 
     logger.info(
         "Lab scan request: filename=%s content_type=%s size=%d",
-        filename, content_type, len(file_bytes),
+        filename,
+        content_type,
+        len(file_bytes),
     )
 
     try:
         content_blocks = _build_claude_content(file_bytes, filename, content_type)
     except Exception as exc:
-        raise HTTPException(status_code=422, detail=f"Could not read file: {exc}") from exc
+        raise HTTPException(
+            status_code=422, detail=f"Could not read file: {exc}"
+        ) from exc
 
     try:
         import certifi
@@ -1048,14 +1322,19 @@ async def connect_lab_provider(
 ):
     """
     Initiate connection to a third-party lab provider.
-    Currently a stub — returns a 'coming soon' response.
+    All integrations are not yet available — returns HTTP 501.
     """
     provider = next((p for p in _LAB_PROVIDERS if p.id == provider_id), None)
     if not provider:
         raise HTTPException(status_code=404, detail="Provider not found")
 
-    return {
-        "success": False,
-        "coming_soon": True,
-        "message": f"{provider.name} integration is coming soon. We'll notify you when it's ready.",
-    }
+    raise HTTPException(
+        status_code=501,
+        detail={
+            "coming_soon": True,
+            "message": (
+                f"{provider.name} direct integration is not yet available. "
+                "In the meantime, use the 'Scan Lab Report' feature to upload your PDF or image."
+            ),
+        },
+    )

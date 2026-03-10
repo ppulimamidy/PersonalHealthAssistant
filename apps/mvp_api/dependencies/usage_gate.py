@@ -7,8 +7,10 @@ based on their subscription tier. Returns 403 when limit is exceeded.
 
 import os
 import ssl
+import time
+from collections import defaultdict
 from datetime import date, timedelta
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import aiohttp
 import certifi
@@ -18,6 +20,7 @@ from common.middleware.auth import get_current_user
 from common.utils.logging import get_logger
 
 logger = get_logger(__name__)
+
 
 def _ssl_context() -> ssl.SSLContext:
     """Return an SSL context using certifi CA bundle (fixes macOS cert verification)."""
@@ -36,6 +39,7 @@ TIER_LIMITS: Dict[str, Dict[str, int]] = {
         "pdf_export": 0,
         "correlations": 0,
         "health_conditions": 0,
+        "interventions": 0,  # N-of-1: Not available for free tier
         "symptom_journal": 0,  # Phase 1: Not available for free tier
         "medical_literature": 0,  # Phase 2: Not available for free tier
         "ai_agents": 0,  # Phase 3: Not available for free tier
@@ -51,6 +55,7 @@ TIER_LIMITS: Dict[str, Dict[str, int]] = {
         "pdf_export": 0,
         "correlations": 3,
         "health_conditions": 0,
+        "interventions": 3,  # N-of-1: 3 active interventions per week for Pro
         "symptom_journal": 3,  # Phase 1: 3 entries per week for Pro
         "medical_literature": 20,  # Phase 2: 20 searches per week for Pro
         "ai_agents": 50,  # Phase 3: 50 agent messages per week for Pro
@@ -66,6 +71,7 @@ TIER_LIMITS: Dict[str, Dict[str, int]] = {
         "pdf_export": -1,
         "correlations": -1,
         "health_conditions": -1,  # Pro+ gets medications/supplements (reuses this gate)
+        "interventions": -1,  # N-of-1: Unlimited for Pro+
         "symptom_journal": -1,  # Phase 1: Unlimited for Pro+
         "medical_literature": -1,  # Phase 2: Unlimited for Pro+
         "ai_agents": -1,  # Phase 3: Unlimited for Pro+
@@ -104,7 +110,9 @@ async def _supabase_get(table: str, params: str) -> list:
     timeout = aiohttp.ClientTimeout(total=5)
     connector = aiohttp.TCPConnector(ssl=_ssl_context())
     try:
-        async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
+        async with aiohttp.ClientSession(
+            timeout=timeout, connector=connector
+        ) as session:
             async with session.get(url, headers=_supabase_headers()) as resp:
                 if resp.status == 200:
                     return await resp.json()
@@ -126,7 +134,9 @@ async def _supabase_upsert(table: str, body: dict) -> Optional[dict]:
     timeout = aiohttp.ClientTimeout(total=5)
     connector = aiohttp.TCPConnector(ssl=_ssl_context())
     try:
-        async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
+        async with aiohttp.ClientSession(
+            timeout=timeout, connector=connector
+        ) as session:
             async with session.post(url, headers=headers, json=body) as resp:
                 if resp.status in (200, 201):
                     data = await resp.json()
@@ -158,7 +168,9 @@ async def _supabase_patch(table: str, params: str, body: dict) -> Optional[dict]
     timeout = aiohttp.ClientTimeout(total=5)
     connector = aiohttp.TCPConnector(ssl=_ssl_context())
     try:
-        async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
+        async with aiohttp.ClientSession(
+            timeout=timeout, connector=connector
+        ) as session:
             async with session.patch(url, headers=headers, json=body) as resp:
                 if resp.status == 200:
                     data = await resp.json()
@@ -188,7 +200,9 @@ async def _supabase_insert(table: str, body: dict) -> Optional[dict]:
     timeout = aiohttp.ClientTimeout(total=5)
     connector = aiohttp.TCPConnector(ssl=_ssl_context())
     try:
-        async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
+        async with aiohttp.ClientSession(
+            timeout=timeout, connector=connector
+        ) as session:
             async with session.post(url, headers=headers, json=body) as resp:
                 if resp.status in (200, 201):
                     data = await resp.json()
@@ -214,7 +228,9 @@ async def _supabase_delete(table: str, params: str) -> bool:
     timeout = aiohttp.ClientTimeout(total=5)
     connector = aiohttp.TCPConnector(ssl=_ssl_context())
     try:
-        async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
+        async with aiohttp.ClientSession(
+            timeout=timeout, connector=connector
+        ) as session:
             async with session.delete(url, headers=_supabase_headers()) as resp:
                 if resp.status in (200, 204):
                     logger.info(f"Supabase delete {table} succeeded")
@@ -365,3 +381,58 @@ class UsageGate:  # pylint: disable=too-few-public-methods
         # Increment usage
         await increment_usage(user_id, self.feature, week_start)
         return current_user
+
+
+# ---------------------------------------------------------------------------
+# Per-endpoint rate limiter (in-memory, per-user per-minute)
+# ---------------------------------------------------------------------------
+
+# { (user_id, endpoint_key): [unix_timestamps...] }
+_rate_limit_buckets: Dict[str, List[float]] = defaultdict(list)
+
+
+class RateLimit:
+    """
+    FastAPI dependency for lightweight per-user per-minute rate limiting.
+
+    Tracks call timestamps in memory.  Resets on server restart (acceptable for
+    abuse-prevention at MVP stage without requiring Redis).
+
+    Usage:
+        @router.post("/expensive")
+        async def handler(
+            _rl: None = Depends(RateLimit("scan_image", max_per_minute=5)),
+            current_user: dict = Depends(get_current_user),
+        ):
+            ...
+    """
+
+    def __init__(self, key: str, max_per_minute: int = 10):
+        self.key = key
+        self.max_per_minute = max_per_minute
+
+    async def __call__(self, request: Request) -> None:
+        # Identify the caller — prefer user ID from auth token; fall back to IP
+        try:
+            user = await get_current_user(request)
+            caller_id = user.get("id", "anon")
+        except Exception:
+            caller_id = request.client.host if request.client else "anon"
+
+        bucket_key = f"{caller_id}:{self.key}"
+        now = time.monotonic()
+        cutoff = now - 60.0
+
+        # Prune timestamps older than 1 minute
+        _rate_limit_buckets[bucket_key] = [
+            t for t in _rate_limit_buckets[bucket_key] if t > cutoff
+        ]
+
+        if len(_rate_limit_buckets[bucket_key]) >= self.max_per_minute:
+            raise HTTPException(
+                status_code=429,
+                detail=f"Rate limit exceeded: max {self.max_per_minute} requests/minute.",
+                headers={"Retry-After": "60"},
+            )
+
+        _rate_limit_buckets[bucket_key].append(now)

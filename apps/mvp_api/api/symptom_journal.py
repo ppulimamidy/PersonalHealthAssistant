@@ -7,6 +7,8 @@ correlating with nutrition, medications, sleep, etc.
 Phase 1 of Health Intelligence Features
 """
 
+from collections import defaultdict
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from typing import Dict, List, Optional
@@ -17,6 +19,7 @@ import json
 from common.middleware.auth import get_current_user
 from common.utils.logging import get_logger
 from ..dependencies.usage_gate import (
+    RateLimit,
     UsageGate,
     _supabase_get,
     _supabase_upsert,
@@ -478,28 +481,273 @@ async def list_symptom_patterns(
     return [_pattern_row_to_response(row) for row in rows]
 
 
-@router.post("/patterns/detect")
+@router.post("/patterns/detect", response_model=List[SymptomPattern])
 async def detect_symptom_patterns(
+    _rl: None = Depends(RateLimit("symptom_pattern_detect", max_per_minute=5)),
     current_user: dict = Depends(UsageGate("health_conditions")),  # Pro+ only
 ):
     """
-    Trigger AI-powered pattern detection (Pro+ only).
+    Statistical pattern detection across 90 days of symptom history (Pro+ only).
 
-    This endpoint will be implemented in Phase 2 with the AI agent system.
-    For now, it returns a placeholder response.
+    Detects:
+    - High-frequency symptoms (recurring ≥ 2×/week)
+    - Time-of-day patterns (≥ 50% of occurrences at same time block)
+    - Trigger correlations (a trigger present in ≥ 30% of entries)
+    - Severity trends (worsening or improving over time)
     """
     user_id = current_user["id"]
+    logger.info("Pattern detection requested for user %s", user_id)
 
-    logger.info(f"Pattern detection requested for user {user_id}")
+    start = (date.today() - timedelta(days=90)).isoformat()
+    params = (
+        f"user_id=eq.{user_id}&symptom_date=gte.{start}"
+        f"&select=*&order=symptom_date.asc,symptom_time.asc"
+    )
+    rows = await _supabase_get("symptom_journal", params)
 
-    # TODO: Implement AI pattern detection
-    # This will analyze symptom history and detect:
-    # - Time-based patterns (symptoms at certain times/days)
-    # - Trigger-based patterns (symptoms after certain foods/activities)
-    # - Cyclic patterns (monthly, seasonal)
-    # - Correlations with other health metrics
+    if not rows or len(rows) < 3:
+        return []
 
-    return {
-        "message": "Pattern detection is under development. Will be available in Phase 2.",
-        "status": "pending_implementation",
-    }
+    now = datetime.now(timezone.utc)
+    WEEKS_SPAN = 90.0 / 7.0  # ~12.9 weeks
+
+    # Group entries by symptom type
+    by_type: Dict[str, List[dict]] = defaultdict(list)
+    for row in rows:
+        by_type[row["symptom_type"]].append(row)
+
+    detected: List[SymptomPattern] = []
+
+    for symptom_type, entries in by_type.items():
+        if len(entries) < 3:
+            continue
+
+        # ── 1. Frequency pattern ──────────────────────────────────────────
+        freq_per_week = len(entries) / WEEKS_SPAN
+        if freq_per_week >= 2.0:
+            rec = ["Discuss recurrence pattern with your healthcare provider."]
+            if freq_per_week >= 4:
+                rec.insert(
+                    0, "This symptom occurs very frequently — consider a symptom diary."
+                )
+            pattern_id = str(uuid.uuid4())
+            row_data = {
+                "id": pattern_id,
+                "user_id": user_id,
+                "pattern_type": "frequency",
+                "symptom_type": symptom_type,
+                "pattern_description": (
+                    f"'{symptom_type.replace('_', ' ').title()}' occurs approximately "
+                    f"{freq_per_week:.1f}× per week over the last 90 days."
+                ),
+                "confidence_score": min(0.9, 0.5 + len(entries) / 60),
+                "supporting_entries": json.dumps([e["id"] for e in entries[:20]]),
+                "recommendations": json.dumps(rec),
+                "detected_at": now.isoformat(),
+                "is_active": True,
+            }
+            await _supabase_upsert("symptom_patterns", row_data)
+            detected.append(
+                SymptomPattern(
+                    id=pattern_id,
+                    user_id=user_id,
+                    pattern_type="frequency",
+                    symptom_type=symptom_type,
+                    pattern_description=row_data["pattern_description"],
+                    confidence_score=row_data["confidence_score"],
+                    supporting_entry_count=min(20, len(entries)),
+                    recommendations=rec,
+                    detected_at=now,
+                    is_active=True,
+                )
+            )
+
+        # ── 2. Time-of-day pattern ────────────────────────────────────────
+        timed = [e for e in entries if e.get("symptom_time")]
+        if len(timed) >= 3:
+            bucket_counts: Dict[str, int] = defaultdict(int)
+            for e in timed:
+                t = e["symptom_time"]
+                hour: Optional[int] = None
+                if isinstance(t, str) and len(t) >= 2:
+                    try:
+                        hour = int(t[:2])
+                    except ValueError:
+                        pass
+                elif hasattr(t, "hour"):
+                    hour = t.hour
+                if hour is None:
+                    continue
+                if 5 <= hour < 12:
+                    bucket_counts["morning"] += 1
+                elif 12 <= hour < 17:
+                    bucket_counts["afternoon"] += 1
+                elif 17 <= hour < 21:
+                    bucket_counts["evening"] += 1
+                else:
+                    bucket_counts["night"] += 1
+
+            if bucket_counts:
+                total_timed = sum(bucket_counts.values())
+                peak_bucket, peak_cnt = max(bucket_counts.items(), key=lambda x: x[1])
+                if total_timed >= 3 and peak_cnt / total_timed >= 0.5:
+                    rec = [
+                        f"Track what you do before {peak_bucket} to identify potential triggers.",
+                        "Mention this timing pattern to your doctor.",
+                    ]
+                    pattern_id = str(uuid.uuid4())
+                    confidence = min(0.85, 0.4 + (peak_cnt / total_timed) * 0.5)
+                    row_data = {
+                        "id": pattern_id,
+                        "user_id": user_id,
+                        "pattern_type": "time_of_day",
+                        "symptom_type": symptom_type,
+                        "pattern_description": (
+                            f"'{symptom_type.replace('_', ' ').title()}' occurs most often in the "
+                            f"{peak_bucket} ({peak_cnt/total_timed*100:.0f}% of timed entries)."
+                        ),
+                        "confidence_score": confidence,
+                        "supporting_entries": json.dumps([e["id"] for e in timed[:20]]),
+                        "recommendations": json.dumps(rec),
+                        "detected_at": now.isoformat(),
+                        "is_active": True,
+                    }
+                    await _supabase_upsert("symptom_patterns", row_data)
+                    detected.append(
+                        SymptomPattern(
+                            id=pattern_id,
+                            user_id=user_id,
+                            pattern_type="time_of_day",
+                            symptom_type=symptom_type,
+                            pattern_description=row_data["pattern_description"],
+                            confidence_score=confidence,
+                            supporting_entry_count=min(20, len(timed)),
+                            recommendations=rec,
+                            detected_at=now,
+                            is_active=True,
+                        )
+                    )
+
+        # ── 3. Trigger correlation ────────────────────────────────────────
+        trigger_counts: Dict[str, int] = defaultdict(int)
+        entries_with_triggers = []
+        for e in entries:
+            triggers = e.get("triggers", [])
+            if isinstance(triggers, str):
+                try:
+                    triggers = json.loads(triggers)
+                except Exception:
+                    triggers = []
+            if triggers:
+                entries_with_triggers.append(e)
+                for t in triggers:
+                    if t:
+                        trigger_counts[str(t).lower().strip()] += 1
+
+        if trigger_counts and len(entries_with_triggers) >= 3:
+            top_trigger, top_cnt = max(trigger_counts.items(), key=lambda x: x[1])
+            threshold = max(3, len(entries_with_triggers) * 0.3)
+            if top_cnt >= threshold:
+                rec = [
+                    f"Try avoiding or reducing '{top_trigger}' to see if symptoms improve.",
+                    "Log this correlation with your healthcare provider.",
+                ]
+                pattern_id = str(uuid.uuid4())
+                confidence = min(0.8, 0.3 + (top_cnt / max(len(entries), 10)) * 1.5)
+                row_data = {
+                    "id": pattern_id,
+                    "user_id": user_id,
+                    "pattern_type": "trigger_correlation",
+                    "symptom_type": symptom_type,
+                    "pattern_description": (
+                        f"'{top_trigger.title()}' appears as a trigger in {top_cnt} of "
+                        f"{len(entries_with_triggers)} entries for "
+                        f"'{symptom_type.replace('_', ' ').title()}'."
+                    ),
+                    "confidence_score": confidence,
+                    "supporting_entries": json.dumps(
+                        [e["id"] for e in entries_with_triggers[:20]]
+                    ),
+                    "recommendations": json.dumps(rec),
+                    "detected_at": now.isoformat(),
+                    "is_active": True,
+                }
+                await _supabase_upsert("symptom_patterns", row_data)
+                detected.append(
+                    SymptomPattern(
+                        id=pattern_id,
+                        user_id=user_id,
+                        pattern_type="trigger_correlation",
+                        symptom_type=symptom_type,
+                        pattern_description=row_data["pattern_description"],
+                        confidence_score=confidence,
+                        supporting_entry_count=min(20, len(entries_with_triggers)),
+                        recommendations=rec,
+                        detected_at=now,
+                        is_active=True,
+                    )
+                )
+
+        # ── 4. Severity trend ─────────────────────────────────────────────
+        if len(entries) >= 5:
+            severities = [int(e.get("severity") or 5) for e in entries]
+            n = len(severities)
+            mean_x = (n - 1) / 2.0
+            mean_y = sum(severities) / n
+            num = sum((i - mean_x) * (severities[i] - mean_y) for i in range(n))
+            den = sum((i - mean_x) ** 2 for i in range(n))
+            slope = num / den if den != 0 else 0.0
+
+            if abs(slope) > 0.05:
+                direction = "worsening" if slope > 0 else "improving"
+                avg_recent = sum(severities[-5:]) / 5
+                rec = []
+                if direction == "worsening":
+                    rec = [
+                        f"Severity of '{symptom_type}' is trending upward — consult your healthcare provider.",
+                        "Review recent changes in diet, medications, or activities.",
+                    ]
+                else:
+                    rec = [
+                        f"Severity of '{symptom_type}' is trending downward — keep doing what's working.",
+                    ]
+                pattern_id = str(uuid.uuid4())
+                confidence = min(0.8, 0.4 + abs(slope) * 2)
+                row_data = {
+                    "id": pattern_id,
+                    "user_id": user_id,
+                    "pattern_type": "severity_trend",
+                    "symptom_type": symptom_type,
+                    "pattern_description": (
+                        f"'{symptom_type.replace('_', ' ').title()}' is {direction} "
+                        f"(recent average severity: {avg_recent:.1f}/10)."
+                    ),
+                    "confidence_score": confidence,
+                    "supporting_entries": json.dumps([e["id"] for e in entries[-20:]]),
+                    "recommendations": json.dumps(rec),
+                    "detected_at": now.isoformat(),
+                    "is_active": True,
+                }
+                await _supabase_upsert("symptom_patterns", row_data)
+                detected.append(
+                    SymptomPattern(
+                        id=pattern_id,
+                        user_id=user_id,
+                        pattern_type="severity_trend",
+                        symptom_type=symptom_type,
+                        pattern_description=row_data["pattern_description"],
+                        confidence_score=confidence,
+                        supporting_entry_count=min(20, len(entries)),
+                        recommendations=rec,
+                        detected_at=now,
+                        is_active=True,
+                    )
+                )
+
+    logger.info(
+        "Pattern detection for user %s: %d patterns from %d entries",
+        user_id,
+        len(detected),
+        len(rows),
+    )
+    return detected
