@@ -1,266 +1,271 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Plus, Brain, Target, History } from 'lucide-react';
 import { healthTwinService } from '@/services/healthTwin';
-import {
-  HealthTwinProfile,
-  HealthTwinSimulation,
-  HealthTwinGoal,
-} from '@/types';
 import { HealthTwinProfileCard } from '@/components/health-twin/HealthTwinProfile';
 import { SimulationCard } from '@/components/health-twin/SimulationCard';
 import { GoalCard } from '@/components/health-twin/GoalCard';
+import type { HealthTwinProfile, HealthTwinSimulation, HealthTwinGoal } from '@/types';
+import toast from 'react-hot-toast';
+import { Brain, Plus, Target, Loader2 } from 'lucide-react';
+
+type Tab = 'overview' | 'simulations' | 'goals';
 
 export default function HealthTwinPage() {
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
   const [profile, setProfile] = useState<HealthTwinProfile | null>(null);
   const [simulations, setSimulations] = useState<HealthTwinSimulation[]>([]);
   const [goals, setGoals] = useState<HealthTwinGoal[]>([]);
-  const [activeTab, setActiveTab] = useState<'overview' | 'simulations' | 'goals'>('overview');
+  const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [proRequired, setProRequired] = useState(false);
+  const [activeTab, setActiveTab] = useState<Tab>('overview');
 
   useEffect(() => {
-    loadData();
+    loadAll();
   }, []);
 
-  const loadData = async () => {
-    setLoading(true);
+  const loadAll = async () => {
+    setIsLoading(true);
+    setProRequired(false);
     try {
-      const [profileData, simulationsData, goalsData] = await Promise.all([
+      const [profileData, simsData, goalsData] = await Promise.all([
         healthTwinService.getHealthTwinProfile(),
-        healthTwinService.getSimulations(),
-        healthTwinService.getHealthTwinGoals('active'),
+        healthTwinService.getSimulations().catch(() => []),
+        healthTwinService.getHealthTwinGoals().catch(() => []),
       ]);
-
       setProfile(profileData);
-      setSimulations(simulationsData);
+      setSimulations(simsData);
       setGoals(goalsData);
-    } catch (error) {
-      console.error('Error loading health twin data:', error);
+    } catch (e: unknown) {
+      const err = e as { response?: { status?: number; data?: { detail?: string } } };
+      if (err?.response?.status === 403) {
+        setProRequired(true);
+      } else {
+        const msg = err?.response?.data?.detail || 'Failed to load health twin data.';
+        toast.error(msg);
+      }
     } finally {
-      setLoading(false);
+      setIsLoading(false);
     }
   };
 
   const handleRefreshProfile = async () => {
-    setRefreshing(true);
+    setIsRefreshing(true);
     try {
-      const refreshedProfile = await healthTwinService.refreshHealthTwinProfile();
-      setProfile(refreshedProfile);
-    } catch (error) {
-      console.error('Error refreshing profile:', error);
+      const updated = await healthTwinService.getHealthTwinProfile();
+      setProfile(updated);
+      toast.success('Profile refreshed');
+    } catch {
+      toast.error('Failed to refresh profile');
     } finally {
-      setRefreshing(false);
+      setIsRefreshing(false);
     }
   };
 
-  const handleUpdateMilestone = async (goalId: string, milestoneIndex: number, completed: boolean) => {
-    try {
-      const updatedGoal = await healthTwinService.updateGoalMilestone(goalId, milestoneIndex, completed);
-      setGoals(goals.map(g => g.id === goalId ? updatedGoal : g));
-    } catch (error) {
-      console.error('Error updating milestone:', error);
-    }
-  };
-
-  if (loading) {
+  if (isLoading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600" />
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <div className="flex flex-col items-center gap-3">
+          <Loader2
+            className="w-8 h-8 animate-spin"
+            style={{ color: '#00D4AA' }}
+          />
+          <p className="text-sm" style={{ color: '#526380' }}>
+            Loading your health twin…
+          </p>
+        </div>
       </div>
     );
   }
 
+  if (proRequired) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-4">
+        <div
+          className="w-16 h-16 rounded-2xl flex items-center justify-center mb-6"
+          style={{
+            backgroundColor: 'rgba(0,212,170,0.08)',
+            border: '1px solid rgba(0,212,170,0.15)',
+          }}
+        >
+          <Brain className="w-8 h-8" style={{ color: '#00D4AA' }} />
+        </div>
+        <div
+          className="text-xs font-semibold uppercase tracking-widest mb-3"
+          style={{ color: '#00D4AA' }}
+        >
+          Pro+ Required
+        </div>
+        <h2 className="text-xl font-bold mb-3" style={{ color: '#E8EDF5' }}>
+          Health Twin
+        </h2>
+        <p
+          className="text-sm max-w-sm leading-relaxed mb-6"
+          style={{ color: '#526380' }}
+        >
+          Health Twin requires a Pro+ subscription. Upgrade to access digital twin
+          modeling, what-if simulations, and health trajectory predictions.
+        </p>
+        <a
+          href="/billing"
+          className="px-6 py-2.5 rounded-xl text-sm font-semibold transition-opacity hover:opacity-90"
+          style={{
+            background: 'linear-gradient(135deg, #00D4AA, #00A8BF)',
+            color: '#080B10',
+          }}
+        >
+          Upgrade to Pro+
+        </a>
+      </div>
+    );
+  }
+
+  const TABS: { key: Tab; label: string }[] = [
+    { key: 'overview', label: 'Overview' },
+    { key: 'simulations', label: `Simulations${simulations.length ? ` (${simulations.length})` : ''}` },
+    { key: 'goals', label: `Goals${goals.length ? ` (${goals.length})` : ''}` },
+  ];
+
   return (
-    <div className="space-y-6">
+    <div>
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-slate-900 dark:text-slate-100">
-            Health Twin
-          </h1>
-          <p className="text-slate-600 dark:text-slate-400 mt-2">
-            Your digital health twin predicts and optimizes your health trajectory
-          </p>
-        </div>
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold mb-1" style={{ color: '#E8EDF5' }}>
+          Health Twin
+        </h1>
+        <p className="text-sm" style={{ color: '#526380' }}>
+          Your personalized digital health twin — track biological age, simulate
+          interventions, and predict health outcomes
+        </p>
       </div>
 
-      {/* Tabs */}
-      <div className="flex gap-2 border-b border-slate-200 dark:border-slate-700">
-        <button
-          onClick={() => setActiveTab('overview')}
-          className={`px-4 py-2 font-medium transition-colors border-b-2 ${
-            activeTab === 'overview'
-              ? 'border-primary-600 text-primary-600 dark:text-primary-400'
-              : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'
-          }`}
-        >
-          <div className="flex items-center gap-2">
-            <History className="w-4 h-4" />
-            Overview
-          </div>
-        </button>
-        <button
-          onClick={() => setActiveTab('simulations')}
-          className={`px-4 py-2 font-medium transition-colors border-b-2 ${
-            activeTab === 'simulations'
-              ? 'border-primary-600 text-primary-600 dark:text-primary-400'
-              : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'
-          }`}
-        >
-          <div className="flex items-center gap-2">
-            <Brain className="w-4 h-4" />
-            Simulations ({simulations.length})
-          </div>
-        </button>
-        <button
-          onClick={() => setActiveTab('goals')}
-          className={`px-4 py-2 font-medium transition-colors border-b-2 ${
-            activeTab === 'goals'
-              ? 'border-primary-600 text-primary-600 dark:text-primary-400'
-              : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'
-          }`}
-        >
-          <div className="flex items-center gap-2">
-            <Target className="w-4 h-4" />
-            Goals ({goals.length})
-          </div>
-        </button>
+      {/* Tab bar */}
+      <div
+        className="flex gap-1 mb-6 p-1 rounded-xl"
+        style={{
+          backgroundColor: 'rgba(255,255,255,0.04)',
+          border: '1px solid rgba(255,255,255,0.06)',
+        }}
+      >
+        {TABS.map((tab) => (
+          <button
+            key={tab.key}
+            onClick={() => setActiveTab(tab.key)}
+            className="flex-1 px-4 py-2 rounded-lg text-sm font-medium transition-all"
+            style={{
+              backgroundColor: activeTab === tab.key ? '#00D4AA' : 'transparent',
+              color: activeTab === tab.key ? '#080B10' : '#526380',
+            }}
+          >
+            {tab.label}
+          </button>
+        ))}
       </div>
 
-      {/* Tab Content */}
-      {activeTab === 'overview' && (
-        <div className="space-y-6">
-          {profile && (
-            <HealthTwinProfileCard
-              profile={profile}
-              onRefresh={handleRefreshProfile}
-              refreshing={refreshing}
-            />
-          )}
-
-          {/* Quick Stats */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="p-6 bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-900/20 dark:to-blue-800/20 rounded-lg">
-              <Brain className="w-8 h-8 text-blue-600 dark:text-blue-400 mb-3" />
-              <h3 className="text-sm font-medium text-blue-900 dark:text-blue-200 mb-1">
-                Active Simulations
-              </h3>
-              <p className="text-3xl font-bold text-blue-900 dark:text-blue-100">
-                {simulations.filter(s => s.status === 'active').length}
-              </p>
-            </div>
-
-            <div className="p-6 bg-gradient-to-br from-green-50 to-green-100 dark:from-green-900/20 dark:to-green-800/20 rounded-lg">
-              <Target className="w-8 h-8 text-green-600 dark:text-green-400 mb-3" />
-              <h3 className="text-sm font-medium text-green-900 dark:text-green-200 mb-1">
-                Active Goals
-              </h3>
-              <p className="text-3xl font-bold text-green-900 dark:text-green-100">
-                {goals.length}
-              </p>
-            </div>
-
-            <div className="p-6 bg-gradient-to-br from-purple-50 to-purple-100 dark:from-purple-900/20 dark:to-purple-800/20 rounded-lg">
-              <History className="w-8 h-8 text-purple-600 dark:text-purple-400 mb-3" />
-              <h3 className="text-sm font-medium text-purple-900 dark:text-purple-200 mb-1">
-                Avg. Success Rate
-              </h3>
-              <p className="text-3xl font-bold text-purple-900 dark:text-purple-100">
-                {goals.length > 0
-                  ? Math.round((goals.reduce((sum, g) => sum + g.success_probability, 0) / goals.length) * 100)
-                  : 0}%
-              </p>
-            </div>
-          </div>
-
-          {/* Recent Simulations */}
-          {simulations.length > 0 && (
-            <div>
-              <h2 className="text-xl font-semibold text-slate-900 dark:text-slate-100 mb-4">
-                Recent Simulations
-              </h2>
-              <div className="grid gap-4">
-                {simulations.slice(0, 3).map((simulation) => (
-                  <SimulationCard key={simulation.id} simulation={simulation} />
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
+      {/* Overview — profile card */}
+      {activeTab === 'overview' && profile && (
+        <HealthTwinProfileCard
+          profile={profile}
+          onRefresh={handleRefreshProfile}
+          refreshing={isRefreshing}
+        />
       )}
 
+      {/* Simulations */}
       {activeTab === 'simulations' && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-xl font-semibold text-slate-900 dark:text-slate-100">
-              What-If Simulations
-            </h2>
-            <button className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors">
-              <Plus className="w-5 h-5" />
+        <div>
+          <div className="flex items-center justify-between mb-4">
+            <p className="text-sm" style={{ color: '#526380' }}>
+              What-if scenarios and trajectory predictions
+            </p>
+            <button
+              className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all"
+              style={{
+                backgroundColor: 'rgba(0,212,170,0.10)',
+                color: '#00D4AA',
+                border: '1px solid rgba(0,212,170,0.20)',
+              }}
+              onClick={() =>
+                toast('Simulation builder coming soon', { icon: '🧪' })
+              }
+            >
+              <Plus className="w-4 h-4" />
               New Simulation
             </button>
           </div>
 
           {simulations.length === 0 ? (
-            <div className="text-center py-12">
-              <Brain className="w-16 h-16 text-slate-300 dark:text-slate-600 mx-auto mb-4" />
-              <h3 className="text-lg font-medium text-slate-900 dark:text-slate-100 mb-2">
+            <div className="flex flex-col items-center justify-center py-20 text-center">
+              <div
+                className="w-12 h-12 rounded-2xl flex items-center justify-center mb-4"
+                style={{
+                  backgroundColor: 'rgba(0,212,170,0.08)',
+                  border: '1px solid rgba(0,212,170,0.15)',
+                }}
+              >
+                <Brain className="w-6 h-6" style={{ color: '#00D4AA' }} />
+              </div>
+              <p className="text-sm font-medium mb-1" style={{ color: '#E8EDF5' }}>
                 No simulations yet
-              </h3>
-              <p className="text-slate-600 dark:text-slate-400 mb-4">
-                Create your first simulation to explore health scenarios
               </p>
-              <button className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors">
-                Create Simulation
-              </button>
+              <p className="text-xs" style={{ color: '#526380' }}>
+                Create a what-if scenario to model health outcomes before making
+                changes
+              </p>
             </div>
           ) : (
-            <div className="grid gap-4">
-              {simulations.map((simulation) => (
-                <SimulationCard key={simulation.id} simulation={simulation} />
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {simulations.map((sim) => (
+                <SimulationCard key={sim.id} simulation={sim} />
               ))}
             </div>
           )}
         </div>
       )}
 
+      {/* Goals */}
       {activeTab === 'goals' && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-xl font-semibold text-slate-900 dark:text-slate-100">
-              Health Goals
-            </h2>
-            <button className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors">
-              <Plus className="w-5 h-5" />
+        <div>
+          <div className="flex items-center justify-between mb-4">
+            <p className="text-sm" style={{ color: '#526380' }}>
+              Health goals tracked by your digital twin
+            </p>
+            <button
+              className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all"
+              style={{
+                backgroundColor: 'rgba(0,212,170,0.10)',
+                color: '#00D4AA',
+                border: '1px solid rgba(0,212,170,0.20)',
+              }}
+              onClick={() => toast('Goal builder coming soon', { icon: '🎯' })}
+            >
+              <Plus className="w-4 h-4" />
               New Goal
             </button>
           </div>
 
           {goals.length === 0 ? (
-            <div className="text-center py-12">
-              <Target className="w-16 h-16 text-slate-300 dark:text-slate-600 mx-auto mb-4" />
-              <h3 className="text-lg font-medium text-slate-900 dark:text-slate-100 mb-2">
-                No active goals
-              </h3>
-              <p className="text-slate-600 dark:text-slate-400 mb-4">
-                Set your first health goal to track progress
+            <div className="flex flex-col items-center justify-center py-20 text-center">
+              <div
+                className="w-12 h-12 rounded-2xl flex items-center justify-center mb-4"
+                style={{
+                  backgroundColor: 'rgba(0,212,170,0.08)',
+                  border: '1px solid rgba(0,212,170,0.15)',
+                }}
+              >
+                <Target className="w-6 h-6" style={{ color: '#00D4AA' }} />
+              </div>
+              <p className="text-sm font-medium mb-1" style={{ color: '#E8EDF5' }}>
+                No goals yet
               </p>
-              <button className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors">
-                Create Goal
-              </button>
+              <p className="text-xs" style={{ color: '#526380' }}>
+                Set health goals to track progress with AI-powered predictions
+              </p>
             </div>
           ) : (
-            <div className="grid gap-4">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               {goals.map((goal) => (
-                <GoalCard
-                  key={goal.id}
-                  goal={goal}
-                  onUpdateMilestone={(milestoneIndex, completed) =>
-                    handleUpdateMilestone(goal.id, milestoneIndex, completed)
-                  }
-                />
+                <GoalCard key={goal.id} goal={goal} />
               ))}
             </div>
           )}

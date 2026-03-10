@@ -9,7 +9,7 @@ and goal tracking using machine learning and health data.
 
 import json
 import uuid
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -42,8 +42,18 @@ class HealthTwinProfile(BaseModel):
     last_calibrated_at: str
     baseline_metrics: Dict[str, float]
     health_age: float
+    chronological_age: int = 35  # Frontend compat — hardcoded until user DOB
+    health_age_trend: str = "stable"  # Frontend compat — mapped from health_trajectory
     resilience_score: float
     adaptability_score: float
+    recovery_capacity: float = 70.0  # Frontend compat — proxy for resilience_score
+    metabolic_age: float = 35.0  # Frontend compat — computed from health_age
+    biological_age_factors: Dict[
+        str, float
+    ] = {}  # Frontend compat — from baseline_metrics
+    recent_changes: List[
+        Dict[str, Any]
+    ] = []  # Frontend compat — future: from snapshots
     risk_factors: List[Dict[str, Any]]
     protective_factors: List[Dict[str, Any]]
     health_trajectory: str  # improving, stable, declining
@@ -84,7 +94,14 @@ class HealthTwinSimulation(BaseModel):
     scenario_description: str
     changes: List[SimulationChange]
     duration_days: int
-    predicted_outcomes: Dict[str, Any]
+    predicted_outcomes: Dict[str, Any]  # flat {metric: target_value} for frontend
+    timeline_predictions: List[
+        Dict[str, Any]
+    ] = []  # Frontend compat — derived from metrics
+    confidence_score: float = 0.7  # Frontend compat — mapped from success_probability
+    recommendations: List[str] = []  # Frontend compat — from implementation_plan
+    warnings: List[str] = []  # Frontend compat — from success_probability/effort
+    parameters: Dict[str, Any] = {}  # Frontend compat — from changes
     health_age_impact: float
     risk_reduction: Dict[str, float]
     implementation_plan: List[Dict[str, str]]
@@ -120,14 +137,20 @@ class HealthTwinGoal(BaseModel):
     id: str
     goal_type: str
     goal_name: str
+    goal_description: str = ""  # Frontend compat — same as goal_name
     target_metric: str
     current_value: float
     target_value: float
-    target_date: str
+    target_date: Optional[str] = None
     predicted_success_probability: float
-    predicted_completion_date: str
+    success_probability: float = (
+        0.7  # Frontend compat — same as predicted_success_probability
+    )
+    predicted_completion_date: Optional[str] = None
     required_changes: List[Dict[str, Any]]
+    strategies: List[str] = []  # Frontend compat — extracted from required_changes
     progress_percentage: float
+    estimated_timeline_days: Optional[int] = None  # Frontend compat — from target_date
     milestones: List[Dict[str, Any]]
     status: str
     is_active: bool
@@ -205,16 +228,10 @@ def _calculate_resilience_score(
     sleep_variability: float,
 ) -> float:
     """Calculate resilience/recovery capacity score (0-100)."""
-    # Base score from HRV
     score = hrv_balance * 0.4
-
-    # Recovery index contribution
     score += recovery_index * 0.4
-
-    # Penalize high variability
-    variability_penalty = min(sleep_variability, 20) / 20 * 20  # Max 20 point penalty
+    variability_penalty = min(sleep_variability, 20) / 20 * 20
     score += 20 - variability_penalty
-
     return round(min(max(score, 0), 100), 1)
 
 
@@ -223,14 +240,9 @@ def _calculate_adaptability_score(
     activity_consistency: float,
 ) -> float:
     """Calculate stress adaptability score (0-100)."""
-    # Lower variability = better adaptability
     variability_score = max(0, 100 - (readiness_variability * 5))
-
-    # Higher consistency = better adaptability
     consistency_score = activity_consistency
-
     score = variability_score * 0.5 + consistency_score * 0.5
-
     return round(min(max(score, 0), 100), 1)
 
 
@@ -257,16 +269,13 @@ def _simulate_lifestyle_change(
         change_type = change["change_type"]
 
         if change_type == "percentage":
-            # Percentage change
             delta = current * (target / 100)
             final_value = current + delta
         else:
-            # Absolute change
             final_value = target
 
-        # Model gradual change over duration
         timeline = []
-        steps = min(duration_days // 7, 12)  # Weekly steps, max 12
+        steps = min(duration_days // 7, 12)
         for i in range(steps + 1):
             progress = i / steps
             interpolated = current + (final_value - current) * progress
@@ -274,8 +283,7 @@ def _simulate_lifestyle_change(
                 {
                     "day": int(i * duration_days / steps),
                     "value": round(interpolated, 2),
-                    "confidence": 0.9
-                    - (progress * 0.2),  # Confidence decreases over time
+                    "confidence": 0.9 - (progress * 0.2),
                 }
             )
 
@@ -287,13 +295,11 @@ def _simulate_lifestyle_change(
         }
 
     # Calculate secondary impacts
-    # E.g., improving sleep affects readiness
     if "sleep_score" in predicted_outcomes:
         sleep_improvement = (
             predicted_outcomes["sleep_score"]["target"]
             - predicted_outcomes["sleep_score"]["current"]
         )
-        # Improved sleep → improved readiness (75% correlation)
         if "readiness_score" not in predicted_outcomes:
             current_readiness = baseline_metrics.get("readiness_score", 75)
             predicted_readiness = current_readiness + (sleep_improvement * 0.75)
@@ -315,14 +321,202 @@ def _calculate_health_age_impact(
 ) -> float:
     """Calculate predicted change in health age from simulation."""
     impact = 0.0
-
-    # Simple heuristic: each 10-point improvement in key scores = -1 year health age
     for metric, outcome in predicted_outcomes.items():
         if metric in ("sleep_score", "readiness_score", "activity_score"):
             improvement = outcome["target"] - outcome["current"]
-            impact -= (improvement / 10) * 0.5  # 0.5 years per 10 points
-
+            impact -= (improvement / 10) * 0.5
     return round(impact, 1)
+
+
+# ---------------------------------------------------------------------------
+# Frontend Compatibility Helpers
+# ---------------------------------------------------------------------------
+
+
+def _build_timeline_predictions(
+    nested_outcomes: Dict[str, Any],
+    base_health_age: float,
+    health_age_impact: float,
+    duration_days: int,
+) -> List[Dict[str, Any]]:
+    """Build frontend-compatible timeline_predictions from per-metric timelines."""
+    all_days: set = set()
+    for _metric, outcome in nested_outcomes.items():
+        if isinstance(outcome, dict):
+            for step in outcome.get("timeline", []):
+                all_days.add(step.get("day", 0))
+
+    if not all_days:
+        all_days = {0, max(1, duration_days // 2), max(2, duration_days)}
+
+    result = []
+    for day in sorted(all_days):
+        predicted_scores: Dict[str, float] = {}
+        for metric, outcome in nested_outcomes.items():
+            if isinstance(outcome, dict):
+                for step in outcome.get("timeline", []):
+                    if step.get("day") == day:
+                        predicted_scores[metric] = round(step.get("value", 0.0), 1)
+                        break
+
+        progress = day / max(duration_days, 1)
+        predicted_health_age = base_health_age + health_age_impact * progress
+
+        result.append(
+            {
+                "days_from_now": day,
+                "predicted_health_age": round(predicted_health_age, 1),
+                "predicted_scores": predicted_scores,
+            }
+        )
+
+    return result
+
+
+def _enrich_profile(profile: dict) -> HealthTwinProfile:
+    """Enrich DB profile dict with frontend-compatible computed fields."""
+    if isinstance(profile.get("baseline_metrics"), str):
+        profile["baseline_metrics"] = json.loads(profile["baseline_metrics"])
+    if isinstance(profile.get("risk_factors"), str):
+        profile["risk_factors"] = json.loads(profile["risk_factors"])
+    if isinstance(profile.get("protective_factors"), str):
+        profile["protective_factors"] = json.loads(profile["protective_factors"])
+
+    health_age = profile.get("health_age", 35.0)
+    trajectory = profile.get("health_trajectory", "stable")
+    resilience = profile.get("resilience_score", 70.0)
+    baseline = profile.get("baseline_metrics", {})
+
+    profile["chronological_age"] = 35
+    profile["health_age_trend"] = trajectory
+    profile["recovery_capacity"] = resilience
+    profile["metabolic_age"] = round(health_age * 0.97, 1)
+    profile["biological_age_factors"] = baseline
+    profile["recent_changes"] = []
+
+    return HealthTwinProfile(**profile)
+
+
+def _enrich_simulation(
+    sim: dict, base_health_age: float = 35.0
+) -> HealthTwinSimulation:
+    """Enrich DB simulation dict with frontend-compatible computed fields."""
+    if isinstance(sim.get("changes"), str):
+        changes_data = json.loads(sim["changes"])
+        sim["changes"] = [SimulationChange(**c) for c in changes_data]
+    if isinstance(sim.get("risk_reduction"), str):
+        sim["risk_reduction"] = json.loads(sim["risk_reduction"])
+    if isinstance(sim.get("implementation_plan"), str):
+        sim["implementation_plan"] = json.loads(sim["implementation_plan"])
+    if isinstance(sim.get("actual_progress"), str) and sim["actual_progress"]:
+        sim["actual_progress"] = json.loads(sim["actual_progress"])
+
+    # Parse predicted_outcomes and split into nested (for timeline) and flat (for display)
+    raw_outcomes = sim.get("predicted_outcomes", {})
+    nested_outcomes: Dict[str, Any] = {}
+
+    if isinstance(raw_outcomes, str):
+        parsed = json.loads(raw_outcomes)
+    else:
+        parsed = raw_outcomes
+
+    first_val = next(iter(parsed.values()), None) if parsed else None
+    if isinstance(first_val, dict):
+        nested_outcomes = parsed
+    # else already flat
+
+    # Build flat predicted_outcomes for frontend
+    flat_outcomes: Dict[str, Any] = {}
+    for metric, outcome in nested_outcomes.items():
+        if isinstance(outcome, dict) and "target" in outcome:
+            flat_outcomes[metric] = round(float(outcome["target"]), 1)
+    if not flat_outcomes and isinstance(parsed, dict):
+        flat_outcomes = {k: v for k, v in parsed.items() if isinstance(v, (int, float))}
+
+    # Build timeline_predictions
+    timeline = _build_timeline_predictions(
+        nested_outcomes,
+        base_health_age,
+        sim.get("health_age_impact", 0.0),
+        sim.get("duration_days", 90),
+    )
+
+    # Build recommendations from implementation_plan
+    impl_plan = sim.get("implementation_plan", [])
+    recommendations = [
+        step.get("action", "") for step in impl_plan if step.get("action")
+    ]
+
+    # Build warnings from success_probability and effort
+    success_prob = float(sim.get("success_probability", 0.7))
+    effort = sim.get("estimated_effort", "medium")
+    warnings: List[str] = []
+    if success_prob < 0.5:
+        warnings.append(
+            "Low success probability — consider smaller, more gradual changes."
+        )
+    if effort == "high":
+        warnings.append(
+            "High effort required — ensure you have adequate support and resources."
+        )
+
+    # Build parameters from changes
+    changes = sim.get("changes", [])
+    parameters: Dict[str, Any] = {}
+    for c in changes:
+        if hasattr(c, "metric"):
+            parameters[c.metric] = {
+                "current": c.current_value,
+                "target": c.target_value,
+            }
+        elif isinstance(c, dict) and c.get("metric"):
+            parameters[c["metric"]] = {
+                "current": c.get("current_value", 0),
+                "target": c.get("target_value", 0),
+            }
+
+    sim["predicted_outcomes"] = flat_outcomes
+    sim["timeline_predictions"] = timeline
+    sim["confidence_score"] = success_prob
+    sim["recommendations"] = recommendations
+    sim["warnings"] = warnings
+    sim["parameters"] = parameters
+
+    return HealthTwinSimulation(**sim)
+
+
+def _enrich_goal(goal: dict) -> HealthTwinGoal:
+    """Enrich DB goal dict with frontend-compatible computed fields."""
+    if isinstance(goal.get("required_changes"), str):
+        goal["required_changes"] = json.loads(goal["required_changes"])
+    if isinstance(goal.get("milestones"), str):
+        goal["milestones"] = json.loads(goal["milestones"])
+
+    goal["goal_description"] = goal.get("goal_name", "")
+    goal["success_probability"] = float(goal.get("predicted_success_probability", 0.7))
+
+    required_changes = goal.get("required_changes", [])
+    strategies: List[str] = []
+    for change in required_changes:
+        if isinstance(change, dict):
+            metric = change.get("metric", "")
+            target = change.get("target_value", "")
+            if metric:
+                strategies.append(f"Improve {metric.replace('_', ' ')} to {target}")
+    goal["strategies"] = strategies
+
+    target_date_str = goal.get("target_date")
+    if target_date_str:
+        try:
+            target_dt = date.fromisoformat(str(target_date_str)[:10])
+            today = date.today()
+            goal["estimated_timeline_days"] = max(0, (target_dt - today).days)
+        except Exception:
+            goal["estimated_timeline_days"] = None
+    else:
+        goal["estimated_timeline_days"] = None
+
+    return HealthTwinGoal(**goal)
 
 
 # ---------------------------------------------------------------------------
@@ -330,7 +524,7 @@ def _calculate_health_age_impact(
 # ---------------------------------------------------------------------------
 
 
-@router.get("/health-twin/profile", response_model=HealthTwinProfile)
+@router.get("/profile", response_model=HealthTwinProfile)
 async def get_health_twin_profile(
     current_user: dict = Depends(UsageGate("health_twin")),
 ):
@@ -340,24 +534,12 @@ async def get_health_twin_profile(
     """
     user_id = current_user["id"]
 
-    # Check if profile exists
     profiles = await _supabase_get("health_twin_profile", f"user_id=eq.{user_id}")
 
     if profiles:
-        profile = profiles[0]
+        return _enrich_profile(profiles[0])
 
-        # Parse JSON fields
-        if isinstance(profile.get("baseline_metrics"), str):
-            profile["baseline_metrics"] = json.loads(profile["baseline_metrics"])
-        if isinstance(profile.get("risk_factors"), str):
-            profile["risk_factors"] = json.loads(profile["risk_factors"])
-        if isinstance(profile.get("protective_factors"), str):
-            profile["protective_factors"] = json.loads(profile["protective_factors"])
-
-        return HealthTwinProfile(**profile)
-
-    # Create new profile
-    # Fetch recent health data to initialize
+    # Create new profile — fetch recent health data to initialize
     from .timeline import get_timeline
 
     try:
@@ -365,7 +547,6 @@ async def get_health_twin_profile(
     except Exception:
         timeline = []
 
-    # Calculate baseline metrics from recent data
     baseline_metrics = {
         "sleep_score": 75.0,
         "readiness_score": 75.0,
@@ -374,7 +555,6 @@ async def get_health_twin_profile(
     }
 
     if timeline:
-        # Extract recent averages
         sleep_scores = [
             e.sleep.sleep_score
             for e in timeline
@@ -393,7 +573,6 @@ async def get_health_twin_profile(
                 readiness_scores
             )
 
-    # Calculate health age (assume user is 35 for demo)
     chronological_age = 35
     health_age = _calculate_health_age(
         chronological_age,
@@ -403,7 +582,6 @@ async def get_health_twin_profile(
         baseline_metrics["activity_score"],
     )
 
-    # Calculate resilience and adaptability
     resilience = _calculate_resilience_score(baseline_metrics["hrv_balance"], 75, 10)
     adaptability = _calculate_adaptability_score(8, 75)
 
@@ -434,15 +612,14 @@ async def get_health_twin_profile(
             status_code=500, detail="Failed to create health twin profile"
         )
 
-    # Parse for response
     result["baseline_metrics"] = baseline_metrics
     result["risk_factors"] = []
     result["protective_factors"] = []
 
-    return HealthTwinProfile(**result)
+    return _enrich_profile(result)
 
 
-@router.post("/health-twin/simulations", response_model=HealthTwinSimulation)
+@router.post("/simulations", response_model=HealthTwinSimulation)
 async def create_simulation(
     request: CreateSimulationRequest,
     current_user: dict = Depends(UsageGate("health_twin")),
@@ -453,13 +630,12 @@ async def create_simulation(
     """
     user_id = current_user["id"]
 
-    # Get health twin profile
     profiles = await _supabase_get("health_twin_profile", f"user_id=eq.{user_id}")
 
     if not profiles:
         raise HTTPException(
             status_code=400,
-            detail="Health twin profile not found. Please create profile first.",
+            detail="Health twin profile not found. Please visit the Health Twin page first.",
         )
 
     profile = profiles[0]
@@ -470,22 +646,18 @@ async def create_simulation(
     )
     current_health_age = profile["health_age"]
 
-    # Convert changes to dict format
     changes_data = [c.model_dump() for c in request.changes]
 
-    # Run simulation
     predicted_outcomes = _simulate_lifestyle_change(
         baseline_metrics,
         changes_data,
         request.duration_days,
     )
 
-    # Calculate health age impact
     health_age_impact = _calculate_health_age_impact(
         current_health_age, predicted_outcomes
     )
 
-    # Calculate risk reduction
     risk_reduction = {}
     for metric, outcome in predicted_outcomes.items():
         if metric in ("sleep_score", "readiness_score"):
@@ -494,18 +666,24 @@ async def create_simulation(
                 risk_reduction["sleep_decline"] = min(improvement / 20 * 100, 50)
                 risk_reduction["burnout"] = min(improvement / 30 * 100, 40)
 
-    # Generate implementation plan
     implementation_plan = [
         {
-            "step": 1,
-            "action": f"Set baseline for {request.changes[0].metric}",
+            "step": "1",
+            "action": f"Establish baseline measurement for {request.changes[0].metric}",
             "timeframe": "Week 1",
         },
-        {"step": 2, "action": "Begin gradual changes", "timeframe": "Week 2-4"},
-        {"step": 3, "action": "Monitor and adjust", "timeframe": "Ongoing"},
+        {
+            "step": "2",
+            "action": "Begin gradual lifestyle changes",
+            "timeframe": "Week 2-4",
+        },
+        {
+            "step": "3",
+            "action": "Monitor metrics and adjust approach",
+            "timeframe": "Ongoing",
+        },
     ]
 
-    # Estimate success probability and effort
     avg_change = sum(
         abs(c.target_value - c.current_value) for c in request.changes
     ) / len(request.changes)
@@ -529,7 +707,7 @@ async def create_simulation(
         "success_probability": success_probability,
         "estimated_effort": estimated_effort,
         "is_active": True,
-        "status": "pending",
+        "status": "active",
         "actual_progress": None,
         "started_at": None,
         "completed_at": None,
@@ -542,16 +720,15 @@ async def create_simulation(
     if not result:
         raise HTTPException(status_code=500, detail="Failed to create simulation")
 
-    # Parse for response
     result["changes"] = [SimulationChange(**c) for c in changes_data]
     result["predicted_outcomes"] = predicted_outcomes
     result["risk_reduction"] = risk_reduction
     result["implementation_plan"] = implementation_plan
 
-    return HealthTwinSimulation(**result)
+    return _enrich_simulation(result, base_health_age=current_health_age)
 
 
-@router.get("/health-twin/simulations", response_model=List[HealthTwinSimulation])
+@router.get("/simulations", response_model=List[HealthTwinSimulation])
 async def get_simulations(
     status: Optional[str] = None,
     current_user: dict = Depends(get_current_user),
@@ -559,10 +736,12 @@ async def get_simulations(
     """Get user's health twin simulations."""
     user_id = current_user["id"]
 
+    profiles = await _supabase_get("health_twin_profile", f"user_id=eq.{user_id}")
+    base_health_age = float(profiles[0]["health_age"]) if profiles else 35.0
+
     query = f"user_id=eq.{user_id}"
     if status:
         query += f"&status=eq.{status}"
-
     query += "&order=created_at.desc&limit=20"
 
     simulations = await _supabase_get("health_twin_simulations", query)
@@ -570,22 +749,10 @@ async def get_simulations(
     if not simulations:
         return []
 
-    # Parse JSON fields
-    for sim in simulations:
-        if isinstance(sim.get("changes"), str):
-            changes_data = json.loads(sim["changes"])
-            sim["changes"] = [SimulationChange(**c) for c in changes_data]
-        if isinstance(sim.get("predicted_outcomes"), str):
-            sim["predicted_outcomes"] = json.loads(sim["predicted_outcomes"])
-        if isinstance(sim.get("risk_reduction"), str):
-            sim["risk_reduction"] = json.loads(sim["risk_reduction"])
-        if isinstance(sim.get("implementation_plan"), str):
-            sim["implementation_plan"] = json.loads(sim["implementation_plan"])
-
-    return [HealthTwinSimulation(**s) for s in simulations]
+    return [_enrich_simulation(s, base_health_age) for s in simulations]
 
 
-@router.get("/health-twin/goals", response_model=List[HealthTwinGoal])
+@router.get("/goals", response_model=List[HealthTwinGoal])
 async def get_health_twin_goals(
     status: Optional[str] = None,
     current_user: dict = Depends(get_current_user),
@@ -606,11 +773,4 @@ async def get_health_twin_goals(
     if not goals:
         return []
 
-    # Parse JSON fields
-    for goal in goals:
-        if isinstance(goal.get("required_changes"), str):
-            goal["required_changes"] = json.loads(goal["required_changes"])
-        if isinstance(goal.get("milestones"), str):
-            goal["milestones"] = json.loads(goal["milestones"])
-
-    return [HealthTwinGoal(**g) for g in goals]
+    return [_enrich_goal(g) for g in goals]

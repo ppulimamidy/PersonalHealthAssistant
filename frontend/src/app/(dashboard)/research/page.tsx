@@ -1,3 +1,5 @@
+'use client';
+
 import { ResearchView } from '@/components/research/ResearchView';
 
 export default function ResearchPage() {
