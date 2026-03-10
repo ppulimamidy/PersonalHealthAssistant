@@ -10,6 +10,7 @@ import { BiomarkerTrendChart } from '@/components/lab-results/BiomarkerTrendChar
 import { AddLabResultModal } from '@/components/lab-results/AddLabResultModal';
 import { LabResultScanModal } from '@/components/lab-results/LabResultScanModal';
 import { ConnectLabProviderModal } from '@/components/lab-results/ConnectLabProviderModal';
+import { LabResultDetailModal } from '@/components/lab-results/LabResultDetailModal';
 
 export default function LabResultsPage() {
   const [loading, setLoading] = useState(true);
@@ -20,6 +21,7 @@ export default function LabResultsPage() {
   const [showScanModal, setShowScanModal] = useState(false);
   const [showConnectModal, setShowConnectModal] = useState(false);
   const [scanPrefill, setScanPrefill] = useState<CreateLabResultRequest | undefined>(undefined);
+  const [selectedResult, setSelectedResult] = useState<LabResult | null>(null);
   const [activeTab, setActiveTab] = useState<'results' | 'trends' | 'insights'>('results');
 
   useEffect(() => {
@@ -174,9 +176,7 @@ export default function LabResultsPage() {
                 <LabResultCard
                   key={result.id}
                   labResult={result}
-                  onClick={() => {
-                    // TODO: Open detail modal
-                  }}
+                  onClick={() => setSelectedResult(result)}
                 />
               ))}
             </div>
@@ -317,6 +317,13 @@ export default function LabResultsPage() {
       <ConnectLabProviderModal
         isOpen={showConnectModal}
         onClose={() => setShowConnectModal(false)}
+      />
+
+      {/* Lab Result Detail Modal */}
+      <LabResultDetailModal
+        labResult={selectedResult}
+        isOpen={selectedResult !== null}
+        onClose={() => setSelectedResult(null)}
       />
     </div>
   );
