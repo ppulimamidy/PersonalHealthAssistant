@@ -30,6 +30,7 @@ import { CarePlanPanel } from './CarePlanPanel';
 import { TrajectoryWidget } from './TrajectoryWidget';
 import { DailyAdherenceStrip } from '@/components/medications/DailyAdherenceStrip';
 import { SmartReminderBanner } from './SmartReminderBanner';
+import { MonthlyProgressCard } from './MonthlyProgressCard';
 
 const CHECKLIST_KEY = 'setup-checklist-dismissed';
 
@@ -186,14 +187,14 @@ function QuickLogStrip() {
         <Link
           key={label}
           href={href}
-          className="flex flex-col items-center gap-2 py-4 rounded-xl transition-all duration-150 hover:scale-[1.02]"
+          className="flex flex-col items-center gap-2.5 p-5 rounded-xl transition-all duration-150 hover:scale-[1.02]"
           style={{
             backgroundColor: 'rgba(255,255,255,0.03)',
             border: '1px solid rgba(255,255,255,0.06)',
           }}
         >
-          <Icon className={`w-5 h-5 ${color}`} />
-          <span className="text-xs font-medium text-[#8B97A8]">{label}</span>
+          <Icon className={`w-6 h-6 ${color}`} />
+          <span className="text-sm font-medium text-[#8B97A8]">{label}</span>
         </Link>
       ))}
     </div>
@@ -348,15 +349,62 @@ export function TodayView() {
     ? (Date.now() - new Date(latestInsightDate).getTime()) / (1000 * 60 * 60 * 24) > 7
     : false;
 
+  // ── Sleep delta (for MonthlyProgressCard) ────────────────────────────────────
+
+  const sleepDelta: number | null = (() => {
+    if (!timeline || timeline.length < 8) return null;
+    const avg = (arr: (number | null | undefined)[]) => {
+      const valid = arr.filter((v): v is number => v != null);
+      return valid.length ? valid.reduce((a, b) => a + b, 0) / valid.length : null;
+    };
+    const recent = avg(timeline.slice(0, 7).map((e) => e.sleep?.sleep_score));
+    const prev = avg(timeline.slice(7, 14).map((e) => e.sleep?.sleep_score));
+    if (recent == null || prev == null || prev === 0) return null;
+    return ((recent - prev) / prev) * 100;
+  })();
+
+  // ── Derived state for Doctor Prep card + streak ───────────────────────────────
+
+  const currentMonth = new Date().toISOString().slice(0, 7);
+  const [doctorPrepDismissed, setDoctorPrepDismissed] = useState(false);
+  useEffect(() => {
+    try {
+      if (localStorage.getItem('doctorPrepCard-' + currentMonth) === 'dismissed') {
+        setDoctorPrepDismissed(true);
+      }
+    } catch { /* ignore */ }
+  }, [currentMonth]);
+  const showDoctorPrepCard = !doctorPrepDismissed && (insights?.length ?? 0) >= 3;
+
+  // Streak: prefer adherenceStats.current_streak, fall back to todayAdherence
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const currentStreak: number = (adherenceStats as any)?.current_streak ?? (todayAdherence as any)?.current_streak ?? 0;
+
   // ── Render ────────────────────────────────────────────────────────────────────
 
   return (
     <div className="space-y-6 max-w-3xl">
-      {/* Greeting */}
+      {/* Greeting + streak badge */}
       <div>
-        <h1 className="text-2xl font-bold text-[#E8EDF5]">{greeting(firstName)}</h1>
+        <div className="flex items-center gap-2 flex-wrap">
+          <h1 className="text-2xl font-bold text-[#E8EDF5]">{greeting(firstName)}</h1>
+          {currentStreak > 1 && (
+            <span
+              className="text-xs font-medium px-2 py-0.5 rounded-full"
+              style={{ backgroundColor: 'rgba(0,212,170,0.1)', color: '#00D4AA' }}
+            >
+              {currentStreak}-day streak
+            </span>
+          )}
+        </div>
         <p className="text-sm text-[#526380] mt-0.5">{todayLabel()}</p>
       </div>
+
+      {/* Daily adherence strip — time-sensitive, near top */}
+      <DailyAdherenceStrip />
+
+      {/* Quick log strip — primary daily action */}
+      <QuickLogStrip />
 
       {/* Smart reminder banner */}
       <SmartReminderBanner
@@ -368,6 +416,16 @@ export function TodayView() {
 
       {/* Insight follow-up banner */}
       <InsightFollowUpBanner followups={followups ?? []} />
+
+      {/* Monthly progress recap card */}
+      <MonthlyProgressCard
+        mealsCount={mealsData?.items?.length ?? 0}
+        symptomsCount={symptoms28d?.symptoms?.length ?? 0}
+        adherencePct={(adherenceStats as any)?.adherence_pct ?? 0}
+        sleepDelta={sleepDelta}
+        month={new Date().toLocaleString('en-US', { month: 'long' })}
+        onDismiss={() => {/* state managed internally by MonthlyProgressCard */}}
+      />
 
       {/* Health snapshot (Oura-connected) */}
       {ouraActive ? (
@@ -447,6 +505,44 @@ export function TodayView() {
       {/* Goals */}
       <GoalsPanel />
 
+      {/* Doctor Prep contextual card — shows when ≥3 insights this month */}
+      {showDoctorPrepCard && (
+        <Panel>
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <p className="text-xs font-semibold uppercase" style={{ color: '#00D4AA' }}>
+                Appointment Ready
+              </p>
+              <p className="font-medium text-[#E8EDF5] mt-1">
+                {insights?.length} insight{insights?.length !== 1 ? 's' : ''} from the past 30 days
+              </p>
+              <p className="text-sm mt-0.5" style={{ color: '#8B97A8' }}>
+                Generate a structured report to share with your doctor.
+              </p>
+            </div>
+            <div className="flex flex-col items-end gap-2">
+              <Link
+                href="/doctor-prep?autogenerate=1&days=30"
+                className="px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap"
+                style={{ backgroundColor: '#00D4AA', color: '#080B10' }}
+              >
+                Prepare report
+              </Link>
+              <button
+                onClick={() => {
+                  try { localStorage.setItem('doctorPrepCard-' + currentMonth, 'dismissed'); } catch { /* ignore */ }
+                  setDoctorPrepDismissed(true);
+                }}
+                className="text-xs"
+                style={{ color: '#526380' }}
+              >
+                Not now
+              </button>
+            </div>
+          </div>
+        </Panel>
+      )}
+
       {/* Setup checklist */}
       <SetupChecklist
         ouraActive={ouraActive}
@@ -455,12 +551,6 @@ export function TodayView() {
         hasMeal={hasMeal}
         hasSymptom={hasSymptom}
       />
-
-      {/* Quick log strip */}
-      <QuickLogStrip />
-
-      {/* Daily adherence strip */}
-      <DailyAdherenceStrip />
 
       {/* Latest insight */}
       {(insightsLoading || latestInsight) && (

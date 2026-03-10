@@ -28,6 +28,26 @@ import toast from 'react-hot-toast';
 import { supabase } from '@/lib/supabase';
 import type { UserRole } from '@/types';
 
+// ── Condition-to-tracking-preview map ─────────────────────────────────────────
+
+const CONDITION_TRACKING_PREVIEW: Record<string, string[]> = {
+  'Type 2 Diabetes': ['Glycemic load from meals', 'HRV & recovery trends', 'Medication adherence', 'Sleep quality'],
+  'Prediabetes': ['Glycemic load from meals', 'Carb intake patterns', 'Activity & steps', 'HRV trends'],
+  'Hypertension': ['Sodium intake patterns', 'Resting heart rate trends', 'HRV balance', 'Activity levels'],
+  'High Cholesterol': ['Saturated fat intake', 'Activity & steps', 'Sleep quality', 'Readiness scores'],
+  'Hypothyroidism': ['Energy & readiness scores', 'Temperature deviation', 'Caloric intake', 'Sleep patterns'],
+  'Anxiety': ['HRV & stress markers', 'Sleep efficiency', 'Meal timing patterns', 'Symptom severity'],
+  'Anxiety Disorder': ['HRV & stress markers', 'Sleep efficiency', 'Meal timing patterns', 'Symptom severity'],
+  'Depression': ['Sleep quality', 'Activity trends', 'Nutrition patterns', 'HRV balance'],
+  'Insomnia': ['Sleep score & deep sleep', 'Evening meal timing', 'HRV before sleep', 'Daily readiness'],
+  'Sleep Apnea': ['Sleep score & deep sleep', 'Readiness scores', 'Activity patterns', 'HRV trends'],
+  'IBS / IBD': ['Fiber and fat intake', 'Next-day readiness', 'Symptom triggers', 'Sleep quality'],
+  'PCOS': ['Glycemic load', 'Temperature deviation', 'HRV balance', 'Sleep patterns'],
+  'Rheumatoid Arthritis': ['Anti-inflammatory foods', 'Readiness & recovery', 'Symptom severity', 'Activity levels'],
+};
+
+const DEFAULT_TRACKING_PREVIEW = ['Sleep quality', 'Activity & readiness', 'Nutrition patterns', 'Symptom trends'];
+
 // ── Goal options ─────────────────────────────────────────────────────────────
 
 const GOAL_OPTIONS = [
@@ -83,9 +103,11 @@ function PatientStepIndicator({ step }: Readonly<{ step: number }>) {
     <div className="flex items-center justify-center gap-3 mb-8">
       {steps.map((s, i) => {
         let icon;
-        if (s.num < step || s.num === 0) {
+        // Step 4 = post-flow preview; all steps show as complete
+        const effectiveStep = step >= 4 ? steps.length : step;
+        if (s.num < effectiveStep || s.num === 0) {
           icon = <CheckCircle className="w-5 h-5 text-primary-600 dark:text-primary-400" />;
-        } else if (s.num === step) {
+        } else if (s.num === effectiveStep) {
           icon = (
             <div className="w-5 h-5 rounded-full border-2 border-primary-600 dark:border-primary-400 flex items-center justify-center">
               <span className="text-xs font-bold text-primary-600 dark:text-primary-400">{s.num}</span>
@@ -98,7 +120,7 @@ function PatientStepIndicator({ step }: Readonly<{ step: number }>) {
           <div key={s.num} className="flex items-center gap-3">
             <div className="flex items-center gap-1.5">
               {icon}
-              <span className={`text-xs font-medium ${s.num <= step ? 'text-slate-900 dark:text-slate-100' : 'text-slate-400 dark:text-slate-500'}`}>
+              <span className={`text-xs font-medium ${s.num <= effectiveStep ? 'text-slate-900 dark:text-slate-100' : 'text-slate-400 dark:text-slate-500'}`}>
                 {s.label}
               </span>
             </div>
@@ -245,7 +267,7 @@ function OnboardingContent() {
           is_active: true,
           is_sandbox: true,
         });
-        setTimeout(() => router.push('/home'), 1000);
+        setTimeout(() => setStep(4), 800);
       } else if (response.auth_url) {
         globalThis.location.href = response.auth_url;
       } else {
@@ -326,12 +348,14 @@ function OnboardingContent() {
     1: roleParam === 'caregiver' ? 'What are your health goals?' : 'What are your health goals?',
     2: roleParam === 'caregiver' ? 'Any health conditions to track?' : 'Any health conditions to track?',
     3: 'Connect your Oura Ring',
+    4: "You're all set!",
   };
 
   const subtitles: Record<number, string> = {
     1: 'Select all that apply — you can change these later.',
     2: 'This helps us tailor insights to what matters most to you.',
     3: 'Sync your sleep, activity, and readiness data.',
+    4: 'Your personalized health tracking is ready.',
   };
 
   return (
@@ -458,6 +482,70 @@ function OnboardingContent() {
           </Card>
         )}
 
+        {/* Step 4 — Personalized preview (post-flow, all steps complete) */}
+        {step === 4 && (
+          <Card>
+            <div className="text-center mb-6">
+              <div className="w-12 h-12 rounded-full bg-primary-100 dark:bg-primary-900/30 flex items-center justify-center mx-auto mb-3">
+                <CheckCircle className="w-6 h-6 text-primary-600 dark:text-primary-400" />
+              </div>
+              <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100">
+                Here&apos;s what we&apos;ll track for you
+              </h2>
+              <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+                Your personal health picture is being built.
+              </p>
+            </div>
+
+            <div className="space-y-4 mb-6">
+              {selectedConditions.length > 0 ? (
+                selectedConditions.slice(0, 2).map((condition) => {
+                  const metrics = CONDITION_TRACKING_PREVIEW[condition] ?? DEFAULT_TRACKING_PREVIEW;
+                  return (
+                    <div key={condition} className="p-4 bg-slate-50 dark:bg-slate-700/50 rounded-xl">
+                      <p className="text-xs font-semibold text-primary-600 dark:text-primary-400 uppercase tracking-wide mb-2">
+                        {condition}
+                      </p>
+                      <ul className="space-y-1.5">
+                        {metrics.map((m) => (
+                          <li key={m} className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+                            <CheckCircle className="w-3.5 h-3.5 text-green-500 flex-shrink-0" />
+                            {m}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="p-4 bg-slate-50 dark:bg-slate-700/50 rounded-xl">
+                  <p className="text-xs font-semibold text-primary-600 dark:text-primary-400 uppercase tracking-wide mb-2">
+                    General Health Tracking
+                  </p>
+                  <ul className="space-y-1.5">
+                    {DEFAULT_TRACKING_PREVIEW.map((m) => (
+                      <li key={m} className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+                        <CheckCircle className="w-3.5 h-3.5 text-green-500 flex-shrink-0" />
+                        {m}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+
+            <p className="text-xs text-slate-500 dark:text-slate-400 text-center mb-5">
+              Log your first meal to start building your picture.
+              Insights appear after 5+ days of data.
+            </p>
+
+            <Button onClick={() => router.push('/home')} className="w-full">
+              Start logging
+              <ArrowRight className="w-5 h-5 ml-2" />
+            </Button>
+          </Card>
+        )}
+
         {/* Step 3 — Oura */}
         {step === 3 && (
           <Card>
@@ -489,7 +577,7 @@ function OnboardingContent() {
 
               <button
                 type="button"
-                onClick={() => router.push('/home')}
+                onClick={() => setStep(4)}
                 className="mt-4 text-sm text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
               >
                 Skip for now

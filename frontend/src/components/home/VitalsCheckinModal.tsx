@@ -6,6 +6,59 @@ import { useAuthStore } from '@/stores/authStore';
 import { api } from '@/services/api';
 import toast from 'react-hot-toast';
 
+// ── Chip input ─────────────────────────────────────────────────────────────────
+
+function ChipInput({
+  chips,
+  onChange,
+  placeholder,
+}: {
+  chips: string[];
+  onChange: (chips: string[]) => void;
+  placeholder: string;
+}) {
+  const [inputVal, setInputVal] = useState('');
+
+  const add = () => {
+    const v = inputVal.trim();
+    if (v && !chips.includes(v)) onChange([...chips, v]);
+    setInputVal('');
+  };
+
+  return (
+    <div
+      className="flex flex-wrap gap-1.5 p-2.5 rounded-lg min-h-[42px]"
+      style={{ backgroundColor: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }}
+    >
+      {chips.map((c, i) => (
+        <span
+          key={i}
+          className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full"
+          style={{ backgroundColor: 'rgba(0,212,170,0.15)', color: '#00D4AA' }}
+        >
+          {c}
+          <button
+            type="button"
+            onClick={() => onChange(chips.filter((_, j) => j !== i))}
+            className="hover:opacity-70"
+          >
+            ×
+          </button>
+        </span>
+      ))}
+      <input
+        type="text"
+        value={inputVal}
+        onChange={(e) => setInputVal(e.target.value)}
+        onKeyDown={(e) => (e.key === 'Enter' || e.key === ',') && (e.preventDefault(), add())}
+        onBlur={add}
+        placeholder={chips.length === 0 ? placeholder : ''}
+        className="flex-1 min-w-[80px] text-xs text-[#E8EDF5] bg-transparent outline-none placeholder:text-[#3D4F66]"
+      />
+    </div>
+  );
+}
+
 const SNOOZE_KEY = 'vitals-checkin-snoozed';
 const SNOOZE_DAYS = 7;
 const CHECKIN_INTERVAL_DAYS = 30;
@@ -57,11 +110,11 @@ export function VitalsCheckinModal() {
 
   // Step 1 — diagnoses
   const [hasNewDiagnosis, setHasNewDiagnosis] = useState<null | boolean>(null);
-  const [diagnosisText, setDiagnosisText] = useState('');
+  const [diagnosisChips, setDiagnosisChips] = useState<string[]>([]);
 
   // Step 2 — medications
   const [hasNewMeds, setHasNewMeds] = useState<null | boolean>(null);
-  const [medsText, setMedsText] = useState('');
+  const [medsChips, setMedsChips] = useState<string[]>([]);
 
   const [saving, setSaving] = useState(false);
 
@@ -89,12 +142,12 @@ export function VitalsCheckinModal() {
           ? weightUnit === 'lb' ? Math.round((weight / 2.20462) * 10) / 10 : weight
           : undefined;
 
-      const newConditions = hasNewDiagnosis && diagnosisText.trim()
-        ? diagnosisText.split(',').map((s) => s.trim()).filter(Boolean)
+      const newConditions = hasNewDiagnosis && diagnosisChips.length > 0
+        ? diagnosisChips
         : undefined;
 
-      const newMedications = hasNewMeds && medsText.trim()
-        ? medsText.split(',').map((s) => s.trim()).filter(Boolean)
+      const newMedications = hasNewMeds && medsChips.length > 0
+        ? medsChips
         : undefined;
 
       const { data } = await api.patch('/api/v1/profile/checkin', {
@@ -158,6 +211,16 @@ export function VitalsCheckinModal() {
         {/* Step 0 — Weight */}
         {step === 0 && (
           <div className="space-y-4">
+            {/* Previous check-in context */}
+            {profile?.last_checkin_at && (
+              <p className="text-xs" style={{ color: '#526380' }}>
+                Last check-in:{' '}
+                {new Date(profile.last_checkin_at).toLocaleDateString('en-US', {
+                  month: 'short', day: 'numeric', year: 'numeric',
+                })}
+                {profile.weight_kg ? ` · ${profile.weight_kg} kg` : ''}
+              </p>
+            )}
             <div>
               <label className="block text-xs text-[#8B97A8] mb-1.5">Current weight</label>
               <div className="flex gap-2">
@@ -187,26 +250,39 @@ export function VitalsCheckinModal() {
           <div className="space-y-4">
             <p className="text-sm text-[#C8D5E8]">Any new diagnoses since your last check-in?</p>
             <div className="flex gap-2">
-              {[true, false].map((v) => (
-                <button key={String(v)} onClick={() => setHasNewDiagnosis(v)}
-                  className="flex-1 py-2 rounded-lg text-sm font-medium transition-colors"
-                  style={{
-                    backgroundColor: hasNewDiagnosis === v ? (v ? 'rgba(0,212,170,0.15)' : 'rgba(255,255,255,0.08)') : 'rgba(255,255,255,0.05)',
-                    border: `1px solid ${hasNewDiagnosis === v ? (v ? 'rgba(0,212,170,0.4)' : 'rgba(255,255,255,0.2)') : 'rgba(255,255,255,0.1)'}`,
-                    color: hasNewDiagnosis === v ? '#E8EDF5' : '#526380',
-                  }}>
-                  {v ? 'Yes' : 'No'}
-                </button>
-              ))}
+              <button
+                onClick={() => setHasNewDiagnosis(true)}
+                className="flex-1 py-2 rounded-lg text-sm font-medium transition-colors"
+                style={{
+                  backgroundColor: hasNewDiagnosis === true ? 'rgba(0,212,170,0.15)' : 'rgba(255,255,255,0.05)',
+                  border: `1px solid ${hasNewDiagnosis === true ? 'rgba(0,212,170,0.4)' : 'rgba(255,255,255,0.1)'}`,
+                  color: hasNewDiagnosis === true ? '#E8EDF5' : '#526380',
+                }}
+              >
+                Yes — add list
+              </button>
+              <button
+                onClick={() => { setHasNewDiagnosis(false); handleNext(); }}
+                className="flex-1 py-2 rounded-lg text-sm font-medium transition-colors"
+                style={{
+                  backgroundColor: 'rgba(255,255,255,0.05)',
+                  border: '1px solid rgba(255,255,255,0.1)',
+                  color: '#526380',
+                }}
+              >
+                No changes
+              </button>
             </div>
             {hasNewDiagnosis === true && (
-              <input type="text" value={diagnosisText} onChange={(e) => setDiagnosisText(e.target.value)}
-                placeholder="e.g. Hypertension, Type 2 Diabetes (comma-separated)"
-                className="w-full px-3 py-2 rounded-lg text-sm text-[#E8EDF5] bg-white/5 border border-white/10 focus:outline-none focus:border-[#00D4AA]/50" />
+              <ChipInput
+                chips={diagnosisChips}
+                onChange={setDiagnosisChips}
+                placeholder="Type condition + Enter (e.g. Hypertension)"
+              />
             )}
             <div className="flex gap-2">
               <button onClick={() => setStep(0)}
-                className="flex-1 py-2.5 rounded-lg text-sm text-[#526380] bg-white/5 hover:bg-white/8 transition-colors">
+                className="flex-1 py-2.5 rounded-lg text-sm text-[#526380] bg-white/5 transition-colors">
                 Back
               </button>
               <button onClick={handleNext} disabled={hasNewDiagnosis === null}
@@ -222,26 +298,40 @@ export function VitalsCheckinModal() {
           <div className="space-y-4">
             <p className="text-sm text-[#C8D5E8]">Any medication changes since your last check-in?</p>
             <div className="flex gap-2">
-              {[true, false].map((v) => (
-                <button key={String(v)} onClick={() => setHasNewMeds(v)}
-                  className="flex-1 py-2 rounded-lg text-sm font-medium transition-colors"
-                  style={{
-                    backgroundColor: hasNewMeds === v ? (v ? 'rgba(0,212,170,0.15)' : 'rgba(255,255,255,0.08)') : 'rgba(255,255,255,0.05)',
-                    border: `1px solid ${hasNewMeds === v ? (v ? 'rgba(0,212,170,0.4)' : 'rgba(255,255,255,0.2)') : 'rgba(255,255,255,0.1)'}`,
-                    color: hasNewMeds === v ? '#E8EDF5' : '#526380',
-                  }}>
-                  {v ? 'Yes' : 'No'}
-                </button>
-              ))}
+              <button
+                onClick={() => setHasNewMeds(true)}
+                className="flex-1 py-2 rounded-lg text-sm font-medium transition-colors"
+                style={{
+                  backgroundColor: hasNewMeds === true ? 'rgba(0,212,170,0.15)' : 'rgba(255,255,255,0.05)',
+                  border: `1px solid ${hasNewMeds === true ? 'rgba(0,212,170,0.4)' : 'rgba(255,255,255,0.1)'}`,
+                  color: hasNewMeds === true ? '#E8EDF5' : '#526380',
+                }}
+              >
+                Yes — add list
+              </button>
+              <button
+                onClick={() => { setHasNewMeds(false); handleSubmit(); }}
+                className="flex-1 py-2 rounded-lg text-sm font-medium transition-colors"
+                style={{
+                  backgroundColor: 'rgba(255,255,255,0.05)',
+                  border: '1px solid rgba(255,255,255,0.1)',
+                  color: '#526380',
+                }}
+                disabled={saving}
+              >
+                No changes
+              </button>
             </div>
             {hasNewMeds === true && (
-              <input type="text" value={medsText} onChange={(e) => setMedsText(e.target.value)}
-                placeholder="e.g. Metformin, Lisinopril (comma-separated)"
-                className="w-full px-3 py-2 rounded-lg text-sm text-[#E8EDF5] bg-white/5 border border-white/10 focus:outline-none focus:border-[#00D4AA]/50" />
+              <ChipInput
+                chips={medsChips}
+                onChange={setMedsChips}
+                placeholder="Type medication + Enter (e.g. Metformin)"
+              />
             )}
             <div className="flex gap-2">
               <button onClick={() => setStep(1)}
-                className="flex-1 py-2.5 rounded-lg text-sm text-[#526380] bg-white/5 hover:bg-white/8 transition-colors">
+                className="flex-1 py-2.5 rounded-lg text-sm text-[#526380] bg-white/5 transition-colors">
                 Back
               </button>
               <button onClick={handleSubmit} disabled={saving || hasNewMeds === null}

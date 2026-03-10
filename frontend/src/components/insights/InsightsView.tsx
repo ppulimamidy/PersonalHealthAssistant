@@ -303,8 +303,26 @@ export function InsightsView() {
     queryClient.invalidateQueries({ queryKey: ['insights'] });
   };
 
+  const sortedCorrelated = [...(correlatedInsights ?? [])].sort(
+    (a, b) => (b.confidence ?? 0) - (a.confidence ?? 0)
+  );
+
   return (
     <div>
+      {/* Top Insight Hero — most actionable recommendation at a glance */}
+      {sortedCorrelated[0] && (
+        <div
+          className="p-5 rounded-xl mb-6"
+          style={{ backgroundColor: 'rgba(0,212,170,0.05)', border: '1px solid rgba(0,212,170,0.15)' }}
+        >
+          <p className="text-xs font-semibold uppercase tracking-wide mb-1" style={{ color: '#00D4AA' }}>
+            Top Recommendation
+          </p>
+          <p className="text-lg font-semibold text-slate-100">{sortedCorrelated[0].title}</p>
+          <p className="text-sm mt-1" style={{ color: '#8B97A8' }}>{sortedCorrelated[0].recommendation}</p>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between mb-8">
         <div>
@@ -324,19 +342,6 @@ export function InsightsView() {
             <RefreshCw className="w-4 h-4 mr-2" />
             Refresh Insights
           </Button>
-        </div>
-      </div>
-
-      {/* Info Banner */}
-      <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4 mb-6">
-        <div className="flex items-start gap-3">
-          <Info className="w-5 h-5 text-blue-600 dark:text-blue-400 mt-0.5" />
-          <div>
-            <h4 className="font-medium text-blue-900 dark:text-blue-100">About insights</h4>
-            <p className="text-sm text-blue-700 dark:text-blue-300 mt-1">
-              Correlated insights use all available data—supplements, symptoms, trends, nutrition, medications, labs, health conditions, goals, doctor notes, and research—for evidence-based recommendations. When we have your data we personalize; when we don’t, we label it general guidance. AI insights use your wearable and activity data. This is not medical advice; follow up with your doctor if you have questions.
-            </p>
-          </div>
         </div>
       </div>
 
@@ -402,6 +407,39 @@ export function InsightsView() {
           </span>
         </div>
       )}
+
+      {/* About insights — demoted to bottom */}
+      <div
+        className="rounded-lg p-4 mt-6"
+        style={{ backgroundColor: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)' }}
+      >
+        <div className="flex items-start gap-3">
+          <Info className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: '#526380' }} />
+          <p className="text-xs" style={{ color: '#526380' }}>
+            Correlated insights use all available data—supplements, symptoms, trends, nutrition, medications, labs, health conditions, goals, doctor notes, and research. AI insights use your wearable and activity data. This is not medical advice; follow up with your doctor if you have questions.
+          </p>
+        </div>
+      </div>
+
+      {/* Doctor Prep CTA */}
+      <div
+        className="p-6 rounded-xl flex items-center justify-between gap-4 mt-6"
+        style={{ backgroundColor: 'rgba(0,212,170,0.04)', border: '1px solid rgba(0,212,170,0.15)' }}
+      >
+        <div>
+          <p className="font-semibold text-slate-100">Ready to discuss with your doctor?</p>
+          <p className="text-sm mt-1" style={{ color: '#8B97A8' }}>
+            Generate a structured report with your key findings, trends, and questions to ask.
+          </p>
+        </div>
+        <Link
+          href="/doctor-prep?autogenerate=1&days=30"
+          className="flex-shrink-0 px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap"
+          style={{ backgroundColor: '#00D4AA', color: '#080B10' }}
+        >
+          Doctor Prep Report →
+        </Link>
+      </div>
     </div>
   );
 }

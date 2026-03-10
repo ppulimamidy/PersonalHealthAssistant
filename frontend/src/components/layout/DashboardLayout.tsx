@@ -1,14 +1,18 @@
 'use client';
 
+import { useState } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { TopNav } from './TopNav';
 import { HealthContextPanel } from './HealthContextPanel';
 import { UpgradeModal } from '@/components/billing/UpgradeModal';
 import { VitalsCheckinModal } from '@/components/home/VitalsCheckinModal';
 import { WeeklyCheckinModal } from '@/components/home/WeeklyCheckinModal';
+import { FloatingActionButton } from '@/components/ui/FloatingActionButton';
+import { QuickSymptomModal } from '@/components/symptoms/QuickSymptomModal';
 
 export function DashboardLayout({ children }: { readonly children: React.ReactNode }) {
   const { isLoading } = useAuth(true);
+  const [showQuickSymptom, setShowQuickSymptom] = useState(false);
 
   if (isLoading) {
     return (
@@ -39,6 +43,13 @@ export function DashboardLayout({ children }: { readonly children: React.ReactNo
       <UpgradeModal />
       <VitalsCheckinModal />
       <WeeklyCheckinModal />
+
+      {/* Floating action button + quick symptom modal */}
+      <FloatingActionButton onSymptomClick={() => setShowQuickSymptom(true)} />
+      <QuickSymptomModal
+        isOpen={showQuickSymptom}
+        onClose={() => setShowQuickSymptom(false)}
+      />
     </div>
   );
 }

@@ -6,12 +6,39 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { correlationsService } from '@/services/correlations';
 import { useAuth } from '@/hooks/useAuth';
-import { ArrowRight, Info, AlertCircle } from 'lucide-react';
+import { ArrowRight, Info, AlertCircle, ChevronDown } from 'lucide-react';
 import type { CausalGraph, CausalEdge } from '@/types';
+
+// ── Plain-language summary ─────────────────────────────────────────────────────
+
+function PlainLanguageSummary({ edges }: { edges: CausalEdge[] }) {
+  if (!edges.length) return null;
+  const top = edges[0];
+  const dir = top.correlation >= 0 ? 'increase' : 'decrease';
+  const lag = top.optimal_lag_days > 0
+    ? `${top.optimal_lag_days} day${top.optimal_lag_days > 1 ? 's' : ''} later`
+    : 'the same day';
+  return (
+    <div
+      className="p-4 rounded-xl"
+      style={{ backgroundColor: 'rgba(0,212,170,0.06)', border: '1px solid rgba(0,212,170,0.15)' }}
+    >
+      <p className="text-xs font-semibold uppercase mb-1" style={{ color: '#00D4AA' }}>
+        {edges.length} causal pattern{edges.length !== 1 ? 's' : ''} detected
+      </p>
+      <p className="text-sm text-slate-200">
+        When your <strong>{top.from_label}</strong> is high,
+        your <strong>{top.to_label}</strong> tends to {dir} {lag}.
+        {edges.length > 1 && ` (+\u00a0${edges.length - 1} more pattern${edges.length > 2 ? 's' : ''} below)`}
+      </p>
+    </div>
+  );
+}
 
 export function CausalGraphView() {
   const { user, isLoading: isAuthLoading } = useAuth(true);
   const [days, setDays] = useState<7 | 14>(14);
+  const [infoOpen, setInfoOpen] = useState(false);
 
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['causal-graph', days],
@@ -118,32 +145,47 @@ export function CausalGraphView() {
         </div>
       </div>
 
-      {/* Info Card */}
-      <Card>
-        <CardContent className="pt-6">
-          <div className="flex items-start gap-3">
-            <Info className="w-5 h-5 text-blue-600 dark:text-blue-400 mt-0.5" />
-            <div className="flex-1">
-              <p className="text-sm text-slate-700 dark:text-slate-300">
-                This graph shows <strong>causal relationships</strong> detected using advanced
-                statistical analysis (Granger causality testing). Causality score combines
-                correlation strength, temporal precedence, and predictive power.
-              </p>
-              <div className="mt-3 flex flex-wrap gap-2">
-                <span className="px-2 py-1 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 text-xs rounded">
-                  Granger Causality: X predicts Y
-                </span>
-                <span className="px-2 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 text-xs rounded">
-                  Temporal Precedence: X precedes Y
-                </span>
-                <span className="px-2 py-1 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 text-xs rounded">
-                  Correlation: X relates to Y
-                </span>
-              </div>
+      {/* Plain-language summary */}
+      <PlainLanguageSummary edges={graph.edges} />
+
+      {/* Info Card — collapsible */}
+      <div
+        className="rounded-xl overflow-hidden"
+        style={{ border: '1px solid rgba(255,255,255,0.06)' }}
+      >
+        <button
+          className="w-full flex items-center justify-between px-4 py-3 text-left"
+          style={{ backgroundColor: 'rgba(255,255,255,0.02)' }}
+          onClick={() => setInfoOpen((v) => !v)}
+        >
+          <div className="flex items-center gap-2 text-sm" style={{ color: '#8B97A8' }}>
+            <Info className="w-4 h-4" />
+            <span>What does this mean?</span>
+          </div>
+          <ChevronDown
+            className="w-4 h-4 transition-transform"
+            style={{ color: '#526380', transform: infoOpen ? 'rotate(180deg)' : 'none' }}
+          />
+        </button>
+        {infoOpen && (
+          <div className="px-4 pb-4 pt-2" style={{ backgroundColor: 'rgba(255,255,255,0.02)' }}>
+            <p className="text-sm text-slate-400">
+              Causal relationships are detected using <strong className="text-slate-300">Granger causality testing</strong> — a statistical method that checks whether knowing X today helps predict Y tomorrow. Causality score combines correlation strength, temporal precedence, and predictive power.
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <span className="px-2 py-1 bg-purple-900/30 text-purple-300 text-xs rounded">
+                Granger Causality: X predicts Y
+              </span>
+              <span className="px-2 py-1 bg-blue-900/30 text-blue-300 text-xs rounded">
+                Temporal Precedence: X precedes Y
+              </span>
+              <span className="px-2 py-1 bg-green-900/30 text-green-300 text-xs rounded">
+                Correlation: X relates to Y
+              </span>
             </div>
           </div>
-        </CardContent>
-      </Card>
+        )}
+      </div>
 
       {/* Causal Edges */}
       <div className="space-y-3">

@@ -8,9 +8,21 @@ import { CorrelationCard } from './CorrelationCard';
 import { CausalGraphView } from './CausalGraphView';
 import { correlationsService } from '@/services/correlations';
 import { billingService } from '@/services/billing';
+import { healthConditionsService } from '@/services/healthConditions';
 import { useSubscriptionStore } from '@/stores/subscriptionStore';
 import { Zap, RefreshCw, AlertTriangle, Lock, GitBranch } from 'lucide-react';
 import type { CorrelationCategory } from '@/types';
+
+const CONDITION_HINTS: Record<string, string> = {
+  'Type 2 Diabetes': 'glycemic load and carb intake → HRV and recovery (2-day lag)',
+  'Hypertension': 'sodium intake → resting heart rate and HRV',
+  'Hypothyroidism': 'caloric intake → temperature deviation and readiness',
+  'Anxiety Disorder': 'sugar intake and meal timing → HRV and sleep efficiency',
+  'Insomnia': 'evening meal timing and caffeine → sleep score and deep sleep',
+  'IBS': 'fiber and fat intake → next-day readiness',
+  'PCOS': 'glycemic load → temperature deviation and HRV balance',
+  'Rheumatoid Arthritis': 'anti-inflammatory foods → readiness and recovery score',
+};
 
 type FilterTab = 'all' | CorrelationCategory;
 type ViewMode = 'correlations' | 'causal';
@@ -49,6 +61,13 @@ export function CorrelationsView() {
     queryKey: ['correlations', days],
     queryFn: () => correlationsService.getCorrelations(days),
     staleTime: 1000 * 60 * 5,
+    enabled: canUse,
+  });
+
+  const { data: conditionsData } = useQuery({
+    queryKey: ['conditions'],
+    queryFn: healthConditionsService.listConditions,
+    staleTime: 5 * 60 * 1000,
     enabled: canUse,
   });
 
@@ -248,22 +267,50 @@ export function CorrelationsView() {
       )}
 
       {/* Empty / insufficient data state */}
-      {data && data.correlations.length === 0 && !isLoading && (
-        <Card>
-          <CardContent>
-            <div className="flex flex-col items-center justify-center py-12 text-center">
-              <Zap className="w-12 h-12 text-slate-300 dark:text-slate-600 mb-4" />
-              <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-2">
-                Not enough data yet
-              </h3>
-              <p className="text-sm text-slate-500 dark:text-slate-400 max-w-md">
-                {data.summary ||
-                  `Log meals and wear your Oura ring for at least 5 overlapping days to discover nutrition-health correlations.`}
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+      {data && data.correlations.length === 0 && !isLoading && (() => {
+        const userConditions = conditionsData ?? [];
+        const matchedCondition = userConditions.find(
+          (c: { condition_name: string }) => CONDITION_HINTS[c.condition_name]
+        );
+        const matchedHint = matchedCondition ? CONDITION_HINTS[matchedCondition.condition_name] : null;
+        return (
+          <Card>
+            <CardContent>
+              <div className="flex flex-col items-center justify-center py-12 text-center">
+                <Zap className="w-12 h-12 text-slate-300 dark:text-slate-600 mb-4" />
+                <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-2">
+                  Not enough data yet
+                </h3>
+                {matchedHint ? (
+                  <>
+                    <p className="text-sm text-slate-500 dark:text-slate-400 max-w-md">
+                      Since you have <strong className="text-slate-300">{matchedCondition!.condition_name}</strong>, we&apos;ll analyze:
+                    </p>
+                    <p className="text-sm text-primary-400 mt-1 max-w-md">{matchedHint}</p>
+                    <div className="mt-5 w-full max-w-xs">
+                      <div className="flex justify-between text-xs text-slate-500 mb-1.5">
+                        <span>Nutrition days logged</span>
+                        <span>{data.nutrition_days_available}/5</span>
+                      </div>
+                      <div className="h-1.5 rounded-full bg-slate-700">
+                        <div
+                          className="h-full rounded-full bg-primary-500 transition-all"
+                          style={{ width: `${Math.min(100, (data.nutrition_days_available / 5) * 100)}%` }}
+                        />
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <p className="text-sm text-slate-500 dark:text-slate-400 max-w-md">
+                    {data.summary ||
+                      `Log meals and wear your Oura ring for at least 5 overlapping days to discover nutrition-health correlations.`}
+                  </p>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        );
+      })()}
 
       {/* Filter tabs + results */}
       {data && data.correlations.length > 0 && (

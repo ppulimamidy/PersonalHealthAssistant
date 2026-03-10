@@ -26,7 +26,7 @@ const TABS: TabDef[] = [
     subRoutes: ['/home'],
   },
   {
-    name: 'Track',
+    name: 'Log',
     href: '/nutrition',
     subRoutes: ['/nutrition', '/medications', '/symptoms', '/lab-results'],
     subItems: [
@@ -37,7 +37,7 @@ const TABS: TabDef[] = [
     ],
   },
   {
-    name: 'Insights',
+    name: 'Understand',
     href: '/timeline',
     subRoutes: ['/timeline', '/trends', '/correlations', '/predictions', '/meta-analysis', '/doctor-prep'],
     subItems: [
