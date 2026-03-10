@@ -10,7 +10,7 @@ import os
 import uuid
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, List, Optional
 from uuid import UUID
 
 import aiohttp
@@ -19,7 +19,12 @@ from pydantic import BaseModel
 
 from common.middleware.auth import get_current_user
 from common.utils.logging import get_logger
-from ..dependencies.usage_gate import RateLimit, UsageGate, _supabase_get
+from ..dependencies.usage_gate import (
+    RateLimit,
+    UsageGate,
+    _supabase_get,
+    _supabase_upsert,
+)
 
 logger = get_logger(__name__)
 
@@ -730,10 +735,23 @@ async def get_insights(
             )
         )
 
+    # Filter out insights the user has dismissed
+    user_id = current_user.get("id", "")
+    if user_id and user_id != "sandbox-user-123":
+        try:
+            dismissed_rows = await _supabase_get(
+                "dismissed_insights",
+                f"user_id=eq.{user_id}&select=insight_id",
+            )
+            dismissed_ids = {r["insight_id"] for r in (dismissed_rows or [])}
+            if dismissed_ids:
+                insights = [i for i in insights if i.id not in dismissed_ids]
+        except Exception as exc:
+            logger.warning("Failed to fetch dismissed insights: %s", exc)
+
     result = insights[:limit]
 
     # Persist snapshots for 30-day follow-up (best-effort, fire-and-forget)
-    user_id = current_user.get("id", "")
     if user_id and user_id != "sandbox-user-123":
         import asyncio
 
@@ -1246,7 +1264,7 @@ async def _generate_correlated_insights_ai(context: dict) -> List[dict]:
             async with session.post(
                 "https://api.openai.com/v1/chat/completions",
                 headers={
-                    "Authorization": "Bearer %s" % OPENAI_API_KEY_INSIGHTS,
+                    "Authorization": f"Bearer {OPENAI_API_KEY_INSIGHTS}",
                     "Content-Type": "application/json",
                 },
                 json={
@@ -1278,8 +1296,6 @@ async def _generate_correlated_insights_ai(context: dict) -> List[dict]:
         logger.warning("Correlated insights OpenAI call failed: %s", e)
         return []
 
-    import json
-
     try:
         # Strip markdown code block if present
         if "```" in content:
@@ -1310,7 +1326,7 @@ async def get_correlated_insights(
 
     disclaimer = " This is not medical advice. If you have questions, follow up with your doctor."
     out = []
-    for i, item in enumerate(raw):
+    for item in raw:
         if not isinstance(item, dict):
             continue
         title = (item.get("title") or "Insight").strip()[:200]
@@ -1781,10 +1797,20 @@ async def dismiss_insight(
     insight_id: str, current_user: dict = Depends(get_current_user)
 ):
     """
-    Dismiss an insight so it won't appear again.
+    Dismiss an insight so it won't appear in future GET /insights responses.
     """
-    # In production, store dismissal in database
-    logger.info(f"User {current_user['id']} dismissed insight {insight_id}")
+    user_id = current_user["id"]
+    from datetime import timezone as _tz
+
+    await _supabase_upsert(
+        "dismissed_insights",
+        {
+            "user_id": user_id,
+            "insight_id": insight_id,
+            "dismissed_at": datetime.now(_tz.utc).isoformat(),
+        },
+    )
+    logger.info("User %s dismissed insight %s", user_id, insight_id)
     return {"status": "dismissed"}
 
 

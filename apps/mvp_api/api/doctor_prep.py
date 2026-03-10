@@ -3,6 +3,8 @@ Doctor Visit Prep API
 Endpoints for generating health summary reports for doctor visits.
 """
 
+# pylint: disable=too-many-locals,too-many-branches,too-many-statements,broad-except,import-outside-toplevel,too-few-public-methods,missing-class-docstring,invalid-name,line-too-long,too-many-lines,too-few-public-methods
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -15,7 +17,7 @@ import os
 
 from common.middleware.auth import get_current_user
 from common.utils.logging import get_logger
-from ..dependencies.usage_gate import UsageGate, _supabase_get
+from ..dependencies.usage_gate import UsageGate, _supabase_get, _supabase_insert
 
 logger = get_logger(__name__)
 
@@ -120,9 +122,9 @@ class CarePlanProgress(BaseModel):
     target_unit: Optional[str] = None
     target_date: Optional[str] = None
     current_value: Optional[float] = None
-    progress_pct: Optional[float] = None   # 0–100
+    progress_pct: Optional[float] = None  # 0–100
     on_track: Optional[bool] = None
-    source: str = "self"                   # 'doctor' | 'self'
+    source: str = "self"  # 'doctor' | 'self'
     days_remaining: Optional[int] = None
 
 
@@ -768,13 +770,17 @@ async def generate_report(
         )
         avg_severity: Optional[float] = None
         if symptom_rows:
-            sevs = [r.get("severity") for r in symptom_rows if r.get("severity") is not None]
+            sevs = [
+                r.get("severity") for r in symptom_rows if r.get("severity") is not None
+            ]
             avg_severity = round(sum(sevs) / len(sevs), 1) if sevs else None
 
         profile_rows = await _supabase_get(
             "profiles", f"id=eq.{user_id}&select=weight_kg&limit=1"
         )
-        current_weight: Optional[float] = profile_rows[0].get("weight_kg") if profile_rows else None
+        current_weight: Optional[float] = (
+            profile_rows[0].get("weight_kg") if profile_rows else None
+        )
 
         today_date = date.today()
         _metric_current: Dict[str, Optional[float]] = {
@@ -797,7 +803,9 @@ async def generate_report(
                     # Lower is better — progress = how close to target
                     on_track = current_val <= target_val
                     # Invert: 0 severity = 100%, target severity = 50%, 10 = 0%
-                    progress_pct = max(0, min(100, round(100 - (current_val / 10) * 100)))
+                    progress_pct = max(
+                        0, min(100, round(100 - (current_val / 10) * 100))
+                    )
                 elif mt == "medication_adherence":
                     progress_pct = min(100, round(current_val, 1))
                     on_track = current_val >= target_val
@@ -879,17 +887,43 @@ async def generate_report(
     )
 
     logger.info(f"Generated doctor prep report for user {user_id}")
+
+    # Persist to DB (best-effort; non-blocking on failure)
+    try:
+        await _supabase_insert(
+            "doctor_prep_reports",
+            {
+                "id": report.id,
+                "user_id": user_id,
+                "generated_at": report.generated_at.isoformat(),
+                "date_range": report.date_range,
+                "days": days,
+                "report_data": report.model_dump(mode="json"),
+            },
+        )
+    except Exception as exc:
+        logger.warning("Failed to save doctor prep report to DB: %s", exc)
+
     return report
 
 
 @router.get("/reports", response_model=List[DoctorPrepReport])
 async def get_reports(current_user: dict = Depends(get_user_optional)):
     """
-    Get previously generated reports.
+    Get previously generated reports (most recent first, up to 20).
     """
-    # In production, fetch from database
-    # For MVP, return empty list
-    return []
+    user_id = current_user["id"]
+    rows = await _supabase_get(
+        "doctor_prep_reports",
+        f"user_id=eq.{user_id}&select=report_data&order=created_at.desc&limit=20",
+    )
+    reports = []
+    for row in rows or []:
+        try:
+            reports.append(DoctorPrepReport(**row["report_data"]))
+        except Exception as exc:
+            logger.warning("Failed to deserialise stored report: %s", exc)
+    return reports
 
 
 @router.get("/reports/{report_id}", response_model=DoctorPrepReport)
@@ -897,8 +931,18 @@ async def get_report(report_id: str, current_user: dict = Depends(get_user_optio
     """
     Get a specific report by ID.
     """
-    # In production, fetch from database
-    raise HTTPException(status_code=404, detail="Report not found")
+    user_id = current_user["id"]
+    rows = await _supabase_get(
+        "doctor_prep_reports",
+        f"id=eq.{report_id}&user_id=eq.{user_id}&select=report_data&limit=1",
+    )
+    if not rows:
+        raise HTTPException(status_code=404, detail="Report not found")
+    try:
+        return DoctorPrepReport(**rows[0]["report_data"])
+    except Exception as exc:
+        logger.error("Failed to deserialise report %s: %s", report_id, exc)
+        raise HTTPException(status_code=404, detail="Report not found")
 
 
 @router.get("/reports/{report_id}/pdf")
@@ -906,106 +950,257 @@ async def export_pdf(
     report_id: str, current_user: dict = Depends(UsageGate("pdf_export"))
 ):
     """
-    Export a report as PDF.
+    Export a report as PDF including health intelligence indicators.
     """
-    # Generate fresh report for MVP
-    report = await generate_report(
-        GenerateReportRequest(days=30), current_user=current_user
-    )
-
-    # Create simple PDF content
     from reportlab.lib.pagesizes import letter
     from reportlab.pdfgen import canvas
     from reportlab.lib.units import inch
 
+    report = await generate_report(
+        GenerateReportRequest(days=30), current_user=current_user
+    )
+
     buffer = io.BytesIO()
     c = canvas.Canvas(buffer, pagesize=letter)
     width, height = letter
+    margin = 1.0 * inch
+    bottom_margin = 0.85 * inch  # space reserved for footer
 
-    # Title
-    c.setFont("Helvetica-Bold", 20)
-    c.drawString(1 * inch, height - 1 * inch, "Health Summary Report")
+    def add_footer(c: canvas.Canvas) -> None:
+        c.setFont("Helvetica", 9)
+        c.drawString(
+            margin,
+            0.5 * inch,
+            f"Generated: {report.generated_at.strftime('%Y-%m-%d %H:%M UTC')}",
+        )
+        c.drawString(
+            margin,
+            0.35 * inch,
+            "For informational purposes only — not a substitute for medical advice.",
+        )
 
-    c.setFont("Helvetica", 12)
+    def new_page(c: canvas.Canvas) -> float:
+        add_footer(c)
+        c.showPage()
+        return height - margin
+
+    def check_page(c: canvas.Canvas, y: float, needed: float = 0.5 * inch) -> float:
+        if y < bottom_margin + needed:
+            y = new_page(c)
+        return y
+
+    def section_title(c: canvas.Canvas, y: float, text: str) -> float:
+        y = check_page(c, y, 0.6 * inch)
+        c.setFont("Helvetica-Bold", 13)
+        c.setFillColorRGB(0.18, 0.18, 0.18)
+        c.drawString(margin, y, text)
+        y -= 0.05 * inch
+        c.setStrokeColorRGB(0.7, 0.7, 0.7)
+        c.setLineWidth(0.5)
+        c.line(margin, y, width - margin, y)
+        y -= 0.25 * inch
+        return y
+
+    def body_line(
+        c: canvas.Canvas, y: float, text: str, indent: float = 0.2 * inch
+    ) -> float:
+        y = check_page(c, y, 0.3 * inch)
+        c.setFont("Helvetica", 10)
+        c.setFillColorRGB(0.15, 0.15, 0.15)
+        # Wrap long lines
+        max_width_chars = int((width - margin - indent - margin) / (10 * 0.55))
+        if len(text) > max_width_chars:
+            words = text.split()
+            line = ""
+            for word in words:
+                if len(line) + len(word) + 1 <= max_width_chars:
+                    line = f"{line} {word}".strip()
+                else:
+                    c.drawString(margin + indent, y, line)
+                    y -= 0.22 * inch
+                    y = check_page(c, y, 0.3 * inch)
+                    c.setFont("Helvetica", 10)
+                    line = word
+            if line:
+                c.drawString(margin + indent, y, line)
+                y -= 0.22 * inch
+        else:
+            c.drawString(margin + indent, y, text)
+            y -= 0.22 * inch
+        return y
+
+    # ── PAGE 1: Header + Summary ────────────────────────────────────────────
+
+    # Title block
+    c.setFont("Helvetica-Bold", 22)
+    c.setFillColorRGB(0.1, 0.1, 0.4)
+    c.drawString(margin, height - margin, "Health Summary Report")
+
+    c.setFont("Helvetica", 11)
+    c.setFillColorRGB(0.3, 0.3, 0.3)
     c.drawString(
-        1 * inch,
-        height - 1.5 * inch,
-        f"Period: {report.date_range['start']} to {report.date_range['end']}",
+        margin,
+        height - margin - 0.35 * inch,
+        f"Period: {report.date_range['start']}  →  {report.date_range['end']}",
     )
 
-    # Overall Score
-    c.setFont("Helvetica-Bold", 14)
+    # Overall score badge
+    score = report.summary.overall_health_score
+    c.setFont("Helvetica-Bold", 13)
+    c.setFillColorRGB(0.1, 0.5, 0.2)
     c.drawString(
-        1 * inch,
-        height - 2.2 * inch,
-        f"Overall Health Score: {report.summary.overall_health_score}",
+        margin, height - margin - 0.75 * inch, f"Overall Health Score: {score} / 100"
     )
+
+    y = height - margin - 1.3 * inch
 
     # Key Metrics
-    y = height - 3 * inch
-    c.setFont("Helvetica-Bold", 14)
-    c.drawString(1 * inch, y, "Key Metrics:")
-    y -= 0.3 * inch
-
-    c.setFont("Helvetica", 11)
+    y = section_title(c, y, "Key Metrics")
     for metric in report.summary.key_metrics:
-        c.drawString(
-            1.2 * inch,
-            y,
-            f"• {metric.name}: {metric.value} {metric.unit} ({metric.status})",
+        unit_str = f" {metric.unit}" if metric.unit else ""
+        y = body_line(
+            c, y, f"• {metric.name}: {metric.value}{unit_str}  [{metric.status}]"
         )
-        y -= 0.25 * inch
 
     # Trends
-    y -= 0.3 * inch
-    c.setFont("Helvetica-Bold", 14)
-    c.drawString(1 * inch, y, "Trends:")
-    y -= 0.3 * inch
+    if report.summary.trends:
+        y -= 0.15 * inch
+        y = section_title(c, y, "Trends")
+        for trend in report.summary.trends:
+            arrow = (
+                "↑"
+                if trend.direction == "improving"
+                else ("↓" if trend.direction == "declining" else "→")
+            )
+            y = body_line(
+                c,
+                y,
+                f"• {trend.metric}: {arrow} {trend.direction}  ({trend.percentage_change:+.1f}%)",
+            )
 
-    c.setFont("Helvetica", 11)
-    for trend in report.summary.trends:
-        c.drawString(
-            1.2 * inch,
-            y,
-            f"• {trend.metric}: {trend.direction} ({trend.percentage_change}%)",
-        )
-        y -= 0.25 * inch
-
-    # Concerns
+    # Areas to Discuss
     if report.summary.concerns:
-        y -= 0.3 * inch
-        c.setFont("Helvetica-Bold", 14)
-        c.drawString(1 * inch, y, "Areas to Discuss:")
-        y -= 0.3 * inch
-
-        c.setFont("Helvetica", 11)
+        y -= 0.15 * inch
+        y = section_title(c, y, "Areas to Discuss with Doctor")
         for concern in report.summary.concerns:
-            c.drawString(1.2 * inch, y, f"• {concern}")
-            y -= 0.25 * inch
+            y = body_line(c, y, f"• {concern}")
 
-    # Improvements
+    # Positive Progress
     if report.summary.improvements:
-        y -= 0.3 * inch
-        c.setFont("Helvetica-Bold", 14)
-        c.drawString(1 * inch, y, "Positive Progress:")
-        y -= 0.3 * inch
-
-        c.setFont("Helvetica", 11)
+        y -= 0.15 * inch
+        y = section_title(c, y, "Positive Progress")
         for improvement in report.summary.improvements:
-            c.drawString(1.2 * inch, y, f"• {improvement}")
-            y -= 0.25 * inch
+            y = body_line(c, y, f"• {improvement}")
 
-    # Footer
-    c.setFont("Helvetica", 9)
-    c.drawString(
-        1 * inch,
-        0.5 * inch,
-        f"Generated: {report.generated_at.strftime('%Y-%m-%d %H:%M UTC')}",
-    )
-    c.drawString(
-        1 * inch, 0.35 * inch, "This report is for informational purposes only."
-    )
+    # ── HEALTH INTELLIGENCE SECTION ─────────────────────────────────────────
+    if report.health_intelligence:
+        hi = report.health_intelligence
+        y -= 0.2 * inch
+        y = section_title(c, y, "Health Intelligence Indicators")
 
+        # Trend indicators
+        sleep_arrow = (
+            "↑"
+            if hi.sleep_score_trend == "improving"
+            else ("↓" if hi.sleep_score_trend == "declining" else "→")
+        )
+        hrv_arrow = (
+            "↑"
+            if hi.hrv_trend == "improving"
+            else ("↓" if hi.hrv_trend == "declining" else "→")
+        )
+        y = body_line(
+            c,
+            y,
+            f"• Sleep Score Trend:         {sleep_arrow} {hi.sleep_score_trend.capitalize()}",
+        )
+        y = body_line(
+            c,
+            y,
+            f"• HRV Trend:                 {hrv_arrow} {hi.hrv_trend.capitalize()}",
+        )
+
+        # Scored indicators
+        nq_label = (
+            "Good"
+            if hi.nutrition_quality_score >= 70
+            else ("Fair" if hi.nutrition_quality_score >= 45 else "Needs Improvement")
+        )
+        y = body_line(
+            c,
+            y,
+            f"• Nutrition Quality Score:   {hi.nutrition_quality_score}/100  [{nq_label}]",
+        )
+
+        inf_upper = hi.inflammation_risk.upper()
+        y = body_line(c, y, f"• Inflammation Risk:         {inf_upper}")
+
+        stress_label = (
+            "High"
+            if hi.stress_index > 60
+            else ("Moderate" if hi.stress_index > 40 else "Low")
+        )
+        y = body_line(
+            c,
+            y,
+            f"• Stress Index:              {hi.stress_index}/100  [{stress_label}]",
+        )
+
+        # Personalized actions
+        if hi.personalized_actions:
+            y -= 0.1 * inch
+            y = body_line(c, y, "Recommended Actions:", indent=0)
+            for action in hi.personalized_actions[:5]:
+                y = body_line(c, y, f"  ➜  {action}")
+
+    # ── TOP NUTRITION-HEALTH CORRELATIONS ────────────────────────────────────
+    if report.nutrition_correlations:
+        y -= 0.2 * inch
+        y = section_title(c, y, "Top Nutrition-Health Correlations")
+        for corr in report.nutrition_correlations:
+            r_val = corr.correlation_coefficient
+            direction = "positive" if r_val >= 0 else "negative"
+            y = body_line(
+                c,
+                y,
+                f"• {corr.metric_a_label}  ↔  {corr.metric_b_label}"
+                f"   (r={r_val:+.2f}, {corr.strength}, {direction})",
+            )
+            if corr.effect_description:
+                y = body_line(c, y, f"    {corr.effect_description}", indent=0.5 * inch)
+
+    # ── HEALTH CONDITIONS ────────────────────────────────────────────────────
+    if report.condition_specific_notes:
+        y -= 0.2 * inch
+        y = section_title(c, y, "Active Health Conditions")
+        for note in report.condition_specific_notes:
+            y = body_line(c, y, f"• {note}")
+
+    # ── CARE PLAN PROGRESS ────────────────────────────────────────────────────
+    if report.care_plan_progress:
+        y -= 0.2 * inch
+        y = section_title(c, y, "Care Plan Progress")
+        for plan in report.care_plan_progress:
+            source_tag = " [Doctor-prescribed]" if plan.source == "doctor" else ""
+            y = body_line(c, y, f"• {plan.title}{source_tag}")
+            status_parts = []
+            if plan.current_value is not None and plan.target_value is not None:
+                unit = f" {plan.target_unit}" if plan.target_unit else ""
+                status_parts.append(
+                    f"Current: {plan.current_value}{unit}  /  Target: {plan.target_value}{unit}"
+                )
+            if plan.progress_pct is not None:
+                on_track_str = " ✓ On track" if plan.on_track else " ✗ Behind"
+                status_parts.append(f"Progress: {plan.progress_pct:.0f}%{on_track_str}")
+            if plan.days_remaining is not None:
+                status_parts.append(f"Days remaining: {plan.days_remaining}")
+            if status_parts:
+                y = body_line(
+                    c, y, "  " + "   |   ".join(status_parts), indent=0.4 * inch
+                )
+
+    # Footer on final page
+    add_footer(c)
     c.save()
     buffer.seek(0)
 

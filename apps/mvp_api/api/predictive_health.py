@@ -17,7 +17,6 @@ import aiohttp
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 
-from common.middleware.auth import get_current_user
 from common.utils.logging import get_logger
 from ..dependencies.usage_gate import (
     UsageGate,
@@ -711,7 +710,7 @@ def _extract_time_series(
 async def _generate_predictions(
     user_id: str, timeline: list, nutrition_data: Dict[str, Dict[str, float]]
 ) -> List[Dict[str, Any]]:
-    """Generate predictions for multiple health metrics."""
+    """Generate predictions for sleep, readiness, HRV, and symptom severity."""
     predictions = []
 
     # Sleep score prediction
@@ -832,20 +831,281 @@ async def _generate_predictions(
             }
         )
 
+    # Symptom severity forecast (from symptom journal)
+    symptom_vals = await _fetch_symptom_series(user_id, 30)
+    if len(symptom_vals) >= MIN_HISTORICAL_DAYS:
+        for horizon in [3, 7]:
+            forecast, lower, upper = _forecast_linear(symptom_vals, horizon)
+            forecast = max(0.0, min(10.0, forecast))
+            lower = max(0.0, min(10.0, lower))
+            upper = max(0.0, min(10.0, upper))
+
+            # Confidence inversely proportional to variability
+            avg_s = sum(symptom_vals) / len(symptom_vals)
+            std_s = math.sqrt(
+                sum((v - avg_s) ** 2 for v in symptom_vals) / len(symptom_vals)
+            )
+            confidence = max(0.5, 1.0 - std_s / 5.0)
+
+            predictions.append(
+                {
+                    "user_id": user_id,
+                    "prediction_type": "symptom_severity",
+                    "metric_name": "symptom_severity",
+                    "prediction_date": (
+                        date.today() + timedelta(days=horizon)
+                    ).isoformat(),
+                    "prediction_horizon_days": horizon,
+                    "predicted_value": round(forecast, 1),
+                    "confidence_score": round(confidence, 2),
+                    "prediction_range": {
+                        "lower": round(lower, 1),
+                        "upper": round(upper, 1),
+                    },
+                    "model_type": "statistical",
+                    "model_version": "linear_v1",
+                    "features_used": ["symptom_journal_severity", "trend"],
+                    "contributing_factors": [],
+                    "recommendations": (
+                        [
+                            {
+                                "priority": "high",
+                                "action": "Monitor symptoms closely and contact provider if severity increases",
+                                "rationale": "Predicted escalation based on recent trend",
+                            }
+                        ]
+                        if forecast > avg_s + 1.0
+                        else []
+                    ),
+                    "status": "pending",
+                }
+            )
+
+    # Medication adherence forecast
+    adherence_rate = await _fetch_adherence_rate(user_id, 30)
+    if adherence_rate is not None:
+        predictions.append(
+            {
+                "user_id": user_id,
+                "prediction_type": "medication_adherence",
+                "metric_name": "medication_adherence",
+                "prediction_date": (date.today() + timedelta(days=7)).isoformat(),
+                "prediction_horizon_days": 7,
+                "predicted_value": round(adherence_rate, 1),
+                "confidence_score": 0.85,
+                "prediction_range": {
+                    "lower": max(0.0, round(adherence_rate - 10, 1)),
+                    "upper": min(100.0, round(adherence_rate + 10, 1)),
+                },
+                "model_type": "statistical",
+                "model_version": "rolling_avg_v1",
+                "features_used": ["medication_adherence_log"],
+                "contributing_factors": [],
+                "recommendations": (
+                    [
+                        {
+                            "priority": "high",
+                            "action": "Set daily medication reminders to improve adherence",
+                            "rationale": f"Current adherence {adherence_rate:.0f}% is below recommended 80%",
+                        }
+                    ]
+                    if adherence_rate < 80
+                    else []
+                ),
+                "status": "pending",
+            }
+        )
+
     return predictions
+
+
+async def _fetch_symptom_series(user_id: str, days: int) -> List[float]:
+    """Return list of daily max severity values over the window (empty = no data)."""
+    cutoff = (date.today() - timedelta(days=days)).isoformat()
+    rows = await _supabase_get(
+        "symptom_journal",
+        f"user_id=eq.{user_id}&symptom_date=gte.{cutoff}&select=symptom_date,severity&order=symptom_date.asc",
+    )
+    if not rows:
+        return []
+    # Collapse to daily max severity
+    by_day: Dict[str, float] = {}
+    for r in rows:
+        d = (r.get("symptom_date") or "")[:10]
+        sev = float(r.get("severity") or 0)
+        if d:
+            by_day[d] = max(by_day.get(d, 0), sev)
+    return list(by_day.values())
+
+
+async def _fetch_adherence_rate(user_id: str, days: int) -> Optional[float]:
+    """Return medication adherence rate (0-100) over the window, or None if no data."""
+    cutoff = (date.today() - timedelta(days=days)).isoformat()
+    rows = await _supabase_get(
+        "medication_adherence_log",
+        f"user_id=eq.{user_id}&scheduled_time=gte.{cutoff}&select=was_taken&limit=500",
+    )
+    if not rows:
+        return None
+    total = len(rows)
+    taken = sum(1 for r in rows if r.get("was_taken"))
+    return round(taken / total * 100, 1) if total else None
+
+
+def _assess_symptom_flare_risk(
+    severity_series: List[float],
+) -> Optional[Dict[str, Any]]:
+    """Assess symptom flare risk from daily severity values."""
+    if len(severity_series) < 5:
+        return None
+
+    recent = severity_series[-5:]
+    overall_avg = sum(severity_series) / len(severity_series)
+    recent_avg = sum(recent) / len(recent)
+
+    risk_score = 0.0
+    factors = []
+
+    # High recent severity
+    if recent_avg >= 7:
+        risk_score += 0.4
+        factors.append(
+            {
+                "factor": "High recent severity",
+                "impact_score": 0.4,
+                "description": f"Average symptom severity of {recent_avg:.1f}/10 in past 5 days",
+            }
+        )
+    elif recent_avg >= 5:
+        risk_score += 0.2
+        factors.append(
+            {
+                "factor": "Elevated symptom severity",
+                "impact_score": 0.2,
+                "description": f"Average symptom severity of {recent_avg:.1f}/10 in past 5 days",
+            }
+        )
+
+    # Rising trend
+    x = [float(i) for i in range(len(severity_series))]
+    slope, _, r_sq = _linear_regression(x, severity_series)
+    if slope > 0.15 and r_sq > 0.3:
+        risk_score += 0.35
+        factors.append(
+            {
+                "factor": "Worsening trend",
+                "impact_score": 0.35,
+                "description": f"Symptom severity increasing by {slope:.2f} points/day",
+            }
+        )
+
+    # Above personal baseline
+    if recent_avg > overall_avg + 1.5:
+        risk_score += 0.25
+        factors.append(
+            {
+                "factor": "Above personal baseline",
+                "impact_score": 0.25,
+                "description": f"Recent avg {recent_avg:.1f} vs overall baseline {overall_avg:.1f}",
+            }
+        )
+
+    if risk_score < 0.3:
+        return None
+
+    risk_level = (
+        "critical" if risk_score >= 0.7 else "high" if risk_score >= 0.5 else "moderate"
+    )
+    return {
+        "risk_type": "symptom_flare",
+        "risk_category": "symptom_control",
+        "risk_score": min(risk_score, 1.0),
+        "risk_level": risk_level,
+        "contributing_factors": factors,
+        "protective_factors": [],
+        "recommendations": [
+            {
+                "priority": "high",
+                "action": "Contact your care provider",
+                "rationale": "Escalating symptoms may need medical review",
+            },
+            {
+                "priority": "high",
+                "action": "Log triggers in symptom journal",
+                "rationale": "Identifying triggers helps prevent future flares",
+            },
+            {
+                "priority": "medium",
+                "action": "Review recent lifestyle changes",
+                "rationale": "Diet, sleep, and stress commonly worsen symptoms",
+            },
+        ],
+        "early_warning_signs": [
+            "Severity ≥ 7 on two consecutive days",
+            "New symptom types appearing",
+            "Symptoms not relieved by usual measures",
+        ],
+    }
+
+
+def _assess_adherence_risk(
+    adherence_rate: Optional[float],
+) -> Optional[Dict[str, Any]]:
+    """Flag low medication adherence as a health risk."""
+    if adherence_rate is None or adherence_rate >= 80:
+        return None
+
+    risk_score = max(0.3, (80 - adherence_rate) / 80)
+    risk_level = (
+        "high" if adherence_rate < 50 else "moderate" if adherence_rate < 70 else "low"
+    )
+    return {
+        "risk_type": "medication_non_adherence",
+        "risk_category": "medication",
+        "risk_score": round(min(risk_score, 1.0), 2),
+        "risk_level": risk_level,
+        "contributing_factors": [
+            {
+                "factor": "Low medication adherence",
+                "impact_score": round(risk_score, 2),
+                "description": f"Only {adherence_rate:.0f}% of doses taken in the past 30 days",
+            }
+        ],
+        "protective_factors": [],
+        "recommendations": [
+            {
+                "priority": "high",
+                "action": "Set daily medication reminders",
+                "rationale": "Consistent dosing is critical to treatment effectiveness",
+            },
+            {
+                "priority": "medium",
+                "action": "Review medication schedule with prescriber",
+                "rationale": "Simplifying or adjusting timing can improve adherence",
+            },
+        ],
+        "early_warning_signs": [
+            "Missed doses 2+ days in a row",
+            "Symptom worsening correlating with missed doses",
+        ],
+    }
 
 
 async def _generate_risk_assessments(
     user_id: str, timeline: list
 ) -> List[Dict[str, Any]]:
-    """Generate risk assessments."""
+    """Generate risk assessments from Oura data + symptom journal + medication adherence."""
     risks = []
 
-    # Extract time series
+    # Extract Oura time series
     _, sleep_scores = _extract_time_series(timeline, "sleep.sleep_score")
     _, readiness_scores = _extract_time_series(timeline, "readiness.readiness_score")
     _, hrv_values = _extract_time_series(timeline, "readiness.hrv_balance")
     _, activity_scores = _extract_time_series(timeline, "activity.activity_score")
+
+    # Fetch supplementary data
+    symptom_series = await _fetch_symptom_series(user_id, 30)
+    adherence_rate = await _fetch_adherence_rate(user_id, 30)
 
     # Sleep decline risk
     sleep_risk = _assess_sleep_decline_risk(sleep_scores, [])
@@ -892,6 +1152,38 @@ async def _generate_risk_assessments(
                 "user_acknowledged": False,
                 "is_active": True,
                 **burnout_risk,
+            }
+        )
+
+    # Symptom flare risk (from symptom journal)
+    symptom_risk = _assess_symptom_flare_risk(symptom_series)
+    if symptom_risk:
+        risks.append(
+            {
+                "user_id": user_id,
+                "risk_window_start": (date.today() - timedelta(days=5)).isoformat(),
+                "risk_window_end": (date.today() + timedelta(days=7)).isoformat(),
+                "confidence_score": 0.75,
+                "historical_patterns": [],
+                "user_acknowledged": False,
+                "is_active": True,
+                **symptom_risk,
+            }
+        )
+
+    # Medication adherence risk
+    adherence_risk = _assess_adherence_risk(adherence_rate)
+    if adherence_risk:
+        risks.append(
+            {
+                "user_id": user_id,
+                "risk_window_start": (date.today() - timedelta(days=30)).isoformat(),
+                "risk_window_end": date.today().isoformat(),
+                "confidence_score": 0.9,
+                "historical_patterns": [],
+                "user_acknowledged": False,
+                "is_active": True,
+                **adherence_risk,
             }
         )
 
