@@ -11,14 +11,12 @@ import Link from 'next/link';
 import {
   User,
   Shield,
-  Bell,
   Cpu,
   LogOut,
   CreditCard,
   Zap,
   ArrowRight,
   Download,
-  Mail,
   Users,
   Link2,
   Trash2,
@@ -27,8 +25,6 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { ReferralCard } from '@/components/referral/ReferralCard';
-import { PushNotificationCard } from '@/components/settings/PushNotificationCard';
-import { emailService } from '@/services/email';
 import { exportService } from '@/services/export';
 import { api } from '@/services/api';
 import { sharingService } from '@/services/sharing';
@@ -53,8 +49,6 @@ export default function SettingsPage() {
   const [forceActivating, setForceActivating] = useState(false);
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [isSavingProfile, setIsSavingProfile] = useState(false);
-  const [sendingSummary, setSendingSummary] = useState(false);
-  const [sendingReminder, setSendingReminder] = useState(false);
   const [exportingPdf, setExportingPdf] = useState(false);
   const [savingRole, setSavingRole] = useState(false);
 
@@ -186,30 +180,6 @@ export default function SettingsPage() {
     await supabase.auth.signOut();
     logout();
     window.location.href = '/';
-  };
-
-  const handleSendSummary = async () => {
-    setSendingSummary(true);
-    try {
-      await emailService.sendWeeklySummary();
-      toast.success('Weekly summary sent!');
-    } catch {
-      toast.error('Failed to send weekly summary');
-    } finally {
-      setSendingSummary(false);
-    }
-  };
-
-  const handleSendReminder = async () => {
-    setSendingReminder(true);
-    try {
-      await emailService.sendReminder();
-      toast.success('Reminder sent!');
-    } catch {
-      toast.error('Failed to send reminder');
-    } finally {
-      setSendingReminder(false);
-    }
   };
 
   const handleExportPdf = async () => {
@@ -881,55 +851,6 @@ export default function SettingsPage() {
                 </div>
                 <span className="text-green-600 text-sm font-medium">Yes</span>
               </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Email & Notifications */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Bell className="w-5 h-5" />
-              Email &amp; Notifications
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-medium text-slate-900 dark:text-slate-100">Weekly Summary</p>
-                  <p className="text-sm text-slate-500 dark:text-slate-400">
-                    Send a weekly health digest to your email
-                  </p>
-                </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleSendSummary}
-                  isLoading={sendingSummary}
-                >
-                  <Mail className="w-4 h-4 mr-1.5" />
-                  Send Now
-                </Button>
-              </div>
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-medium text-slate-900 dark:text-slate-100">Daily Reminder</p>
-                  <p className="text-sm text-slate-500 dark:text-slate-400">
-                    One-click reminder to log meals, symptoms, and medications
-                  </p>
-                </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleSendReminder}
-                  isLoading={sendingReminder}
-                >
-                  <Bell className="w-4 h-4 mr-1.5" />
-                  Send Reminder
-                </Button>
-              </div>
-              <PushNotificationCard />
             </div>
           </CardContent>
         </Card>
