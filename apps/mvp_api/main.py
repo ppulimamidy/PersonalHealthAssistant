@@ -2,6 +2,7 @@
 MVP API Main Application
 Consolidated FastAPI service for Personal Health Assistant MVP.
 """
+# pylint: disable=wrong-import-position,wrong-import-order,redefined-outer-name,unused-argument
 
 import os
 from pathlib import Path
@@ -53,6 +54,8 @@ from .api.sharing import router as sharing_router
 from .api.caregiver import router as caregiver_router
 from .api.notifications import router as notifications_router
 from .api.interventions import router as interventions_router
+from .api.batch import router as batch_router
+from .api.auth_refresh import router as auth_refresh_router
 
 logger = get_logger(__name__)
 settings = get_settings()
@@ -200,6 +203,8 @@ app.include_router(
     prefix="/api/v1/interventions",
     tags=["N-of-1 Interventions"],
 )
+app.include_router(batch_router, prefix="/api/v1/batch", tags=["Batch"])
+app.include_router(auth_refresh_router, prefix="/api/v1/auth", tags=["Auth"])
 
 
 @app.get("/health")

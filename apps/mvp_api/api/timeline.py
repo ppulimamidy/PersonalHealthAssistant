@@ -98,6 +98,11 @@ class TimelineEntry(BaseModel):
 @router.get("/timeline", response_model=List[TimelineEntry])
 async def get_timeline(
     days: int = Query(default=7, ge=1, le=90, description="Number of days to include"),
+    since_timestamp: Optional[str] = Query(
+        default=None,
+        description="ISO 8601 timestamp — return only entries on or after this date "
+        "(narrows the fetch window; more recent than days-based start wins)",
+    ),
     current_user: dict = Depends(get_user_optional),
 ):
     """
@@ -107,6 +112,16 @@ async def get_timeline(
     access_token = os.environ.get("OURA_ACCESS_TOKEN", "")
     end_date = datetime.utcnow()
     start_date = end_date - timedelta(days=days)
+
+    # Narrow the fetch window when since_timestamp is provided
+    if since_timestamp:
+        try:
+            parsed = datetime.fromisoformat(since_timestamp.replace("Z", "+00:00"))
+            parsed_naive = parsed.replace(tzinfo=None) if parsed.tzinfo else parsed
+            if parsed_naive > start_date:
+                start_date = parsed_naive
+        except ValueError:
+            pass  # Invalid format — fall back to days-based range
 
     try:
         async with OuraAPIClient(
