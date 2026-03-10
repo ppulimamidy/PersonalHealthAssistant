@@ -11,6 +11,7 @@ import { carePlansService } from '@/services/carePlans';
 import { caregiverService } from '@/services/caregiver';
 import type { SharedHealthSummary, ManagedProfile, PatientAlert } from '@/types';
 import { useAuthStore } from '@/stores/authStore';
+import Link from 'next/link';
 import toast from 'react-hot-toast';
 
 // ── Stat chip ─────────────────────────────────────────────────────────────────
@@ -741,7 +742,8 @@ export default function PatientsPage() {
           <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: '#FBB124' }} />
           <p className="text-sm" style={{ color: '#C8D5E8' }}>
             This page is designed for healthcare providers and caregivers. Set your account role to{' '}
-            <strong>Provider</strong> or <strong>Caregiver</strong> in Settings.
+            <strong>Provider</strong> or <strong>Caregiver</strong> in{' '}
+            <Link href="/settings" className="underline" style={{ color: '#00D4AA' }}>Settings</Link>.
           </p>
         </div>
       )}

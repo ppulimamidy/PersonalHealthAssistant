@@ -39,13 +39,14 @@ const TABS: TabDef[] = [
   {
     name: 'Insights',
     href: '/timeline',
-    subRoutes: ['/timeline', '/trends', '/correlations', '/predictions', '/meta-analysis'],
+    subRoutes: ['/timeline', '/trends', '/correlations', '/predictions', '/meta-analysis', '/doctor-prep'],
     subItems: [
       { name: 'Timeline', href: '/timeline' },
       { name: 'Trends', href: '/trends' },
       { name: 'Correlations', href: '/correlations' },
       { name: 'Predictions', href: '/predictions' },
       { name: 'Meta-Analysis', href: '/meta-analysis' },
+      { name: 'Doctor Prep', href: '/doctor-prep' },
     ],
   },
   {
@@ -56,11 +57,10 @@ const TABS: TabDef[] = [
   {
     name: 'Profile',
     href: '/health-profile',
-    subRoutes: ['/health-profile', '/devices', '/doctor-prep', '/health-twin', '/research', '/settings'],
+    subRoutes: ['/health-profile', '/devices', '/health-twin', '/research', '/settings'],
     subItems: [
       { name: 'Health Profile', href: '/health-profile' },
       { name: 'Devices', href: '/devices' },
-      { name: 'Doctor Prep', href: '/doctor-prep' },
       { name: 'Health Twin', href: '/health-twin' },
       { name: 'Research', href: '/research' },
       { name: 'Settings', href: '/settings' },

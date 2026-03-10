@@ -5,13 +5,15 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { CorrelationCard } from './CorrelationCard';
+import { CausalGraphView } from './CausalGraphView';
 import { correlationsService } from '@/services/correlations';
 import { billingService } from '@/services/billing';
 import { useSubscriptionStore } from '@/stores/subscriptionStore';
-import { Zap, RefreshCw, AlertTriangle, Lock } from 'lucide-react';
+import { Zap, RefreshCw, AlertTriangle, Lock, GitBranch } from 'lucide-react';
 import type { CorrelationCategory } from '@/types';
 
 type FilterTab = 'all' | CorrelationCategory;
+type ViewMode = 'correlations' | 'causal';
 
 const TABS: { value: FilterTab; label: string }[] = [
   { value: 'all', label: 'All' },
@@ -23,6 +25,7 @@ const TABS: { value: FilterTab; label: string }[] = [
 export function CorrelationsView() {
   const [activeTab, setActiveTab] = useState<FilterTab>('all');
   const [days, setDays] = useState<7 | 14>(14);
+  const [viewMode, setViewMode] = useState<ViewMode>('correlations');
   const queryClient = useQueryClient();
   const setSubscription = useSubscriptionStore((s) => s.setSubscription);
   const canUse = useSubscriptionStore((s) => s.canUseFeature('correlations'));
@@ -124,34 +127,69 @@ export function CorrelationsView() {
           </h1>
         </div>
         <div className="flex items-center gap-2">
-          {/* Period toggle */}
+          {/* View mode toggle */}
           <div className="flex rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
-            {([7, 14] as const).map((d) => (
-              <button
-                key={d}
-                onClick={() => setDays(d)}
-                className={`px-3 py-1.5 text-xs font-medium transition-colors ${
-                  days === d
-                    ? 'bg-primary-600 text-white'
-                    : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700'
-                }`}
-              >
-                {d}d
-              </button>
-            ))}
+            <button
+              onClick={() => setViewMode('correlations')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors ${
+                viewMode === 'correlations'
+                  ? 'bg-primary-600 text-white'
+                  : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700'
+              }`}
+            >
+              <Zap className="w-3 h-3" />
+              Correlations
+            </button>
+            <button
+              onClick={() => setViewMode('causal')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors ${
+                viewMode === 'causal'
+                  ? 'bg-primary-600 text-white'
+                  : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700'
+              }`}
+            >
+              <GitBranch className="w-3 h-3" />
+              Causal Graph
+            </button>
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => refreshMutation.mutate()}
-            disabled={refreshMutation.isPending}
-          >
-            <RefreshCw
-              className={`w-4 h-4 ${refreshMutation.isPending ? 'animate-spin' : ''}`}
-            />
-          </Button>
+          {/* Period toggle (correlations only) */}
+          {viewMode === 'correlations' && (
+            <div className="flex rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
+              {([7, 14] as const).map((d) => (
+                <button
+                  key={d}
+                  onClick={() => setDays(d)}
+                  className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+                    days === d
+                      ? 'bg-primary-600 text-white'
+                      : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700'
+                  }`}
+                >
+                  {d}d
+                </button>
+              ))}
+            </div>
+          )}
+          {viewMode === 'correlations' && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => refreshMutation.mutate()}
+              disabled={refreshMutation.isPending}
+            >
+              <RefreshCw
+                className={`w-4 h-4 ${refreshMutation.isPending ? 'animate-spin' : ''}`}
+              />
+            </Button>
+          )}
         </div>
       </div>
+
+      {/* Causal graph view */}
+      {viewMode === 'causal' && <CausalGraphView />}
+
+      {/* Correlations content */}
+      {viewMode === 'correlations' && <>
 
       {/* Data quality bar */}
       {data && (
@@ -262,6 +300,8 @@ export function CorrelationsView() {
           </div>
         </>
       )}
+
+      </>}
     </div>
   );
 }
