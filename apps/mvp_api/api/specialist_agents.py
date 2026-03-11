@@ -6,6 +6,7 @@ Domain-specific expert agents with orchestrator for holistic health analysis
 # pylint: disable=too-many-locals,too-many-branches,too-many-statements,broad-except,import-outside-toplevel,too-few-public-methods,missing-class-docstring,invalid-name
 
 import os
+import re
 from datetime import datetime, timedelta
 from typing import Any, Dict, List
 
@@ -25,45 +26,73 @@ router = APIRouter()
 # ============================================================================
 
 
-class SpecialistInsight(BaseModel):
-    """Insight from a specialist agent"""
+class PrimaryDiagnosis(BaseModel):
+    """Structured primary diagnosis from integration agent"""
 
-    # sleep, nutrition, metabolic, cardiovascular, mental_health, movement, endocrine
-    specialist: str
-    findings: List[str]
-    concerns: List[str]
-    recommendations: List[str]
+    diagnosis: str
+    systems_involved: List[str]
     confidence: float  # 0-1
-    data_quality: float  # 0-1
-    citations: List[str]  # Research references
+    causal_chain: List[str]
+
+
+class SecondaryDiagnosis(BaseModel):
+    """Structured secondary diagnosis"""
+
+    diagnosis: str
+    systems_involved: List[str]
+    confidence: float  # 0-1
+
+
+class EvidenceBasedRecommendation(BaseModel):
+    """Recommendation with structured evidence fields matching TypeScript interface"""
+
+    action: str
+    rationale: str
+    priority: str  # 'critical'|'high'|'medium'|'low'
+    evidence_level: str  # 'strong'|'moderate'|'limited'|'theoretical'
+    citations: List[str]
+    expected_benefit: str
+    implementation_difficulty: str  # 'easy'|'moderate'|'difficult'
+    estimated_impact: float  # 0-1
 
 
 class CrossSystemPattern(BaseModel):
     """Pattern detected across multiple systems"""
 
-    pattern_type: str  # causal_chain, feedback_loop, synergistic, antagonistic
+    pattern_type: str  # 'causal_chain'|'feedback_loop'|'synergistic_effect'|'antagonistic_interaction'
     systems_involved: List[str]
-    description: str
-    confidence: float
-    impact_score: float  # 0-1, how significant this pattern is
+    pattern_description: str
+    clinical_significance: str
+    strength: str  # 'strong'|'moderate'|'weak'
 
 
-class EvidenceBasedRecommendation(BaseModel):
-    """Recommendation with evidence and predicted outcome"""
+class PredictedOutcome(BaseModel):
+    """Predicted health outcome from intervention"""
 
-    priority: int  # 1 = highest
-    intervention: str
-    rationale: str
-    evidence_citations: List[str]
-    predicted_outcome: str
-    timeline: str  # e.g., "within 10 days"
-    success_probability: float  # 0-1
+    metric: str
+    current_value: float
+    predicted_value: float
+    timeframe_days: int
+    success_probability: float
+    confidence_interval: Dict[str, float]  # {"lower": x, "upper": y}
+
+
+class SpecialistInsight(BaseModel):
+    """Insight from a specialist agent"""
+
+    specialist_name: str  # sleep, nutrition, cardiovascular, movement, mental_health
+    findings: List[str]
+    concerns: List[str]
+    recommendations: List[EvidenceBasedRecommendation]
+    confidence_score: float  # 0-1
+    data_quality: float  # 0-1
 
 
 class MetaAnalysisReport(BaseModel):
-    """Comprehensive meta-analysis from all specialist agents"""
+    """Comprehensive meta-analysis from all specialist agents — matches TypeScript interface"""
 
     report_id: str
+    user_id: str
     generated_at: str
     analysis_period_days: int
 
@@ -71,18 +100,18 @@ class MetaAnalysisReport(BaseModel):
     specialist_insights: List[SpecialistInsight]
 
     # Integration agent synthesis
-    primary_diagnosis: str
-    secondary_diagnoses: List[str]
+    primary_diagnosis: PrimaryDiagnosis
+    secondary_diagnoses: List[SecondaryDiagnosis]
     cross_system_patterns: List[CrossSystemPattern]
-    root_cause_analysis: str
 
-    # Recommendations
+    # Recommendations & outcomes
     recommended_protocol: List[EvidenceBasedRecommendation]
+    predicted_outcomes: List[PredictedOutcome]
 
-    # Overall assessment
-    overall_health_score: float  # 0-100
-    confidence_level: str  # high, medium, low
+    # Quality metrics
+    overall_confidence: float  # 0-1
     data_completeness: float  # 0-1
+    evidence_quality: str  # high, medium, low
 
 
 # ============================================================================
@@ -107,7 +136,8 @@ Identify root causes for any issues and provide evidence-based recommendations.
 Format your response as:
 FINDINGS: [bullet list]
 CONCERNS: [bullet list]
-RECOMMENDATIONS: [bullet list with citations]
+RECOMMENDATIONS: [one recommendation per line in this exact format]
+- ACTION: [concise action] | PRIORITY: critical/high/medium/low | EVIDENCE: strong/moderate/limited/theoretical | BENEFIT: [expected benefit] | DIFFICULTY: easy/moderate/difficult | IMPACT: [0.0-1.0]
 CONFIDENCE: [0-1 score]
 """
 
@@ -132,7 +162,8 @@ Identify nutritional gaps and provide evidence-based, personalised recommendatio
 Format your response as:
 FINDINGS: [bullet list]
 CONCERNS: [bullet list]
-RECOMMENDATIONS: [bullet list with citations, tailored to user goals and restrictions]
+RECOMMENDATIONS: [one recommendation per line in this exact format]
+- ACTION: [concise action] | PRIORITY: critical/high/medium/low | EVIDENCE: strong/moderate/limited/theoretical | BENEFIT: [expected benefit] | DIFFICULTY: easy/moderate/difficult | IMPACT: [0.0-1.0]
 CONFIDENCE: [0-1 score]
 """
 
@@ -154,7 +185,8 @@ Identify metabolic dysregulation and provide evidence-based recommendations.
 Format your response as:
 FINDINGS: [bullet list]
 CONCERNS: [bullet list]
-RECOMMENDATIONS: [bullet list with citations]
+RECOMMENDATIONS: [one recommendation per line in this exact format]
+- ACTION: [concise action] | PRIORITY: critical/high/medium/low | EVIDENCE: strong/moderate/limited/theoretical | BENEFIT: [expected benefit] | DIFFICULTY: easy/moderate/difficult | IMPACT: [0.0-1.0]
 CONFIDENCE: [0-1 score]
 """
 
@@ -176,7 +208,8 @@ Identify cardiovascular concerns and provide evidence-based recommendations.
 Format your response as:
 FINDINGS: [bullet list]
 CONCERNS: [bullet list]
-RECOMMENDATIONS: [bullet list with citations]
+RECOMMENDATIONS: [one recommendation per line in this exact format]
+- ACTION: [concise action] | PRIORITY: critical/high/medium/low | EVIDENCE: strong/moderate/limited/theoretical | BENEFIT: [expected benefit] | DIFFICULTY: easy/moderate/difficult | IMPACT: [0.0-1.0]
 CONFIDENCE: [0-1 score]
 """
 
@@ -199,7 +232,8 @@ Identify mental health concerns and provide evidence-based recommendations.
 Format your response as:
 FINDINGS: [bullet list]
 CONCERNS: [bullet list]
-RECOMMENDATIONS: [bullet list with citations]
+RECOMMENDATIONS: [one recommendation per line in this exact format]
+- ACTION: [concise action] | PRIORITY: critical/high/medium/low | EVIDENCE: strong/moderate/limited/theoretical | BENEFIT: [expected benefit] | DIFFICULTY: easy/moderate/difficult | IMPACT: [0.0-1.0]
 CONFIDENCE: [0-1 score]
 """
 
@@ -221,7 +255,8 @@ Identify activity concerns and provide evidence-based recommendations.
 Format your response as:
 FINDINGS: [bullet list]
 CONCERNS: [bullet list]
-RECOMMENDATIONS: [bullet list with citations]
+RECOMMENDATIONS: [one recommendation per line in this exact format]
+- ACTION: [concise action] | PRIORITY: critical/high/medium/low | EVIDENCE: strong/moderate/limited/theoretical | BENEFIT: [expected benefit] | DIFFICULTY: easy/moderate/difficult | IMPACT: [0.0-1.0]
 CONFIDENCE: [0-1 score]
 """
 
@@ -235,17 +270,26 @@ Cross-Domain Correlation Data:
 {correlation_data}
 
 Your task is to:
-1. Identify PRIMARY diagnosis - the root cause linking multiple systems
-2. Identify SECONDARY diagnoses - contributing factors
+1. Identify PRIMARY diagnosis — the root cause linking multiple systems
+2. Identify SECONDARY diagnoses — contributing factors
 3. Detect cross-system patterns (causal chains, feedback loops, synergistic effects)
 4. Generate evidence-based protocol prioritized by impact
 5. Provide predicted outcomes with success probabilities
 
-Use the format:
-PRIMARY DIAGNOSIS: [causal chain linking multiple systems]
-SECONDARY DIAGNOSES: [bullet list]
-CROSS-SYSTEM PATTERNS: [detailed analysis]
-RECOMMENDED PROTOCOL: [prioritized interventions with evidence]
+Use EXACTLY this format (all sections required):
+
+PRIMARY DIAGNOSIS: [root cause in plain English]
+PRIMARY SYSTEMS: [comma-separated systems involved, e.g. sleep,cardiovascular,metabolic]
+PRIMARY CAUSAL CHAIN: [step1 | step2 | step3]
+PRIMARY CONFIDENCE: [0.0-1.0]
+SECONDARY DIAGNOSES:
+- [diagnosis text] | systems: [sys1,sys2] | confidence: [0.0-1.0]
+CROSS-SYSTEM PATTERNS:
+- TYPE:[causal_chain|feedback_loop|synergistic_effect|antagonistic_interaction] SYSTEMS:[s1,s2] DESC:[description] STRENGTH:[strong|moderate|weak] CLINICAL:[clinical significance]
+PREDICTED OUTCOMES:
+- METRIC:[metric name] CURRENT:[numeric value] PREDICTED:[numeric value] DAYS:[integer] PROB:[0.0-1.0]
+RECOMMENDED PROTOCOL:
+- ACTION: [concise action] | PRIORITY: critical/high/medium/low | EVIDENCE: strong/moderate/limited/theoretical | BENEFIT: [expected benefit] | DIFFICULTY: easy/moderate/difficult | IMPACT: [0.0-1.0]
 CONFIDENCE: [HIGH/MEDIUM/LOW]
 """
 
@@ -253,6 +297,78 @@ CONFIDENCE: [HIGH/MEDIUM/LOW]
 # ============================================================================
 # Helper Functions
 # ============================================================================
+
+
+# ── In-memory report cache (keyed by user_id) ──────────────────────────────
+
+_report_cache: Dict[str, Any] = {}
+
+
+# ── Recommendation parser ───────────────────────────────────────────────────
+
+
+def _parse_recommendation(line: str) -> EvidenceBasedRecommendation:
+    """Parse a structured recommendation line into EvidenceBasedRecommendation.
+
+    Expected format:
+        - ACTION: x | PRIORITY: high | EVIDENCE: moderate | BENEFIT: y | DIFFICULTY: easy | IMPACT: 0.7
+    Falls back to sensible defaults if format is not matched.
+    """
+    line = line.strip().lstrip("- ").strip()
+
+    action = line
+    rationale = "Based on specialist analysis"
+    priority = "medium"
+    evidence_level = "moderate"
+    citations: List[str] = []
+    expected_benefit = ""
+    implementation_difficulty = "moderate"
+    estimated_impact = 0.5
+
+    if "ACTION:" in line and "|" in line:
+        parts: Dict[str, str] = {}
+        for segment in line.split("|"):
+            if ":" in segment:
+                key, _, value = segment.partition(":")
+                parts[key.strip().upper()] = value.strip()
+        action = parts.get("ACTION", action)
+        priority = parts.get("PRIORITY", priority).lower()
+        evidence_level = parts.get("EVIDENCE", evidence_level).lower()
+        expected_benefit = parts.get("BENEFIT", expected_benefit)
+        implementation_difficulty = parts.get("DIFFICULTY", implementation_difficulty).lower()
+        try:
+            estimated_impact = float(parts.get("IMPACT", "0.5"))
+        except ValueError:
+            estimated_impact = 0.5
+
+    # Extract bracket citations from action text
+    bracket_citations = re.findall(r"\[([^\]]+)\]", action)
+    if bracket_citations:
+        citations = bracket_citations
+        action = re.sub(r"\s*\[[^\]]+\]", "", action).strip()
+
+    # Validate enum values, coerce to nearest valid option
+    _valid_priorities = {"critical", "high", "medium", "low"}
+    _valid_evidence = {"strong", "moderate", "limited", "theoretical"}
+    _valid_difficulties = {"easy", "moderate", "difficult"}
+
+    if priority not in _valid_priorities:
+        priority = "medium"
+    if evidence_level not in _valid_evidence:
+        evidence_level = "moderate"
+    if implementation_difficulty not in _valid_difficulties:
+        implementation_difficulty = "moderate"
+
+    return EvidenceBasedRecommendation(
+        action=action or line,
+        rationale=rationale,
+        priority=priority,
+        evidence_level=evidence_level,
+        citations=citations,
+        expected_benefit=expected_benefit,
+        implementation_difficulty=implementation_difficulty,
+        estimated_impact=max(0.0, min(1.0, estimated_impact)),
+    )
 
 
 async def _gather_sleep_data(user_id: str, days: int) -> Dict[str, Any]:
@@ -530,9 +646,8 @@ async def _call_specialist_agent(  # pylint: disable=too-many-locals
         # Parse the structured response
         findings = []
         concerns = []
-        recommendations = []
+        recommendations: List[EvidenceBasedRecommendation] = []
         confidence = 0.8
-        citations = []
 
         if "FINDINGS:" in content:
             findings_section = (
@@ -554,15 +669,8 @@ async def _call_specialist_agent(  # pylint: disable=too-many-locals
             recs_section = (
                 content.split("RECOMMENDATIONS:")[1].split("CONFIDENCE:")[0].strip()
             )
-            recommendations = [
-                r.strip("- ").strip() for r in recs_section.split("\n") if r.strip()
-            ]
-
-            # Extract citations from recommendations
-            for rec in recommendations:
-                if "[" in rec and "]" in rec:
-                    citation = rec[rec.find("[") : rec.find("]") + 1]
-                    citations.append(citation)
+            raw_recs = [r.strip() for r in recs_section.split("\n") if r.strip()]
+            recommendations = [_parse_recommendation(r) for r in raw_recs]
 
         if "CONFIDENCE:" in content:
             try:
@@ -572,26 +680,144 @@ async def _call_specialist_agent(  # pylint: disable=too-many-locals
                 confidence = 0.7
 
         return SpecialistInsight(
-            specialist=specialist_name,
+            specialist_name=specialist_name,
             findings=findings,
             concerns=concerns,
             recommendations=recommendations,
-            confidence=confidence,
+            confidence_score=confidence,
             data_quality=0.8 if data_summary.get("available") else 0.0,
-            citations=citations,
         )
 
     except Exception as err:  # pylint: disable=broad-except
         logger.error(f"Error calling {specialist_name} agent: {err}")
         return SpecialistInsight(
-            specialist=specialist_name,
+            specialist_name=specialist_name,
             findings=[],
             concerns=[f"Error analyzing {specialist_name} data"],
             recommendations=[],
-            confidence=0.0,
+            confidence_score=0.0,
             data_quality=0.0,
-            citations=[],
         )
+
+
+def _parse_section(content: str, start_marker: str, end_markers: List[str]) -> str:
+    """Extract a section from agent output between markers."""
+    if start_marker not in content:
+        return ""
+    section = content.split(start_marker)[1]
+    for end in end_markers:
+        if end in section:
+            section = section.split(end)[0]
+    return section.strip()
+
+
+def _parse_secondary_diagnoses(section: str) -> List[Dict[str, Any]]:
+    """Parse secondary diagnoses section into list of dicts."""
+    results = []
+    for line in section.split("\n"):
+        line = line.strip("- ").strip()
+        if not line:
+            continue
+        parts = [p.strip() for p in line.split("|")]
+        diagnosis_text = parts[0] if parts else line
+        systems_involved: List[str] = []
+        confidence = 0.6
+        for part in parts[1:]:
+            part_lower = part.lower()
+            if part_lower.startswith("systems:"):
+                systems_involved = [s.strip() for s in part.split(":", 1)[1].split(",") if s.strip()]
+            elif part_lower.startswith("confidence:"):
+                try:
+                    confidence = float(part.split(":", 1)[1].strip())
+                except ValueError:
+                    confidence = 0.6
+        if diagnosis_text:
+            results.append({
+                "diagnosis": diagnosis_text,
+                "systems_involved": systems_involved,
+                "confidence": confidence,
+            })
+    return results
+
+
+def _parse_cross_system_patterns(section: str) -> List[Dict[str, Any]]:
+    """Parse cross-system patterns section into list of dicts."""
+    results = []
+    valid_types = {"causal_chain", "feedback_loop", "synergistic_effect", "antagonistic_interaction"}
+    valid_strengths = {"strong", "moderate", "weak"}
+    for line in section.split("\n"):
+        line = line.strip("- ").strip()
+        if not line or "TYPE:" not in line:
+            continue
+        fields: Dict[str, str] = {}
+        for key in ["TYPE", "SYSTEMS", "DESC", "STRENGTH", "CLINICAL"]:
+            marker = f"{key}:"
+            if marker in line:
+                after = line.split(marker, 1)[1]
+                # Value ends at next marker or end of line
+                for other_key in ["TYPE", "SYSTEMS", "DESC", "STRENGTH", "CLINICAL"]:
+                    if other_key != key and f" {other_key}:" in after:
+                        after = after.split(f" {other_key}:")[0]
+                fields[key] = after.strip()
+        pattern_type = fields.get("TYPE", "causal_chain").lower().replace(" ", "_")
+        if pattern_type not in valid_types:
+            pattern_type = "causal_chain"
+        systems_str = fields.get("SYSTEMS", "")
+        systems_involved = [s.strip() for s in systems_str.split(",") if s.strip()]
+        strength = fields.get("STRENGTH", "moderate").lower()
+        if strength not in valid_strengths:
+            strength = "moderate"
+        desc = fields.get("DESC", line)
+        clinical = fields.get("CLINICAL", "")
+        if desc:
+            results.append({
+                "pattern_type": pattern_type,
+                "systems_involved": systems_involved,
+                "pattern_description": desc,
+                "clinical_significance": clinical,
+                "strength": strength,
+            })
+    return results
+
+
+def _parse_predicted_outcomes(section: str) -> List[Dict[str, Any]]:
+    """Parse predicted outcomes section into list of dicts."""
+    results = []
+    for line in section.split("\n"):
+        line = line.strip("- ").strip()
+        if not line or "METRIC:" not in line:
+            continue
+        fields: Dict[str, str] = {}
+        for key in ["METRIC", "CURRENT", "PREDICTED", "DAYS", "PROB"]:
+            marker = f"{key}:"
+            if marker in line:
+                after = line.split(marker, 1)[1]
+                for other_key in ["METRIC", "CURRENT", "PREDICTED", "DAYS", "PROB"]:
+                    if other_key != key and f" {other_key}:" in after:
+                        after = after.split(f" {other_key}:")[0]
+                fields[key] = after.strip()
+        try:
+            current_val = float(fields.get("CURRENT", "0"))
+            predicted_val = float(fields.get("PREDICTED", "0"))
+            days = int(float(fields.get("DAYS", "30")))
+            prob = float(fields.get("PROB", "0.7"))
+        except ValueError:
+            continue
+        metric = fields.get("METRIC", "")
+        if metric:
+            margin = abs(predicted_val - current_val) * 0.15
+            results.append({
+                "metric": metric,
+                "current_value": current_val,
+                "predicted_value": predicted_val,
+                "timeframe_days": days,
+                "success_probability": max(0.0, min(1.0, prob)),
+                "confidence_interval": {
+                    "lower": round(predicted_val - margin, 2),
+                    "upper": round(predicted_val + margin, 2),
+                },
+            })
+    return results
 
 
 async def _call_integration_agent(
@@ -601,13 +827,16 @@ async def _call_integration_agent(
 ) -> Dict[str, Any]:
     """Call the integration agent to synthesize all specialist insights"""
 
+    def _fmt_recs(recs: List[EvidenceBasedRecommendation]) -> str:
+        return ", ".join(r.action for r in recs[:3]) if recs else "none"
+
     specialist_reports = "\n\n".join(
         [
-            f"{insight.specialist.upper()} AGENT:\n"
+            f"{insight.specialist_name.upper()} AGENT:\n"
             f"Findings: {', '.join(insight.findings)}\n"
             f"Concerns: {', '.join(insight.concerns)}\n"
-            f"Recommendations: {', '.join(insight.recommendations)}\n"
-            f"Confidence: {insight.confidence}"
+            f"Recommendations: {_fmt_recs(insight.recommendations)}\n"
+            f"Confidence: {insight.confidence_score}"
             for insight in specialist_insights
         ]
     )
@@ -621,68 +850,102 @@ async def _call_integration_agent(
             model="claude-sonnet-4-6",
             system=(
                 "You are an Integration Agent synthesizing specialist "
-                "insights into holistic diagnosis."
+                "insights into holistic diagnosis. Follow the output format exactly."
             ),
             messages=[{"role": "user", "content": prompt}],
             temperature=0.3,
-            max_tokens=2000,
+            max_tokens=2500,
         )
 
         content = response.content[0].text
 
-        # Parse response
-        primary_diagnosis = ""
-        secondary_diagnoses = []
-        recommended_protocol = []
+        # ── Parse primary diagnosis ─────────────────────────────────────────
+        all_section_markers = [
+            "PRIMARY SYSTEMS:", "PRIMARY CAUSAL CHAIN:", "PRIMARY CONFIDENCE:",
+            "SECONDARY DIAGNOSES:", "CROSS-SYSTEM PATTERNS:", "PREDICTED OUTCOMES:",
+            "RECOMMENDED PROTOCOL:", "CONFIDENCE:",
+        ]
+
+        primary_diagnosis_text = _parse_section(content, "PRIMARY DIAGNOSIS:", all_section_markers)
+        primary_systems_str = _parse_section(content, "PRIMARY SYSTEMS:", all_section_markers)
+        primary_causal_str = _parse_section(content, "PRIMARY CAUSAL CHAIN:", all_section_markers)
+        primary_confidence_str = _parse_section(content, "PRIMARY CONFIDENCE:", all_section_markers)
+
+        primary_systems = [s.strip() for s in primary_systems_str.split(",") if s.strip()]
+        primary_causal_chain = [s.strip() for s in primary_causal_str.split("|") if s.strip()]
+        try:
+            primary_confidence = float(primary_confidence_str.split()[0]) if primary_confidence_str else 0.6
+        except (ValueError, IndexError):
+            primary_confidence = 0.6
+
+        primary_diagnosis: Dict[str, Any] = {
+            "diagnosis": primary_diagnosis_text or "Multiple system dysregulation detected",
+            "systems_involved": primary_systems,
+            "confidence": primary_confidence,
+            "causal_chain": primary_causal_chain,
+        }
+
+        # ── Parse secondary diagnoses ───────────────────────────────────────
+        secondary_section = _parse_section(
+            content, "SECONDARY DIAGNOSES:",
+            ["CROSS-SYSTEM PATTERNS:", "PREDICTED OUTCOMES:", "RECOMMENDED PROTOCOL:", "CONFIDENCE:"]
+        )
+        secondary_diagnoses = _parse_secondary_diagnoses(secondary_section)
+
+        # ── Parse cross-system patterns ─────────────────────────────────────
+        patterns_section = _parse_section(
+            content, "CROSS-SYSTEM PATTERNS:",
+            ["PREDICTED OUTCOMES:", "RECOMMENDED PROTOCOL:", "CONFIDENCE:"]
+        )
+        cross_system_patterns = _parse_cross_system_patterns(patterns_section)
+
+        # ── Parse predicted outcomes ────────────────────────────────────────
+        outcomes_section = _parse_section(
+            content, "PREDICTED OUTCOMES:",
+            ["RECOMMENDED PROTOCOL:", "CONFIDENCE:"]
+        )
+        predicted_outcomes = _parse_predicted_outcomes(outcomes_section)
+
+        # ── Parse recommended protocol ──────────────────────────────────────
+        protocol_section = _parse_section(
+            content, "RECOMMENDED PROTOCOL:", ["CONFIDENCE:"]
+        )
+        recommended_protocol = [
+            _parse_recommendation(line)
+            for line in protocol_section.split("\n")
+            if line.strip()
+        ]
+
+        # ── Parse confidence level ──────────────────────────────────────────
         confidence_level = "medium"
-
-        if "PRIMARY DIAGNOSIS:" in content:
-            primary_diagnosis = (
-                content.split("PRIMARY DIAGNOSIS:")[1].split("SECONDARY")[0].strip()
-            )
-
-        if "SECONDARY DIAGNOSES:" in content:
-            secondary_section = (
-                content.split("SECONDARY DIAGNOSES:")[1]
-                .split("CROSS-SYSTEM")[0]
-                .strip()
-            )
-            secondary_diagnoses = [
-                s.strip("- ").strip()
-                for s in secondary_section.split("\n")
-                if s.strip()
-            ]
-
-        if "RECOMMENDED PROTOCOL:" in content:
-            protocol_section = (
-                content.split("RECOMMENDED PROTOCOL:")[1]
-                .split("CONFIDENCE:")[0]
-                .strip()
-            )
-            recommended_protocol = [
-                p.strip("- ").strip() for p in protocol_section.split("\n") if p.strip()
-            ]
-
         if "CONFIDENCE:" in content:
-            confidence_section = content.split("CONFIDENCE:")[1].strip().split()[0]
-            confidence_level = confidence_section.lower()
+            conf_text = content.split("CONFIDENCE:")[-1].strip().split()[0].lower()
+            if conf_text in {"high", "medium", "low"}:
+                confidence_level = conf_text
 
         return {
             "primary_diagnosis": primary_diagnosis,
             "secondary_diagnoses": secondary_diagnoses,
+            "cross_system_patterns": cross_system_patterns,
+            "predicted_outcomes": predicted_outcomes,
             "recommended_protocol": recommended_protocol,
             "confidence_level": confidence_level,
-            "raw_synthesis": content,
         }
 
     except Exception as err:  # pylint: disable=broad-except
         logger.error(f"Error calling integration agent: {err}")
         return {
-            "primary_diagnosis": "Unable to generate synthesis",
+            "primary_diagnosis": {
+                "diagnosis": "Unable to generate synthesis",
+                "systems_involved": [],
+                "confidence": 0.0,
+                "causal_chain": [],
+            },
             "secondary_diagnoses": [],
+            "cross_system_patterns": [],
+            "predicted_outcomes": [],
             "recommended_protocol": [],
             "confidence_level": "low",
-            "raw_synthesis": "",
         }
 
 
@@ -691,8 +954,22 @@ async def _call_integration_agent(
 # ============================================================================
 
 
+@router.get(
+    "/meta-analysis/latest",
+    response_model=MetaAnalysisReport,
+)
+async def get_latest_meta_analysis(
+    current_user: dict = Depends(get_current_user),
+):
+    """Return the most recently generated meta-analysis report for the user (cached in memory)."""
+    user_id = current_user["id"]
+    if user_id not in _report_cache:
+        raise HTTPException(status_code=404, detail="No cached report found. Generate a report first.")
+    return _report_cache[user_id]
+
+
 @router.post(
-    "/specialist-agents/meta-analysis",
+    "/meta-analysis",
     response_model=MetaAnalysisReport,
     dependencies=[Depends(UsageGate("ai_agents"))],
 )
@@ -701,8 +978,8 @@ async def generate_meta_analysis(  # pylint: disable=too-many-locals
     current_user: dict = Depends(get_current_user),
 ):
     """
-    Generate comprehensive meta-analysis report from all specialist agents
-    Pro+ feature
+    Generate comprehensive meta-analysis report from all specialist agents.
+    Pro+ feature. Results are cached in memory per user for instant retrieval.
     """
     try:
         anthropic_client = anthropic.AsyncAnthropic(
@@ -717,8 +994,8 @@ async def generate_meta_analysis(  # pylint: disable=too-many-locals
         activity_data = await _gather_activity_data(user_id, days)
         symptom_data = await _gather_symptom_data(user_id, days)
 
-        # Call specialist agents
-        specialist_insights = []
+        # Call specialist agents in parallel where data is available
+        specialist_insights: List[SpecialistInsight] = []
 
         if sleep_data.get("available"):
             sleep_insight = await _call_specialist_agent(
@@ -727,13 +1004,12 @@ async def generate_meta_analysis(  # pylint: disable=too-many-locals
             specialist_insights.append(sleep_insight)
 
         if nutrition_data.get("available"):
-            # Build a personalised prompt with user preferences injected
             prefs_summary = _build_preferences_summary(
                 nutrition_data.get("user_preferences") or {}
             )
             nutrition_prompt = NUTRITION_AGENT_PROMPT.format(
                 user_preferences=prefs_summary,
-                data_summary="{data_summary}",  # left for _call_specialist_agent
+                data_summary="{data_summary}",  # placeholder for _call_specialist_agent
             )
             nutrition_insight = await _call_specialist_agent(
                 "nutrition", nutrition_prompt, nutrition_data, anthropic_client
@@ -764,11 +1040,13 @@ async def generate_meta_analysis(  # pylint: disable=too-many-locals
             )
             specialist_insights.append(mental_health_insight)
 
-        # Get correlation data summary
+        # Build correlation summary for integration agent context
         correlation_summary = (
-            f"Sleep avg: {sleep_data.get('avg_sleep_score', 'N/A')}, "
+            f"Sleep avg score: {sleep_data.get('avg_sleep_score', 'N/A')}, "
             f"Nutrition avg calories: {nutrition_data.get('avg_calories', 'N/A')}, "
-            f"HRV: {cardiovascular_data.get('avg_hrv_balance', 'N/A')}"
+            f"HRV balance: {cardiovascular_data.get('avg_hrv_balance', 'N/A')}, "
+            f"Avg steps: {activity_data.get('avg_steps', 'N/A')}, "
+            f"Symptoms logged: {symptom_data.get('total_symptoms', 'N/A')}"
         )
 
         # Call integration agent
@@ -776,50 +1054,70 @@ async def generate_meta_analysis(  # pylint: disable=too-many-locals
             specialist_insights, correlation_summary, anthropic_client
         )
 
-        # Build recommendations
-        recommended_protocol = []
-        for idx, rec_text in enumerate(
-            integration_result.get("recommended_protocol", [])[:5]
-        ):
-            recommended_protocol.append(
-                EvidenceBasedRecommendation(
-                    priority=idx + 1,
-                    intervention=rec_text.split("[")[0].strip(),
-                    rationale="Based on specialist analysis",
-                    evidence_citations=[
-                        rec_text[rec_text.find("[") : rec_text.find("]") + 1]
-                    ]
-                    if "[" in rec_text
-                    else [],
-                    predicted_outcome="Improvement expected",
-                    timeline="within 10-14 days",
-                    success_probability=0.7,
-                )
+        # Build primary diagnosis object
+        primary_diag_data = integration_result.get("primary_diagnosis", {})
+        if isinstance(primary_diag_data, dict):
+            primary_diagnosis = PrimaryDiagnosis(**primary_diag_data)
+        else:
+            primary_diagnosis = PrimaryDiagnosis(
+                diagnosis=str(primary_diag_data) or "Analysis incomplete",
+                systems_involved=[],
+                confidence=0.5,
+                causal_chain=[],
             )
 
-        # Calculate overall health score
+        # Build secondary diagnoses
+        secondary_diagnoses = []
+        for d in integration_result.get("secondary_diagnoses", []):
+            if isinstance(d, dict):
+                secondary_diagnoses.append(SecondaryDiagnosis(**d))
+            else:
+                secondary_diagnoses.append(SecondaryDiagnosis(
+                    diagnosis=str(d), systems_involved=[], confidence=0.5
+                ))
+
+        # Build cross-system patterns
+        cross_system_patterns = []
+        for p in integration_result.get("cross_system_patterns", []):
+            if isinstance(p, dict):
+                cross_system_patterns.append(CrossSystemPattern(**p))
+
+        # Build predicted outcomes
+        predicted_outcomes = []
+        for o in integration_result.get("predicted_outcomes", []):
+            if isinstance(o, dict):
+                predicted_outcomes.append(PredictedOutcome(**o))
+
+        # Recommended protocol comes already parsed from integration agent
+        recommended_protocol: List[EvidenceBasedRecommendation] = integration_result.get(
+            "recommended_protocol", []
+        )
+
+        # Calculate overall confidence (0-1)
         avg_confidence = (
-            sum(s.confidence for s in specialist_insights) / len(specialist_insights)
+            sum(s.confidence_score for s in specialist_insights) / len(specialist_insights)
             if specialist_insights
             else 0.5
         )
-        overall_score = avg_confidence * 100
 
         report = MetaAnalysisReport(
-            report_id=f"meta-{user_id}-{datetime.utcnow().timestamp()}",
+            report_id=f"meta-{user_id}-{datetime.utcnow().timestamp():.0f}",
+            user_id=user_id,
             generated_at=datetime.utcnow().isoformat(),
             analysis_period_days=days,
             specialist_insights=specialist_insights,
-            primary_diagnosis=integration_result.get("primary_diagnosis", ""),
-            secondary_diagnoses=integration_result.get("secondary_diagnoses", []),
-            cross_system_patterns=[],
-            root_cause_analysis=integration_result.get("raw_synthesis", ""),
+            primary_diagnosis=primary_diagnosis,
+            secondary_diagnoses=secondary_diagnoses,
+            cross_system_patterns=cross_system_patterns,
             recommended_protocol=recommended_protocol,
-            overall_health_score=overall_score,
-            confidence_level=integration_result.get("confidence_level", "medium"),
-            data_completeness=len(specialist_insights) / 7.0,
+            predicted_outcomes=predicted_outcomes,
+            overall_confidence=round(avg_confidence, 3),
+            evidence_quality=integration_result.get("confidence_level", "medium"),
+            data_completeness=round(len(specialist_insights) / 7.0, 2),
         )
 
+        # Cache for instant retrieval
+        _report_cache[user_id] = report
         return report
 
     except Exception as err:
