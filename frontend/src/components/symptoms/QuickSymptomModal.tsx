@@ -50,7 +50,7 @@ export function QuickSymptomModal({ isOpen, onClose }: Props) {
       await symptomsService.createSymptom({
         symptom_type: symptomType,
         severity,
-        date: new Date().toISOString().slice(0, 10),
+        symptom_date: new Date().toISOString().slice(0, 10),
       });
       toast.success('Symptom logged');
       queryClient.invalidateQueries({ queryKey: ['symptoms'] });
