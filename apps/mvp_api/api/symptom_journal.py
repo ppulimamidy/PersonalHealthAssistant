@@ -233,6 +233,11 @@ async def log_symptom(
 @router.get("/journal", response_model=List[SymptomJournalResponse])
 async def list_symptoms(
     days: int = Query(default=30, ge=1, le=365),
+    since_timestamp: Optional[str] = Query(
+        default=None,
+        description="ISO 8601 timestamp — return only entries created on or after this "
+        "date (use for incremental mobile sync to avoid re-downloading all entries)",
+    ),
     symptom_type: Optional[str] = Query(default=None),
     min_severity: Optional[int] = Query(default=None, ge=1, le=10),
     current_user: dict = Depends(get_current_user),
@@ -241,6 +246,7 @@ async def list_symptoms(
     List symptom journal entries.
 
     - **days**: Number of days to retrieve (default: 30, max: 365)
+    - **since_timestamp**: ISO 8601 anchor for incremental sync — only entries created on/after
     - **symptom_type**: Filter by symptom type (optional)
     - **min_severity**: Minimum severity to include (optional)
     """
@@ -248,6 +254,13 @@ async def list_symptoms(
     start_date = (date.today() - timedelta(days=days)).isoformat()
 
     params = f"user_id=eq.{user_id}&symptom_date=gte.{start_date}&select=*&order=symptom_date.desc,symptom_time.desc"
+
+    if since_timestamp:
+        try:
+            datetime.fromisoformat(since_timestamp.replace("Z", "+00:00"))  # validate
+            params += f"&created_at=gte.{since_timestamp.replace('Z', '+00:00')}"
+        except ValueError:
+            pass  # Invalid format — ignore
 
     if symptom_type:
         params += f"&symptom_type=eq.{symptom_type}"

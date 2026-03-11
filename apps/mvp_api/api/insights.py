@@ -461,13 +461,38 @@ async def _get_advanced_insights(
 @router.get("", response_model=List[AIInsight])
 async def get_insights(
     limit: int = Query(default=5, ge=1, le=10),
+    since_timestamp: Optional[str] = Query(
+        default=None,
+        description="ISO 8601 timestamp — return empty list if no new insight snapshots "
+        "have been generated since this date (reduces mobile sync overhead)",
+    ),
     current_user: dict = Depends(UsageGate("ai_insights")),
 ):
     """
     Get AI-generated insights based on user's health data.
     Returns up to 5 personalized insights with explanations.
+
+    Pass **since_timestamp** on subsequent mobile syncs: returns `[]` when the server
+    has no insight snapshots newer than the given time, signalling the client can use
+    its local cache rather than re-rendering.
     """
     from .timeline import get_timeline
+
+    # Incremental sync: skip expensive generation if saved_insights has nothing new
+    if since_timestamp:
+        try:
+            datetime.fromisoformat(since_timestamp.replace("Z", "+00:00"))  # validate
+            _since_iso = since_timestamp.replace("Z", "+00:00")
+            _uid = current_user.get("id", "")
+            if _uid and _uid != "sandbox-user-123":
+                _fresh = await _supabase_get(
+                    "saved_insights",
+                    f"user_id=eq.{_uid}&created_at=gte.{_since_iso}&select=id&limit=1",
+                )
+                if isinstance(_fresh, list) and len(_fresh) == 0:
+                    return []  # No new insight snapshots — client can use cache
+        except ValueError:
+            pass  # Invalid timestamp — fall through to normal generation
 
     # Fetch recent health data
     try:

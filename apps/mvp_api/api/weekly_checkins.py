@@ -8,7 +8,7 @@ Returns the most recent check-in date so the frontend can decide when to prompt.
 from datetime import datetime, timezone
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from common.middleware.auth import get_current_user
@@ -81,7 +81,9 @@ async def get_checkin_status(
         f"user_id=eq.{user_id}&order=checked_in_at.desc&select=checked_in_at&limit=1",
     )
     if not rows:
-        return CheckinStatusResponse(last_checkin_at=None, days_since_last=None, should_prompt=True)
+        return CheckinStatusResponse(
+            last_checkin_at=None, days_since_last=None, should_prompt=True
+        )
 
     last_at = rows[0].get("checked_in_at", "")
     try:
@@ -122,13 +124,26 @@ async def create_checkin(
 
 @router.get("/history", response_model=List[CheckinResponse])
 async def get_checkin_history(
-    limit: int = 12,
+    limit: int = Query(default=12, ge=1, le=52),
+    since_timestamp: Optional[str] = Query(
+        default=None,
+        description="ISO 8601 timestamp — return only check-ins on or after this date "
+        "(use for incremental mobile sync)",
+    ),
     current_user: dict = Depends(get_current_user),
 ):
     """Return the user's recent check-in history."""
     user_id = current_user["id"]
-    rows = await _supabase_get(
-        "weekly_checkins",
-        f"user_id=eq.{user_id}&order=checked_in_at.desc&select=*&limit={min(limit, 52)}",
-    ) or []
+    query = (
+        f"user_id=eq.{user_id}&order=checked_in_at.desc&select=*&limit={min(limit, 52)}"
+    )
+
+    if since_timestamp:
+        try:
+            datetime.fromisoformat(since_timestamp.replace("Z", "+00:00"))  # validate
+            query += f"&checked_in_at=gte.{since_timestamp.replace('Z', '+00:00')}"
+        except ValueError:
+            pass  # Invalid format — ignore
+
+    rows = await _supabase_get("weekly_checkins", query) or []
     return [_row_to_checkin(r) for r in rows]
