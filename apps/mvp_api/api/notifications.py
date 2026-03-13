@@ -11,7 +11,7 @@ import json
 import os
 from typing import Any, Dict, Optional
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from common.middleware.auth import get_current_user
 from common.utils.logging import get_logger
@@ -26,6 +26,7 @@ router = APIRouter()
 
 
 # ── Pydantic models ───────────────────────────────────────────────────────────
+
 
 class PushSubscriptionKeys(BaseModel):
     p256dh: str
@@ -43,6 +44,7 @@ class TestPushRequest(BaseModel):
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
+
 
 @router.post("/subscribe", status_code=201)
 async def subscribe(
@@ -86,10 +88,13 @@ async def test_push(
     """Send a test push notification to all active subscriptions of the current user."""
     user_id = current_user["id"]
 
-    subs = await _supabase_get(
-        "push_subscriptions",
-        f"user_id=eq.{user_id}&select=endpoint,p256dh,auth",
-    ) or []
+    subs = (
+        await _supabase_get(
+            "push_subscriptions",
+            f"user_id=eq.{user_id}&select=endpoint,p256dh,auth",
+        )
+        or []
+    )
 
     if not subs:
         raise HTTPException(status_code=404, detail="No push subscriptions found")
@@ -136,3 +141,82 @@ async def test_push(
             "reason": "pywebpush not installed. Run: pip install pywebpush",
             "subscriptions": len(subs),
         }
+
+
+# ── Expo Push Token Models ─────────────────────────────────────────────────────
+
+
+class ExpoPushTokenRequest(BaseModel):  # pylint: disable=too-few-public-methods
+    """Expo push token registration payload from the mobile app."""
+
+    token: str = Field(
+        ..., description="Expo push token, e.g. ExponentPushToken[xxxxxx]"
+    )
+    platform: str = Field(..., description="ios or android")
+
+
+# ── Expo Push Token Endpoints ─────────────────────────────────────────────────
+
+
+@router.post("/register", status_code=201)
+async def register_push_token(
+    body: ExpoPushTokenRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """Register an Expo push token for the current user.
+
+    Upserts on (user_id, token) so re-registering the same token is safe.
+    Call this after login and after the OS grants notification permission.
+
+    Supabase table DDL (run once):
+
+        CREATE TABLE public.push_tokens (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+            token TEXT NOT NULL,
+            platform TEXT NOT NULL CHECK (platform IN ('ios', 'android')),
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+        ALTER TABLE public.push_tokens
+            ADD CONSTRAINT push_tokens_uq UNIQUE (user_id, token);
+        CREATE INDEX idx_push_tokens_uid ON public.push_tokens (user_id);
+        ALTER TABLE public.push_tokens ENABLE ROW LEVEL SECURITY;
+        CREATE POLICY "own push tokens" ON public.push_tokens
+            FOR ALL USING (auth.uid() = user_id)
+            WITH CHECK (auth.uid() = user_id);
+    """
+    from datetime import datetime, timezone  # pylint: disable=import-outside-toplevel
+
+    user_id = current_user["id"]
+    row = await _supabase_upsert(
+        "push_tokens",
+        {
+            "user_id": user_id,
+            "token": body.token,
+            "platform": body.platform,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        },
+        on_conflict="user_id,token",
+    )
+    if not row:
+        from fastapi import HTTPException  # pylint: disable=import-outside-toplevel
+
+        raise HTTPException(status_code=500, detail="Failed to register push token")
+    logger.info(
+        "Expo push token registered user=%s platform=%s", user_id, body.platform
+    )
+    return {"status": "registered"}
+
+
+@router.delete("/unregister", status_code=204)
+async def unregister_push_token(
+    body: ExpoPushTokenRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """Remove a specific Expo push token on logout or permission revocation."""
+    user_id = current_user["id"]
+    await _supabase_delete(
+        "push_tokens",
+        f"user_id=eq.{user_id}&token=eq.{body.token}",
+    )
+    logger.info("Expo push token removed user=%s platform=%s", user_id, body.platform)

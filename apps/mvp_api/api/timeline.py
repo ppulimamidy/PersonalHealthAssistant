@@ -114,7 +114,8 @@ async def get_timeline(
     start_date = end_date - timedelta(days=days)
 
     # Narrow the fetch window when since_timestamp is provided
-    if since_timestamp:
+    # Guard against FastAPI Query objects being passed when called programmatically
+    if since_timestamp and isinstance(since_timestamp, str):
         try:
             parsed = datetime.fromisoformat(since_timestamp.replace("Z", "+00:00"))
             parsed_naive = parsed.replace(tzinfo=None) if parsed.tzinfo else parsed

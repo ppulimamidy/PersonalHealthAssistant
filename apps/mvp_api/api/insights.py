@@ -3,7 +3,7 @@ AI Insights API
 Endpoints for AI-generated health insights with explainability.
 """
 
-# pylint: disable=too-many-locals,too-many-branches,too-many-statements,broad-except,import-outside-toplevel,too-few-public-methods,missing-class-docstring,invalid-name,line-too-long
+# pylint: disable=too-many-locals,too-many-branches,too-many-statements,broad-except,import-outside-toplevel,too-few-public-methods,missing-class-docstring,invalid-name,line-too-long,too-many-lines,consider-using-f-string,reimported,use-maxsplit-arg,duplicate-code
 
 import hashlib
 import json
@@ -479,7 +479,7 @@ async def get_insights(
     from .timeline import get_timeline
 
     # Incremental sync: skip expensive generation if saved_insights has nothing new
-    if since_timestamp:
+    if since_timestamp and isinstance(since_timestamp, str):
         try:
             datetime.fromisoformat(since_timestamp.replace("Z", "+00:00"))  # validate
             _since_iso = since_timestamp.replace("Z", "+00:00")

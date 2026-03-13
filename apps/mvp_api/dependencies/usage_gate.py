@@ -122,11 +122,23 @@ async def _supabase_get(table: str, params: str) -> list:
         return []
 
 
-async def _supabase_upsert(table: str, body: dict) -> Optional[dict]:
-    """POST (upsert) to Supabase PostgREST."""
+async def _supabase_upsert(
+    table: str, body: dict, on_conflict: Optional[str] = None
+) -> Optional[dict]:
+    """POST (upsert) to Supabase PostgREST.
+
+    Args:
+        table: Supabase table name.
+        body: Row data to upsert.
+        on_conflict: Comma-separated column names for conflict resolution
+            (e.g. ``"user_id,source,metric_type,date"``). When omitted, the
+            primary key is used.
+    """
     if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
         return None
     url = f"{SUPABASE_URL}/rest/v1/{table}"
+    if on_conflict:
+        url += f"?on_conflict={on_conflict}"
     headers = {
         **_supabase_headers(),
         "Prefer": "resolution=merge-duplicates,return=representation",

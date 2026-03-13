@@ -428,7 +428,7 @@ export function LandingPage() {
             <p className="text-lg" style={{ color: TEXT_2 }}>Click through each step to see the actual app experience</p>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
             {/* Left — steps */}
             <div className="space-y-3">
               {demoSteps.map((step, i) => {
@@ -471,7 +471,7 @@ export function LandingPage() {
             </div>
 
             {/* Right — browser mock */}
-            <div className="rounded-2xl overflow-hidden shadow-2xl" style={{ backgroundColor: BG_SURFACE, border: `1px solid ${BORDER_MED}` }}>
+            <div className="rounded-2xl overflow-hidden shadow-2xl" style={{ backgroundColor: BG_SURFACE, border: `2px solid rgba(0,212,170,0.2)`, boxShadow: '0 0 40px rgba(0,0,0,0.6)' }}>
               {/* Browser chrome */}
               <div className="flex items-center gap-2 px-4 py-3" style={{ backgroundColor: BG_RAISED, borderBottom: `1px solid ${BORDER}` }}>
                 <div className="w-3 h-3 rounded-full bg-red-500/60" />
@@ -492,7 +492,7 @@ export function LandingPage() {
                 })}
               </div>
               {/* Content */}
-              <div className="p-5 overflow-hidden" style={{ minHeight: '420px' }}>
+              <div className="p-5 overflow-hidden" style={{ minHeight: '420px', maxHeight: '500px', overflowY: 'auto' }}>
                 <DemoPanel />
               </div>
             </div>

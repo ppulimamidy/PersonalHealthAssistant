@@ -56,6 +56,7 @@ from .api.notifications import router as notifications_router
 from .api.interventions import router as interventions_router
 from .api.batch import router as batch_router
 from .api.auth_refresh import router as auth_refresh_router
+from .api.health_data import router as health_data_router
 
 logger = get_logger(__name__)
 settings = get_settings()
@@ -205,6 +206,11 @@ app.include_router(
 )
 app.include_router(batch_router, prefix="/api/v1/batch", tags=["Batch"])
 app.include_router(auth_refresh_router, prefix="/api/v1/auth", tags=["Auth"])
+app.include_router(
+    health_data_router,
+    prefix="/api/v1/health-data",
+    tags=["Native Health Data"],
+)
 
 
 @app.get("/health")

@@ -1,4 +1,4 @@
-# Python
+# ── Python ──────────────────────────────────────────────────────────────────
 __pycache__/
 *.py[cod]
 *$py.class
@@ -20,10 +20,6 @@ wheels/
 .installed.cfg
 *.egg
 
-# Frontend uses `src/lib/` for shared modules (do not ignore)
-!frontend/src/lib/
-!frontend/src/lib/**
-
 # Virtual environments
 venv/
 venv-*/
@@ -31,14 +27,47 @@ ENV/
 env/
 .venv/
 
-# IDE
+# ── Node / npm / yarn / pnpm ─────────────────────────────────────────────────
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+# Lock files excluded — mobile package-lock exceeds pre-commit 500 KB limit
+apps/mobile/package-lock.json
+
+# ── Next.js ──────────────────────────────────────────────────────────────────
+.next/
+out/
+.turbo/
+
+# Frontend uses `src/lib/` for shared modules (do not ignore)
+!frontend/src/lib/
+!frontend/src/lib/**
+
+# ── Expo / React Native ──────────────────────────────────────────────────────
+.expo/
+.expo-shared/
+# Android generated
+android/build/
+android/.gradle/
+android/app/build/
+android/app/release/
+*.apk
+*.aab
+# iOS generated (Pods and build/ handled by apps/mobile/ios/.gitignore)
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# ── IDE ───────────────────────────────────────────────────────────────────────
 .idea/
 .vscode/
 *.swp
 *.swo
 *~
 
-# Environment files
+# ── Environment files ─────────────────────────────────────────────────────────
 .env
 .env.*
 .env.local
@@ -46,13 +75,13 @@ env/
 *.env
 !*.env.example
 
-# Logs
+# ── Logs ──────────────────────────────────────────────────────────────────────
 *.log
 *.log.*
 logs/
 traefik/logs/
 
-# Test results and reports
+# ── Test results / scratch output ─────────────────────────────────────────────
 *_test_results*.json
 test_results*.json
 *_test_report*.json
@@ -60,63 +89,67 @@ test_results*.json
 test_output*.log
 detailed_test.log
 
-# Temporary files
+# ── Temporary files ───────────────────────────────────────────────────────────
 *.tmp
 *.temp
 *.bak
 *.backup
 cookies.txt
 
-# Database
+# ── Database ──────────────────────────────────────────────────────────────────
 *.db
 *.sqlite
 *.sqlite3
 db_setup.log
 
-# Certificates (keep structure but not actual certs)
+# ── Certificates (keep structure, not secrets) ────────────────────────────────
 certs/*.pem
 certs/*.key
 certs/*.crt
 
-# Generated files
+# ── Generated / media ─────────────────────────────────────────────────────────
 outputs/
 uploads/
 *.mp3
 *.wav
 
-# Kubernetes secrets (actual values)
+# ── Kubernetes secrets ────────────────────────────────────────────────────────
 *-secrets.yaml.local
 
-# Cache
+# ── Cache ─────────────────────────────────────────────────────────────────────
 .cache/
 .pytest_cache/
 .mypy_cache/
+.ruff_cache/
+.parcel-cache/
 
-# Coverage
+# ── Coverage ──────────────────────────────────────────────────────────────────
 htmlcov/
 .coverage
 .coverage.*
 coverage.xml
 *.cover
 
-# Jupyter
+# ── Jupyter ───────────────────────────────────────────────────────────────────
 .ipynb_checkpoints/
 
-# macOS
+# ── macOS ─────────────────────────────────────────────────────────────────────
 .DS_Store
 .AppleDouble
 .LSOverride
+Icon?
+._*
+.Spotlight-V100
+.Trashes
 
-# JWT/tokens (never commit)
+# ── Secrets / tokens (never commit) ──────────────────────────────────────────
 *.jwt
 *token*.txt
-
-# Deployment secrets (never commit)
 .deployment-secrets.txt
 *-secrets.txt
 deployment-keys.txt
 
-# Local scratch scripts / one-off tests (repo root only)
+# ── Local scratch scripts / one-off tests (repo root only) ───────────────────
 /test_*.py
 /comprehensive_*.py
 /debug_*.py
@@ -128,7 +161,7 @@ deployment-keys.txt
 /health_tracking_integration_test*.py
 /verify_supabase_keys.py
 
-# Local artifacts / outputs (repo root)
+# ── Local artifacts / outputs (repo root) ────────────────────────────────────
 /jwt-test-output.txt
 /health_analysis_comprehensive_test_*.json
 /test_lab_report.json
@@ -146,6 +179,6 @@ deployment-keys.txt
 /create_health_tracking_tables.py
 /create_user_profile_tables.py
 
-# References / examples that may contain secrets (keep local)
+# ── Local-only references / examples with secrets ────────────────────────────
 /github-secrets-reference.json
 /GET_SUPABASE_KEYS.md
