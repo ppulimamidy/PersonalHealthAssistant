@@ -79,10 +79,10 @@ export function PredictionsView() {
       <div>
         <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
           <Sparkles className="w-7 h-7 text-primary-600 dark:text-primary-400" />
-          Predictive Health Intelligence
+          Health Forecast
         </h1>
         <p className="text-slate-600 dark:text-slate-400 mt-1">
-          AI-powered predictions, risk assessments, and trend analysis for your health metrics
+          Where your trends are heading
         </p>
       </div>
 
@@ -128,7 +128,7 @@ export function PredictionsView() {
         >
           <div className="flex items-center gap-2">
             <TrendingUp className="w-4 h-4" />
-            Predictions
+            Outlook
           </div>
         </button>
         <button
@@ -141,7 +141,7 @@ export function PredictionsView() {
         >
           <div className="flex items-center gap-2">
             <AlertCircle className="w-4 h-4" />
-            Risk Assessment
+            Watch For
           </div>
         </button>
         <button
@@ -154,7 +154,7 @@ export function PredictionsView() {
         >
           <div className="flex items-center gap-2">
             <Activity className="w-4 h-4" />
-            Trends
+            My Trends
           </div>
         </button>
       </div>
@@ -234,7 +234,7 @@ export function PredictionsView() {
                         <AlertCircle className="w-6 h-6" />
                         <div>
                           <div className="font-semibold text-slate-900 dark:text-slate-100">
-                            Overall Risk Level: {risks.overall_risk_level.toUpperCase()}
+                            Health Watch: {risks.overall_risk_level.toUpperCase()}
                           </div>
                           <div className="text-sm text-slate-600 dark:text-slate-400">
                             {risks.risks.length} active risk {risks.risks.length === 1 ? 'assessment' : 'assessments'}

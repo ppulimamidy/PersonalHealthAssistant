@@ -175,7 +175,7 @@ export function MetaAnalysisView({ report, onRefresh, isLoading }: MetaAnalysisV
                 : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
             }`}
           >
-            Recommended Protocol ({report.recommended_protocol.length})
+            Action Plan ({report.recommended_protocol.length})
           </button>
         </nav>
       </div>
@@ -188,7 +188,7 @@ export function MetaAnalysisView({ report, onRefresh, isLoading }: MetaAnalysisV
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <AlertCircle className="w-5 h-5 text-red-600 dark:text-red-400" />
-                Primary Diagnosis
+                Primary Finding
                 <span className={`text-sm font-medium ml-2 ${getConfidenceColor(report.primary_diagnosis.confidence)}`}>
                   ({Math.round(report.primary_diagnosis.confidence * 100)}% confidence)
                 </span>
@@ -217,7 +217,7 @@ export function MetaAnalysisView({ report, onRefresh, isLoading }: MetaAnalysisV
 
               <div>
                 <h4 className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-                  Causal Chain:
+                  How This Connects:
                 </h4>
                 <div className="flex items-center gap-2 overflow-x-auto pb-2">
                   {report.primary_diagnosis.causal_chain.map((step, idx) => (

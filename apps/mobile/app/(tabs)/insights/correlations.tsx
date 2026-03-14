@@ -13,6 +13,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import { api } from '@/services/api';
 import { MiniLineChart } from '@/components/MiniLineChart';
+import FirstVisitBanner from '@/components/FirstVisitBanner';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -184,7 +185,10 @@ export default function CorrelationsScreen() {
         <TouchableOpacity onPress={() => router.back()} className="mr-4 p-1">
           <Ionicons name="chevron-back" size={24} color="#E8EDF5" />
         </TouchableOpacity>
-        <Text className="text-xl font-display text-[#E8EDF5] flex-1">Correlations</Text>
+        <View className="flex-1">
+          <Text className="text-xl font-display text-[#E8EDF5]">Symptom Triggers</Text>
+          <Text className="text-[#526380] text-xs mt-0.5">What's connected to how you feel</Text>
+        </View>
         <View className="flex-row gap-1 mr-2">
           {DAY_OPTIONS.map((d) => (
             <TouchableOpacity
@@ -207,6 +211,11 @@ export default function CorrelationsScreen() {
           <Ionicons name="refresh-outline" size={20} color={isRefetching ? '#526380' : '#00D4AA'} />
         </TouchableOpacity>
       </View>
+
+      <FirstVisitBanner
+        screenKey="symptom_triggers"
+        text="We analyze your logs to find what correlates with you feeling better or worse."
+      />
 
       <View className="px-6 pt-5">
         {/* Data quality */}

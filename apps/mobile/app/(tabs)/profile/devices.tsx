@@ -1,11 +1,7 @@
 /**
- * Phase 2: Devices & Health Sync screen.
- * iOS  → Apple HealthKit via react-native-health (bridge-based, stable)
- * Android → Health Connect via react-native-health-connect
- *
- * HealthKit entitlement must be enabled in Apple Developer Portal before
- * actual data reads work on physical devices. Simulator works for testing.
- * See docs/MOBILE_ARCHITECTURE.md Section 3.10.
+ * Health Devices screen.
+ * YOUR DEVICES: Apple Health (live sync) + Oura Ring (coming soon)
+ * ADD A WEARABLE: grid of coming-soon devices
  */
 
 import { useState, useCallback } from 'react';
@@ -23,8 +19,6 @@ import { api } from '@/services/api';
 import { getSyncTimestamp, setSyncTimestamp } from '@/utils/syncTimestamp';
 
 // ─── Simulator mock data ───────────────────────────────────────────────────────
-// iOS Simulator requires a paid dev-team certificate for HealthKit entitlements.
-// On simulator we return realistic sample data so the full pipeline can be tested.
 
 function buildMockHealthPoints() {
   const points: Array<{ metric_type: string; date: string; value_json: object }> = [];
@@ -53,11 +47,10 @@ interface SyncMetric {
 
 const METRICS: SyncMetric[] = [
   { label: 'Steps',      icon: 'footsteps-outline', unit: 'steps/day', color: '#6EE7B7', metricType: 'steps',              valueKey: 'steps',  format: (v) => v.toLocaleString() },
-  { label: 'Sleep',      icon: 'moon-outline',      unit: 'hours',     color: '#818CF8', metricType: 'sleep',              valueKey: 'hours',  format: (v) => v.toFixed(1) },
-  { label: 'Heart Rate', icon: 'heart-outline',     unit: 'bpm',       color: '#F87171', metricType: 'resting_heart_rate', valueKey: 'bpm',    format: (v) => String(Math.round(v)) },
-  { label: 'HRV',        icon: 'pulse-outline',     unit: 'ms',        color: '#00D4AA', metricType: 'hrv_sdnn',           valueKey: 'ms',     format: (v) => v.toFixed(1) },
-  { label: 'SpO₂',       icon: 'water-outline',     unit: '%',         color: '#60A5FA', metricType: 'spo2',               valueKey: 'pct',    format: (v) => v.toFixed(1) },
-  { label: 'Workouts',   icon: 'barbell-outline',   unit: 'sessions',  color: '#F5A623', metricType: 'workout',            valueKey: 'count',  format: (v) => String(Math.round(v)) },
+  { label: 'Sleep',      icon: 'moon-outline',      unit: 'hours',     color: '#818CF8', metricType: 'sleep',              valueKey: 'hours',  format: (v) => v.toFixed(1) + 'h' },
+  { label: 'Heart Rate', icon: 'heart-outline',     unit: 'bpm',       color: '#F87171', metricType: 'resting_heart_rate', valueKey: 'bpm',    format: (v) => String(Math.round(v)) + ' bpm' },
+  { label: 'HRV',        icon: 'pulse-outline',     unit: 'ms',        color: '#00D4AA', metricType: 'hrv_sdnn',           valueKey: 'ms',     format: (v) => v.toFixed(1) + ' ms' },
+  { label: 'SpO₂',       icon: 'water-outline',     unit: '%',         color: '#60A5FA', metricType: 'spo2',               valueKey: 'pct',    format: (v) => v.toFixed(1) + '%' },
 ];
 
 // ─── iOS HealthKit ─────────────────────────────────────────────────────────────
@@ -71,8 +64,6 @@ async function syncHealthKit(onProgress: (msg: string) => void) {
 
   onProgress('Requesting permissions…');
 
-  // Simulator: HealthKit entitlement requires a paid dev-team cert which ad-hoc
-  // signing can't provide. Use mock data so the full pipeline is testable.
   if (!Device.isDevice) {
     onProgress('Simulator detected — using sample data…');
     const dataPoints = buildMockHealthPoints();
@@ -84,7 +75,6 @@ async function syncHealthKit(onProgress: (msg: string) => void) {
       sync_timestamp: now.toISOString(),
     });
     await setSyncTimestamp('healthkit', now.toISOString());
-    // Extract most recent value per metric from the points we just synced
     const latest: Record<string, number> = {};
     for (const dp of dataPoints) {
       const val = Object.values(dp.value_json as Record<string, number>)[0];
@@ -93,9 +83,6 @@ async function syncHealthKit(onProgress: (msg: string) => void) {
     return { ...result, latestValues: latest };
   }
 
-  // VitalixHealthKit is a custom Expo Module (ios/Vitalix/VitalixHealthKitModule.swift)
-  // It uses EXUtilities.catchException to convert HealthKit NSExceptions → NSError,
-  // avoiding the EXC_BREAKPOINT crash in Nitro Modules' withCheckedThrowingContinuation.
   const { requireNativeModule } = await import('expo-modules-core');
   const HK = requireNativeModule('VitalixHealthKit');
 
@@ -110,7 +97,6 @@ async function syncHealthKit(onProgress: (msg: string) => void) {
 
   const dataPoints: Array<{ metric_type: string; date: string; value_json: object }> = [];
 
-  // Steps — sum per day
   onProgress('Querying steps…');
   try {
     const steps: Array<{ startDate: number; quantity: number }> =
@@ -125,7 +111,6 @@ async function syncHealthKit(onProgress: (msg: string) => void) {
     }
   } catch { /* no data */ }
 
-  // Heart Rate — daily average
   try {
     const hr: Array<{ startDate: number; quantity: number }> =
       await HK.queryQuantitySamples('HKQuantityTypeIdentifierHeartRate', fromMs, toMs);
@@ -140,7 +125,6 @@ async function syncHealthKit(onProgress: (msg: string) => void) {
     }
   } catch { /* no data */ }
 
-  // HRV — daily average
   try {
     const hrv: Array<{ startDate: number; quantity: number }> =
       await HK.queryQuantitySamples('HKQuantityTypeIdentifierHeartRateVariabilitySDNN', fromMs, toMs);
@@ -155,7 +139,6 @@ async function syncHealthKit(onProgress: (msg: string) => void) {
     }
   } catch { /* no data */ }
 
-  // SpO2 — daily average (HealthKit stores as 0–1 fraction → multiply × 100)
   try {
     const spo2: Array<{ startDate: number; quantity: number }> =
       await HK.queryQuantitySamples('HKQuantityTypeIdentifierOxygenSaturation', fromMs, toMs);
@@ -170,7 +153,6 @@ async function syncHealthKit(onProgress: (msg: string) => void) {
     }
   } catch { /* no data */ }
 
-  // Sleep — total hours per night (skip InBed=0, Awake=2; count sleep stages only)
   try {
     const sleep: Array<{ startDate: number; endDate: number; value: number }> =
       await HK.queryCategorySamples('HKCategoryTypeIdentifierSleepAnalysis', fromMs, toMs);
@@ -279,6 +261,69 @@ async function syncHealthConnect(onProgress: (msg: string) => void) {
   return result;
 }
 
+// ─── Metric Row ───────────────────────────────────────────────────────────────
+
+function MetricRow({ metric, value }: { metric: SyncMetric; value: number | null }) {
+  return (
+    <View className="flex-row items-center py-2.5 border-b border-surface-border last:border-0">
+      <View
+        className="w-8 h-8 rounded-lg items-center justify-center mr-3"
+        style={{ backgroundColor: `${metric.color}18` }}
+      >
+        <Ionicons name={metric.icon} size={16} color={metric.color} />
+      </View>
+      <Text className="text-[#E8EDF5] text-sm flex-1">{metric.label}</Text>
+      {value != null ? (
+        <Text className="text-sm font-sansMedium" style={{ color: metric.color }}>
+          {metric.format(value)}
+        </Text>
+      ) : (
+        <Text className="text-[#3A4A5C] text-xs">—</Text>
+      )}
+    </View>
+  );
+}
+
+// ─── Coming Soon Badge ────────────────────────────────────────────────────────
+
+function ComingSoonBadge() {
+  return (
+    <View className="bg-[#1E2A3B] rounded-full px-2 py-0.5">
+      <Text className="text-[#526380] text-[10px] font-sansMedium">Soon</Text>
+    </View>
+  );
+}
+
+// ─── Wearable Grid Tile ───────────────────────────────────────────────────────
+
+function WearableTile({
+  icon,
+  label,
+  iconColor,
+}: {
+  icon: React.ComponentProps<typeof Ionicons>['name'];
+  label: string;
+  iconColor: string;
+}) {
+  return (
+    <View
+      className="bg-surface-raised border border-surface-border rounded-2xl items-center justify-center py-4"
+      style={{ width: '30%' }}
+    >
+      <View
+        className="w-10 h-10 rounded-xl items-center justify-center mb-2"
+        style={{ backgroundColor: `${iconColor}15` }}
+      >
+        <Ionicons name={icon} size={20} color={iconColor} />
+      </View>
+      <Text className="text-[#E8EDF5] text-xs font-sansMedium text-center">{label}</Text>
+      <View className="mt-1.5">
+        <ComingSoonBadge />
+      </View>
+    </View>
+  );
+}
+
 // ─── Screen ────────────────────────────────────────────────────────────────────
 
 export default function DevicesScreen() {
@@ -317,25 +362,30 @@ export default function DevicesScreen() {
   }, [queryClient]);
 
   const platformName = Platform.OS === 'ios' ? 'Apple Health' : 'Google Health Connect';
-  const platformIcon: React.ComponentProps<typeof Ionicons>['name'] = Platform.OS === 'ios' ? 'heart' : 'fitness';
-  const platformColor = Platform.OS === 'ios' ? '#F87171' : '#4CAF50';
+
+  const hasValues = Object.keys(latestValues).length > 0;
 
   return (
-    <ScrollView className="flex-1 bg-obsidian-900" contentContainerStyle={{ paddingBottom: 40 }}>
+    <ScrollView className="flex-1 bg-obsidian-900" contentContainerStyle={{ paddingBottom: 48 }}>
       {/* Header */}
       <View className="flex-row items-center px-6 pt-14 pb-4 border-b border-surface-border">
         <TouchableOpacity onPress={() => router.back()} className="mr-4 p-1">
           <Ionicons name="chevron-back" size={24} color="#E8EDF5" />
         </TouchableOpacity>
-        <Text className="text-xl font-display text-[#E8EDF5]">Health Sync</Text>
+        <Text className="text-xl font-display text-[#E8EDF5]">Health Devices</Text>
       </View>
 
       <View className="px-6 pt-6">
-        {/* Connection card */}
-        <View className="bg-surface-raised border border-surface-border rounded-2xl p-5 mb-5">
-          <View className="flex-row items-center gap-4 mb-4">
-            <View className="w-14 h-14 rounded-2xl items-center justify-center" style={{ backgroundColor: `${platformColor}20` }}>
-              <Ionicons name={platformIcon} size={28} color={platformColor} />
+
+        {/* ── YOUR DEVICES ─────────────────────────────────────────────────── */}
+        <Text className="text-[#526380] text-xs uppercase tracking-wider mb-3">Your Devices</Text>
+
+        {/* Apple Health card */}
+        <View className="bg-surface-raised border border-surface-border rounded-2xl p-4 mb-3">
+          {/* Device row */}
+          <View className="flex-row items-center mb-4">
+            <View className="w-12 h-12 rounded-xl items-center justify-center mr-3" style={{ backgroundColor: '#F8717120' }}>
+              <Ionicons name="heart" size={24} color="#F87171" />
             </View>
             <View className="flex-1">
               <Text className="text-[#E8EDF5] font-sansMedium text-base">{platformName}</Text>
@@ -345,22 +395,29 @@ export default function DevicesScreen() {
                   : 'Never synced'}
               </Text>
             </View>
-            <View className="w-2.5 h-2.5 rounded-full bg-primary-500" />
+            <View className="flex-row items-center gap-1.5">
+              <View className="w-2 h-2 rounded-full bg-[#6EE7B7]" />
+              <Text className="text-[#6EE7B7] text-xs font-sansMedium">Connected</Text>
+            </View>
           </View>
 
+          {/* Sync result banner */}
           {lastResult && (
-            <View className="bg-primary-500/10 border border-primary-500/30 rounded-xl px-4 py-3 mb-4">
+            <View className="bg-primary-500/10 border border-primary-500/30 rounded-xl px-3 py-2.5 mb-3">
               <Text className="text-primary-500 text-sm font-sansMedium">
                 {lastResult.message ?? `Synced ${lastResult.accepted} data points`}
-                {lastResult.skipped > 0 ? ` (${lastResult.skipped} already up to date)` : ''}
+                {!lastResult.message && lastResult.skipped > 0
+                  ? ` (${lastResult.skipped} already up to date)`
+                  : ''}
               </Text>
             </View>
           )}
 
+          {/* Sync button */}
           <TouchableOpacity
             onPress={handleSync}
             disabled={syncing}
-            className="bg-primary-500 rounded-xl py-3.5 items-center"
+            className="bg-primary-500 rounded-xl py-3 items-center"
             activeOpacity={0.8}
           >
             {syncing ? (
@@ -369,35 +426,65 @@ export default function DevicesScreen() {
                 <Text className="text-obsidian-900 font-sansMedium text-sm">{progress}</Text>
               </View>
             ) : (
-              <Text className="text-obsidian-900 font-sansMedium">Sync Now</Text>
+              <Text className="text-obsidian-900 font-sansMedium text-sm">Sync Now</Text>
             )}
+          </TouchableOpacity>
+
+          {/* Metric rows — shown after first sync */}
+          {hasValues && (
+            <View className="mt-4 pt-4 border-t border-surface-border">
+              <View className="flex-row items-center mb-2">
+                <Ionicons name="heart" size={12} color="#F87171" />
+                <Text className="text-[#526380] text-xs ml-1.5">Apple Health</Text>
+              </View>
+              {METRICS.map((m) => (
+                <MetricRow
+                  key={m.metricType}
+                  metric={m}
+                  value={latestValues[m.metricType] ?? null}
+                />
+              ))}
+            </View>
+          )}
+        </View>
+
+        {/* Oura Ring card */}
+        <View className="bg-surface-raised border border-surface-border rounded-2xl p-4 mb-6">
+          <View className="flex-row items-center mb-4">
+            <View className="w-12 h-12 rounded-xl items-center justify-center mr-3" style={{ backgroundColor: '#818CF820' }}>
+              <Ionicons name="radio-button-on-outline" size={24} color="#818CF8" />
+            </View>
+            <View className="flex-1">
+              <Text className="text-[#E8EDF5] font-sansMedium text-base">Oura Ring</Text>
+              <Text className="text-[#526380] text-xs mt-0.5">Track sleep, HRV &amp; readiness</Text>
+            </View>
+            <View className="flex-row items-center gap-1.5">
+              <View className="w-2 h-2 rounded-full bg-[#3A4A5C]" />
+              <Text className="text-[#526380] text-xs font-sansMedium">Not linked</Text>
+            </View>
+          </View>
+
+          <TouchableOpacity
+            disabled
+            className="rounded-xl py-3 items-center"
+            style={{ backgroundColor: '#1E2A3B', borderWidth: 1, borderColor: '#2A3A4E' }}
+          >
+            <View className="flex-row items-center gap-2">
+              <Text className="text-[#526380] font-sansMedium text-sm">Connect</Text>
+              <ComingSoonBadge />
+            </View>
           </TouchableOpacity>
         </View>
 
-        {/* Metrics grid */}
-        <Text className="text-[#526380] text-xs uppercase tracking-wider mb-3">Data We Collect</Text>
-        <View className="flex-row flex-wrap gap-3 mb-5">
-          {METRICS.map((m) => {
-            const raw = latestValues[m.metricType];
-            const valueStr = raw != null ? m.format(raw) : null;
-            return (
-              <View
-                key={m.label}
-                className="bg-surface-raised border border-surface-border rounded-xl p-3 items-center"
-                style={{ width: '30%' }}
-              >
-                <View className="w-9 h-9 rounded-xl items-center justify-center mb-2" style={{ backgroundColor: `${m.color}20` }}>
-                  <Ionicons name={m.icon} size={18} color={m.color} />
-                </View>
-                <Text className="text-[#E8EDF5] text-xs font-sansMedium text-center">{m.label}</Text>
-                {valueStr != null ? (
-                  <Text className="text-xs font-sansMedium text-center mt-0.5" style={{ color: m.color }}>{valueStr}</Text>
-                ) : (
-                  <Text className="text-[#526380] text-xs text-center mt-0.5">{m.unit}</Text>
-                )}
-              </View>
-            );
-          })}
+        {/* ── ADD A WEARABLE ────────────────────────────────────────────────── */}
+        <Text className="text-[#526380] text-xs uppercase tracking-wider mb-3">Add a Wearable</Text>
+        <View className="flex-row flex-wrap gap-3 mb-6">
+          <WearableTile icon="watch-outline"          label="Garmin"   iconColor="#00D4AA" />
+          <WearableTile icon="fitness-outline"        label="Whoop"    iconColor="#F5A623" />
+          <WearableTile icon="body-outline"           label="Fitbit"   iconColor="#60A5FA" />
+          <WearableTile icon="phone-portrait-outline" label="Samsung"  iconColor="#6EE7B7" />
+          <WearableTile icon="pulse-outline"          label="Polar"    iconColor="#F87171" />
+          <WearableTile icon="add-circle-outline"     label="More"     iconColor="#818CF8" />
         </View>
 
         {/* Privacy note */}
@@ -408,6 +495,7 @@ export default function DevicesScreen() {
             You can delete your data at any time from Settings.
           </Text>
         </View>
+
       </View>
     </ScrollView>
   );

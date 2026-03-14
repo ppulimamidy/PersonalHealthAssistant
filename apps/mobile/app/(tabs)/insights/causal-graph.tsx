@@ -16,6 +16,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { format } from 'date-fns';
 import { api } from '@/services/api';
 import type { CausalGraph, CausalEdge } from '@/types';
+import FirstVisitBanner from '@/components/FirstVisitBanner';
 
 // ─── Strength helpers ──────────────────────────────────────────────────────────
 
@@ -72,14 +73,14 @@ function EdgeCard({ edge, index }: { edge: CausalEdge; index: number }) {
             <Text style={{ color: cfg.color, fontSize: 11, fontWeight: '500' }}>{cfg.label}</Text>
           </View>
           <Text className="text-[#526380] text-xs">
-            Causality {(edge.causality_score * 100).toFixed(0)}%
+            Confidence {(edge.causality_score * 100).toFixed(0)}%
           </Text>
           <Text className="text-[#526380] text-xs">
-            Corr {dir}{Math.abs(edge.correlation * 100).toFixed(0)}%
+            Linked {dir}{Math.abs(edge.correlation * 100).toFixed(0)}%
           </Text>
           {isGranger && (
             <View className="rounded-full px-2 py-0.5 bg-purple-500/15">
-              <Text className="text-purple-400 text-[10px] font-medium">Granger ✓</Text>
+              <Text className="text-purple-400 text-[10px] font-medium">AI Verified</Text>
             </View>
           )}
           <TouchableOpacity onPress={() => setExpanded((v) => !v)} className="ml-auto">
@@ -92,7 +93,7 @@ function EdgeCard({ edge, index }: { edge: CausalEdge; index: number }) {
           <View className="mt-3 pt-3 border-t border-surface-border gap-1.5">
             {edge.granger_p_value !== undefined && edge.granger_p_value !== null && (
               <Text className="text-[#526380] text-xs">
-                <Text className="text-[#8B97A8]">Granger p-value: </Text>
+                <Text className="text-[#8B97A8]">Statistical significance: </Text>
                 {edge.granger_p_value.toFixed(4)}
                 {edge.granger_p_value < 0.05 ? '  (significant)' : '  (marginal)'}
               </Text>
@@ -136,8 +137,8 @@ export default function CausalGraphScreen() {
           <Ionicons name="chevron-back" size={24} color="#E8EDF5" />
         </TouchableOpacity>
         <View className="flex-1">
-          <Text className="text-xl font-display text-[#E8EDF5]">Causal Graph</Text>
-          <Text className="text-[#526380] text-xs mt-0.5">How nutrition causally affects your metrics</Text>
+          <Text className="text-xl font-display text-[#E8EDF5]">Root Causes</Text>
+          <Text className="text-[#526380] text-xs mt-0.5">What's most likely driving your symptoms</Text>
         </View>
         {/* Day selector */}
         <View className="flex-row gap-1 bg-surface-raised border border-surface-border rounded-xl p-1">
@@ -156,6 +157,10 @@ export default function CausalGraphScreen() {
         </View>
       </View>
 
+      <FirstVisitBanner
+        screenKey="root_causes"
+        text="This shows which factors most influence your symptoms, ranked by strength of connection."
+      />
       <ScrollView className="flex-1" contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
         {/* Info explainer */}
         <TouchableOpacity
@@ -165,7 +170,7 @@ export default function CausalGraphScreen() {
         >
           <View className="flex-row items-center px-4 py-3 gap-2">
             <Ionicons name="information-circle-outline" size={16} color="#526380" />
-            <Text className="text-[#526380] text-sm flex-1">What is a causal graph?</Text>
+            <Text className="text-[#526380] text-sm flex-1">How does this work?</Text>
             <Ionicons name={infoOpen ? 'chevron-up' : 'chevron-down'} size={14} color="#526380" />
           </View>
           {infoOpen && (

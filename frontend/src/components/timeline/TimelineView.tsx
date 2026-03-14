@@ -22,22 +22,41 @@ function avg(values: number[]): number | null {
 
 function formatDelta(delta: number, unit: string) {
   const sign = delta > 0 ? '+' : '';
-  return `${sign}${delta.toFixed(unit === 'bpm' ? 1 : 0)}${unit ? ` ${unit}` : ''}`;
+  const precision = unit === 'bpm' ? 1 : 0;
+  const suffix = unit ? ` ${unit}` : '';
+  return `${sign}${delta.toFixed(precision)}${suffix}`;
 }
 
-function TimelineCard({ entry }: { entry: TimelineEntry }) {
+const SOURCE_LABELS: Record<string, string> = {
+  oura: 'Oura',
+  healthkit: 'Apple Health',
+  health_connect: 'Health Connect',
+};
+
+function TimelineCard({ entry }: Readonly<{ entry: TimelineEntry }>) {
   const [expanded, setExpanded] = useState(false);
+  const toggle = () => setExpanded((v) => !v);
 
   return (
     <Card className="mb-4">
-      <div
-        className="flex items-center justify-between cursor-pointer"
-        onClick={() => setExpanded(!expanded)}
-      >
+      <div className="flex items-center justify-between">
         <div>
           <p className="text-lg font-semibold text-slate-900 dark:text-slate-100">
             {formatDate(entry.date)}
           </p>
+          {entry.sources && entry.sources.length > 0 && (
+            <div className="flex gap-1 mt-1">
+              {entry.sources.map((s) => (
+                <span
+                  key={s}
+                  className="text-[10px] px-1.5 py-0.5 rounded-full text-[#526380]"
+                  style={{ backgroundColor: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}
+                >
+                  {SOURCE_LABELS[s] ?? s}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-6">
           {entry.sleep && (
@@ -49,7 +68,7 @@ function TimelineCard({ entry }: { entry: TimelineEntry }) {
           {entry.readiness && (
             <HealthScoreRing score={entry.readiness.readiness_score} size="sm" label="Readiness" />
           )}
-          <button className="text-slate-400 dark:text-slate-500">
+          <button type="button" onClick={toggle} className="text-slate-400 dark:text-slate-500">
             {expanded ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
           </button>
         </div>
@@ -142,10 +161,23 @@ export function TimelineView() {
   const { selectedTimeRange, setTimeRange } = useHealthStore();
   const [showBaseline, setShowBaseline] = useState(true);
 
+  // Read source priority from settings
+  const sourcePriority = useMemo(() => {
+    try {
+      const raw = globalThis.localStorage?.getItem('vitalix_data_source_prefs');
+      const p = raw ? JSON.parse(raw) : {};
+      const vals: string[] = Object.values(p);
+      const nonAuto = vals.filter((v) => v !== 'auto');
+      if (nonAuto.length === 0) return 'auto';
+      const first = nonAuto[0];
+      return nonAuto.every((v) => v === first) ? first : 'auto';
+    } catch { return 'auto'; }
+  }, []);
+
   // Always fetch 30 days so we can show baseline vs recent.
   const { data: timeline30, isLoading, refetch } = useQuery({
-    queryKey: ['timeline', 30],
-    queryFn: () => ouraService.getTimeline(30),
+    queryKey: ['timeline', 30, sourcePriority],
+    queryFn: () => ouraService.getTimeline(30, sourcePriority),
   });
 
   const { timelineToShow, baseline } = useMemo(() => {
@@ -284,17 +316,19 @@ export function TimelineView() {
       )}
 
       {/* Timeline */}
-      {isLoading ? (
+      {isLoading && (
         <div className="flex items-center justify-center h-64">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600" />
         </div>
-      ) : timelineToShow && timelineToShow.length > 0 ? (
+      )}
+      {!isLoading && timelineToShow && timelineToShow.length > 0 && (
         <div>
           {timelineToShow.map((entry) => (
             <TimelineCard key={entry.date} entry={entry} />
           ))}
         </div>
-      ) : (
+      )}
+      {!isLoading && (!timelineToShow || timelineToShow.length === 0) && (
         <EmptyState
           icon={Cpu}
           title="Connect a device to see your timeline"

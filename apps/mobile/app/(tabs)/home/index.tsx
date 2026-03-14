@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import { View, Text, ScrollView, RefreshControl, TouchableOpacity } from 'react-native';
 import { router } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
@@ -6,11 +7,44 @@ import { format } from 'date-fns';
 import { api } from '@/services/api';
 import { useAuthStore } from '@/stores/authStore';
 import type { AIInsight } from '@/types';
+import DailyCheckinModal, { shouldShowDailyCheckin } from '@/components/DailyCheckinModal';
+import GettingStartedCard from '@/components/GettingStartedCard';
 
-function HealthScoreRing({ score, trend }: { score: number; trend?: string }) {
-  const color = score >= 80 ? '#00D4AA' : score >= 60 ? '#6EE7B7' : score >= 40 ? '#F5A623' : '#F87171';
-  const trendIcon = trend === 'up' ? 'trending-up' : trend === 'down' ? 'trending-down' : 'remove';
-  const trendColor = trend === 'up' ? '#00D4AA' : trend === 'down' ? '#F87171' : '#526380';
+function scoreColor(score: number): string {
+  if (score >= 80) return '#00D4AA';
+  if (score >= 60) return '#6EE7B7';
+  if (score >= 40) return '#F5A623';
+  return '#F87171';
+}
+
+function trendIcon(trend?: string): string {
+  if (trend === 'up') return 'trending-up';
+  if (trend === 'down') return 'trending-down';
+  return 'remove';
+}
+
+function trendColor(trend?: string): string {
+  if (trend === 'up') return '#00D4AA';
+  if (trend === 'down') return '#F87171';
+  return '#526380';
+}
+
+function adherenceColor(pct: number): string {
+  if (pct >= 80) return '#00D4AA';
+  if (pct >= 50) return '#F5A623';
+  return '#F87171';
+}
+
+function insightColor(type: string): string {
+  if (type === 'alert') return '#F87171';
+  if (type === 'recommendation') return '#F5A623';
+  return '#6EE7B7';
+}
+
+function HealthScoreRing({ score, trend }: Readonly<{ score: number; trend?: string }>) {
+  const color = scoreColor(score);
+  const icon = trendIcon(trend);
+  const iconColor = trendColor(trend);
   return (
     <View className="bg-surface-raised rounded-2xl p-6 mb-4 border border-surface-border">
       <View className="flex-row items-center justify-between">
@@ -20,8 +54,8 @@ function HealthScoreRing({ score, trend }: { score: number; trend?: string }) {
             {Math.round(score)}
           </Text>
           <View className="flex-row items-center mt-1 gap-1">
-            <Ionicons name={trendIcon as any} size={14} color={trendColor} />
-            <Text style={{ color: trendColor, fontSize: 12 }}>vs yesterday</Text>
+            <Ionicons name={icon as never} size={14} color={iconColor} />
+            <Text style={{ color: iconColor, fontSize: 12 }}>vs yesterday</Text>
           </View>
         </View>
         <View className="items-end">
@@ -54,21 +88,21 @@ function QuickLogStrip() {
         <Text className="text-[#E8EDF5] text-xs mt-1.5 font-sansMedium">Meal</Text>
       </TouchableOpacity>
       <TouchableOpacity
-        onPress={() => router.push('/(tabs)/chat')}
-        className="flex-1 bg-primary-500/10 border border-primary-500/30 rounded-xl py-3 items-center"
+        onPress={() => router.push('/(tabs)/home/checkin')}
+        className="flex-1 bg-surface-raised border border-surface-border rounded-xl py-3 items-center"
         activeOpacity={0.7}
       >
-        <Ionicons name="chatbubble-ellipses-outline" size={20} color="#00D4AA" />
-        <Text className="text-primary-500 text-xs mt-1.5 font-sansMedium">Ask AI</Text>
+        <Ionicons name="clipboard-outline" size={20} color="#818CF8" />
+        <Text className="text-[#E8EDF5] text-xs mt-1.5 font-sansMedium">Check-in</Text>
       </TouchableOpacity>
     </View>
   );
 }
 
-function AdherenceStrip({ data }: { data?: { taken: number; total: number; streak: number } }) {
+function AdherenceStrip({ data }: Readonly<{ data?: { taken: number; total: number; streak: number } }>) {
   if (!data || data.total === 0) return null;
-  const pct = data.total > 0 ? Math.round((data.taken / data.total) * 100) : 0;
-  const color = pct >= 80 ? '#00D4AA' : pct >= 50 ? '#F5A623' : '#F87171';
+  const pct = Math.round((data.taken / data.total) * 100);
+  const color = adherenceColor(pct);
   return (
     <View className="bg-surface-raised border border-surface-border rounded-xl p-4 mb-4">
       <View className="flex-row items-center justify-between mb-2">
@@ -95,7 +129,97 @@ function AdherenceStrip({ data }: { data?: { taken: number; total: number; strea
   );
 }
 
-function RecentInsights({ insights }: { insights: AIInsight[] }) {
+function EmptyDashboard() {
+  return (
+    <View className="bg-surface-raised border border-surface-border rounded-2xl p-6 mb-4 items-center">
+      <Ionicons name="stats-chart-outline" size={36} color="#526380" />
+      <Text className="text-[#E8EDF5] font-sansMedium text-base mt-3 mb-1">Your dashboard is ready</Text>
+      <Text className="text-[#526380] text-sm text-center leading-5">
+        Log your first symptom, meal, or check-in to start seeing your health score and AI insights.
+      </Text>
+      <TouchableOpacity
+        onPress={() => router.push('/(tabs)/home/checkin')}
+        className="bg-primary-500/20 border border-primary-500/40 rounded-xl px-5 py-2.5 mt-4"
+        activeOpacity={0.8}
+      >
+        <Text className="text-primary-500 font-sansMedium text-sm">Start with a check-in</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+function ProviderHomeCards() {
+  return (
+    <View className="mb-4 gap-3">
+      <Text className="text-[#526380] text-xs uppercase tracking-wider mb-1">Provider Tools</Text>
+      <TouchableOpacity
+        onPress={() => router.push('/(tabs)/profile/patients')}
+        className="flex-row items-center bg-surface-raised border border-surface-border rounded-xl p-4"
+        activeOpacity={0.7}
+      >
+        <View className="w-10 h-10 rounded-xl bg-indigo-500/15 items-center justify-center mr-3">
+          <Ionicons name="people-outline" size={20} color="#818CF8" />
+        </View>
+        <View className="flex-1">
+          <Text className="text-[#E8EDF5] font-sansMedium">My Patients</Text>
+          <Text className="text-[#526380] text-xs mt-0.5">View patient roster</Text>
+        </View>
+        <Ionicons name="chevron-forward" size={16} color="#526380" />
+      </TouchableOpacity>
+      <TouchableOpacity
+        onPress={() => router.push('/(tabs)/insights/doctor-prep')}
+        className="flex-row items-center bg-surface-raised border border-surface-border rounded-xl p-4"
+        activeOpacity={0.7}
+      >
+        <View className="w-10 h-10 rounded-xl bg-primary-500/15 items-center justify-center mr-3">
+          <Ionicons name="document-text-outline" size={20} color="#00D4AA" />
+        </View>
+        <View className="flex-1">
+          <Text className="text-[#E8EDF5] font-sansMedium">Visit Prep</Text>
+          <Text className="text-[#526380] text-xs mt-0.5">Prepare for your next appointment</Text>
+        </View>
+        <Ionicons name="chevron-forward" size={16} color="#526380" />
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+function CaregiverHomeCards() {
+  const { data: sharingData } = useQuery({
+    queryKey: ['sharing', 'links'],
+    queryFn: async () => {
+      try {
+        const { data: resp } = await api.get('/api/v1/sharing/links');
+        return resp;
+      } catch { return null; }
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const hasSharing = Array.isArray(sharingData)
+    ? sharingData.length > 0
+    : (sharingData?.links?.length ?? 0) > 0;
+
+  if (hasSharing) return null;
+
+  return (
+    <TouchableOpacity
+      onPress={() => router.push('/(tabs)/profile/sharing')}
+      className="bg-indigo-500/10 border border-indigo-500/30 rounded-xl p-4 mb-4"
+      activeOpacity={0.8}
+    >
+      <View className="flex-row items-center gap-2 mb-1">
+        <Ionicons name="link-outline" size={18} color="#818CF8" />
+        <Text className="text-indigo-400 font-sansMedium">Connect with your care recipient</Text>
+      </View>
+      <Text className="text-[#526380] text-sm ml-7">
+        Set up sharing so you can monitor their health data
+      </Text>
+    </TouchableOpacity>
+  );
+}
+
+function RecentInsights({ insights }: Readonly<{ insights: AIInsight[] }>) {
   if (!insights.length) return null;
   return (
     <View className="mb-4">
@@ -106,7 +230,7 @@ function RecentInsights({ insights }: { insights: AIInsight[] }) {
         </TouchableOpacity>
       </View>
       {insights.slice(0, 2).map((insight) => {
-        const color = insight.type === 'alert' ? '#F87171' : insight.type === 'recommendation' ? '#F5A623' : '#6EE7B7';
+        const color = insightColor(insight.type);
         return (
           <View key={insight.id} className="bg-surface-raised border border-surface-border rounded-xl p-4 mb-2">
             <View className="flex-row items-start gap-3">
@@ -130,7 +254,13 @@ function RecentInsights({ insights }: { insights: AIInsight[] }) {
 }
 
 export default function HomeScreen() {
-  const { user } = useAuthStore();
+  const { user, profile } = useAuthStore();
+  const userRole = profile?.user_role ?? 'patient';
+  const [showDailyCheckin, setShowDailyCheckin] = useState(false);
+
+  useEffect(() => {
+    shouldShowDailyCheckin().then((show) => { if (show) setShowDailyCheckin(true); }).catch(() => {});
+  }, []);
 
   const { data, isLoading, refetch } = useQuery({
     queryKey: ['batch', 'home'],
@@ -176,10 +306,15 @@ export default function HomeScreen() {
   const insights: AIInsight[] = Array.isArray(data?.insights)
     ? data.insights
     : (data?.insights?.insights ?? []);
-  const firstName = (user?.user_metadata?.full_name as string | undefined)?.split(' ')[0] ?? 'there';
-  const greeting = new Date().getHours() < 12 ? 'Good morning' : new Date().getHours() < 18 ? 'Good afternoon' : 'Good evening';
+  const hasAnyData = healthScore !== null || insights.length > 0 || (adherenceData?.total ?? 0) > 0;
+  const fullName = (user?.user_metadata?.full_name as string | undefined)
+    ?? (user?.user_metadata?.name as string | undefined);
+  const firstName = fullName?.split(' ')[0] ?? user?.email?.split('@')[0] ?? 'there';
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
 
   return (
+    <>
     <ScrollView
       className="flex-1 bg-obsidian-900"
       contentContainerStyle={{ padding: 16, paddingTop: 56, paddingBottom: 32 }}
@@ -191,10 +326,20 @@ export default function HomeScreen() {
         <Text className="text-[#526380] text-sm mt-1">{format(new Date(), 'EEEE, MMMM d')}</Text>
       </View>
 
+      {/* Role-specific quick-access cards */}
+      {userRole === 'provider' && <ProviderHomeCards />}
+      {userRole === 'caregiver' && <CaregiverHomeCards />}
+
+      {/* Getting started checklist — shown to new users until all 5 steps done */}
+      <GettingStartedCard />
+
       {/* Health Score */}
       {healthScore !== null && (
         <HealthScoreRing score={healthScore} trend={healthTrend} />
       )}
+
+      {/* Empty state for brand-new users */}
+      {!isLoading && !hasAnyData && <EmptyDashboard />}
 
       {/* Check-in prompt */}
       {checkinStatus?.should_prompt && (
@@ -221,5 +366,11 @@ export default function HomeScreen() {
       {/* Recent Insights */}
       <RecentInsights insights={insights} />
     </ScrollView>
+
+    <DailyCheckinModal
+      visible={showDailyCheckin}
+      onDismiss={() => setShowDailyCheckin(false)}
+    />
+    </>
   );
 }

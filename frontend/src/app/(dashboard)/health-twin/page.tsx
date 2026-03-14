@@ -131,11 +131,10 @@ export default function HealthTwinPage() {
       {/* Header */}
       <div className="mb-6">
         <h1 className="text-2xl font-bold mb-1" style={{ color: '#E8EDF5' }}>
-          Health Twin
+          Simulate Changes
         </h1>
         <p className="text-sm" style={{ color: '#526380' }}>
-          Your personalized digital health twin — track biological age, simulate
-          interventions, and predict health outcomes
+          What if you changed something? Explore how lifestyle adjustments affect your health.
         </p>
       </div>
 

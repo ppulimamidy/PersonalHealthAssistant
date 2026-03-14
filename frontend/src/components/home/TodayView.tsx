@@ -13,9 +13,13 @@ import {
   ArrowRight,
   Cpu,
   Lightbulb,
+  Users,
+  FileText,
+  Link2,
 } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
 import type { InsightFollowUp } from '@/types';
+import { api } from '@/services/api';
 import { healthScoreService } from '@/services/healthScore';
 import { ouraService } from '@/services/oura';
 import { insightsService } from '@/services/insights';
@@ -172,6 +176,94 @@ function SetupChecklist({
   );
 }
 
+// ── Provider home cards ───────────────────────────────────────────────────────
+
+function ProviderHomeCards() {
+  const cards = [
+    {
+      href: '/patients',
+      icon: Users,
+      color: '#818CF8',
+      bg: 'rgba(129,140,248,0.08)',
+      title: 'My Patients',
+      sub: 'View your patient roster',
+    },
+    {
+      href: '/doctor-prep',
+      icon: FileText,
+      color: '#00D4AA',
+      bg: 'rgba(0,212,170,0.08)',
+      title: 'Visit Prep',
+      sub: 'Prepare for your next appointment',
+    },
+  ];
+  return (
+    <div>
+      <p className="text-xs font-semibold uppercase tracking-wider text-[#526380] mb-3">
+        Provider Tools
+      </p>
+      <div className="grid grid-cols-2 gap-3">
+        {cards.map(({ href, icon: Icon, color, bg, title, sub }) => (
+          <Link
+            key={href}
+            href={href}
+            className="flex items-center gap-3 p-4 rounded-xl transition-all hover:scale-[1.02]"
+            style={{ backgroundColor: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}
+          >
+            <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0" style={{ backgroundColor: bg }}>
+              <Icon className="w-4 h-4" style={{ color }} />
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-[#E8EDF5] truncate">{title}</p>
+              <p className="text-xs text-[#526380] mt-0.5 truncate">{sub}</p>
+            </div>
+          </Link>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Caregiver home cards ──────────────────────────────────────────────────────
+
+function CaregiverHomeCards() {
+  const { data: sharingData } = useQuery({
+    queryKey: ['sharing', 'links'],
+    queryFn: async () => {
+      const { data } = await api.get('/api/v1/sharing/links');
+      return data;
+    },
+    staleTime: 5 * 60_000,
+  });
+
+  const hasSharing = Array.isArray(sharingData)
+    ? sharingData.length > 0
+    : ((sharingData as { links?: unknown[] } | null)?.links?.length ?? 0) > 0;
+
+  if (hasSharing) return null;
+
+  return (
+    <div
+      className="flex items-start gap-3 p-4 rounded-xl"
+      style={{ backgroundColor: 'rgba(129,140,248,0.06)', border: '1px solid rgba(129,140,248,0.2)' }}
+    >
+      <Link2 className="w-4 h-4 mt-0.5 flex-shrink-0 text-indigo-400" />
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium text-[#E8EDF5]">Connect with your care recipient</p>
+        <p className="text-xs text-[#526380] mt-0.5">
+          Set up sharing so you can monitor their health data
+        </p>
+      </div>
+      <Link
+        href="/sharing"
+        className="text-xs font-medium text-indigo-400 hover:text-indigo-300 transition-colors whitespace-nowrap"
+      >
+        Set up →
+      </Link>
+    </div>
+  );
+}
+
 // ── Quick log strip ───────────────────────────────────────────────────────────
 
 function QuickLogStrip() {
@@ -243,8 +335,9 @@ function InsightFollowUpBanner({ followups }: { followups: InsightFollowUp[] }) 
 // ── Main component ────────────────────────────────────────────────────────────
 
 export function TodayView() {
-  const { user, ouraConnection } = useAuthStore();
+  const { user, profile, ouraConnection } = useAuthStore();
   const firstName = user?.name?.split(' ')[0] || 'there';
+  const userRole = profile?.user_role ?? 'patient';
 
   // ── Queries ─────────────────────────────────────────────────────────────────
 
@@ -399,6 +492,10 @@ export function TodayView() {
         </div>
         <p className="text-sm text-[#526380] mt-0.5">{todayLabel()}</p>
       </div>
+
+      {/* Role-specific quick-access cards */}
+      {userRole === 'provider' && <ProviderHomeCards />}
+      {userRole === 'caregiver' && <CaregiverHomeCards />}
 
       {/* Daily adherence strip — time-sensitive, near top */}
       <DailyAdherenceStrip />

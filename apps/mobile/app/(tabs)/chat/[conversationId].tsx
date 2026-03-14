@@ -45,7 +45,7 @@ export default function ConversationScreen() {
         conversation_id: conversationId !== 'new' ? conversationId : undefined,
         conversation_type: 'general',
       });
-      setMessages(data.messages ?? [...messages, userMsg]);
+      setMessages((prev) => data.messages ?? [...prev, userMsg]);
     } catch {
       setMessages((prev) => [
         ...prev,
@@ -88,13 +88,19 @@ export default function ConversationScreen() {
         <Text className="text-[#E8EDF5] font-sansMedium text-lg flex-1" numberOfLines={1}>
           {agentType ? `${agentType.replace('_', ' ')} Agent` : 'Health Agent'}
         </Text>
+        <TouchableOpacity
+          onPress={() => router.replace({ pathname: '/(tabs)/chat/[conversationId]', params: { conversationId: 'new', agentType: agentType ?? 'general' } } as never)}
+          className="p-1 ml-2"
+        >
+          <Ionicons name="create-outline" size={22} color="#526380" />
+        </TouchableOpacity>
       </View>
 
       {/* Messages */}
       <FlatList
         ref={listRef}
         data={messages}
-        keyExtractor={(item) => item.id}
+        keyExtractor={(item, index) => item.id ?? String(index)}
         renderItem={({ item }) => <MessageBubble msg={item} />}
         contentContainerStyle={{ padding: 16, paddingBottom: 8 }}
         onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}

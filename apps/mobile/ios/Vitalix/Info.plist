@@ -55,5 +55,19 @@
 	<string>Vitalix reads your steps, sleep, heart rate, HRV, SpO₂, and workout data to generate personalized health insights and help you prepare for doctor visits.</string>
 	<key>NSHealthUpdateUsageDescription</key>
 	<string>Vitalix may write workout sessions you log in the app back to Apple Health.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Vitalix uses your photo library to scan meal photos for nutrition logging.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Vitalix uses your camera to capture meal photos for nutrition logging.</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>vitalix</string>
+				<string>exp+vitalix</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>

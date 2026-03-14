@@ -286,6 +286,8 @@
 				"${PODS_CONFIGURATION_BUILD_DIR}/React-Core/React-Core_privacy.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/React-cxxreact/React-cxxreact_privacy.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/SDWebImage/SDWebImage.bundle",
+				"${PODS_CONFIGURATION_BUILD_DIR}/expo-dev-launcher/EXDevLauncher.bundle",
+				"${PODS_CONFIGURATION_BUILD_DIR}/expo-dev-menu/EXDevMenu.bundle",
 			);
 			name = "[CP] Copy Pods Resources";
 			outputPaths = (
@@ -301,6 +303,8 @@
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/React-Core_privacy.bundle",
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/React-cxxreact_privacy.bundle",
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/SDWebImage.bundle",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/EXDevLauncher.bundle",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/EXDevMenu.bundle",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
@@ -329,7 +333,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "# This script configures Expo modules and generates the modules provider file.\nbash -l -c \"./Pods/Target\\ Support\\ Files/Pods-Vitalix/expo-configure-project.sh\"\n\n# Inject VitalixHealthKitModule into ExpoModulesProvider after auto-generation\nPROVIDER=\"${SRCROOT}/Pods/Target Support Files/Pods-Vitalix/ExpoModulesProvider.swift\"\nif [ -f \"$PROVIDER\" ] && ! grep -q 'VitalixHealthKitModule' \"$PROVIDER\"; then\n  python3 -c \"\nimport sys, re\npath = sys.argv[1]\nwith open(path) as f: content = f.read()\npattern = r'(func getModuleClasses[^{]+\\{[^[]*return \\[)'\nreplacement = r'\\\\1\\n      VitalixHealthKitModule.self,'\ncontent = re.sub(pattern, replacement, content, count=1)\nwith open(path, 'w') as f: f.write(content)\n\" \"$PROVIDER\"\n  echo \\\"VitalixHealthKitModule injected into ExpoModulesProvider\\\"\nfi\n";
+			shellScript = "# This script configures Expo modules and generates the modules provider file.\nbash -l -c \"./Pods/Target\\ Support\\ Files/Pods-Vitalix/expo-configure-project.sh\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 

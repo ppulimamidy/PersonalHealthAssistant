@@ -16,6 +16,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import { format } from 'date-fns';
 import { api } from '@/services/api';
+import FirstVisitBanner from '@/components/FirstVisitBanner';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -367,12 +368,18 @@ export default function HealthTwinScreen() {
           <Ionicons name="chevron-back" size={24} color="#E8EDF5" />
         </TouchableOpacity>
         <View className="flex-1">
-          <Text className="text-xl font-display text-[#E8EDF5]">Health Twin</Text>
+          <Text className="text-xl font-display text-[#E8EDF5]">Simulate Changes</Text>
+          <Text className="text-[#526380] text-xs mt-0.5">What if you changed something?</Text>
         </View>
         <View className="bg-indigo-400/20 border border-indigo-400/30 rounded-full px-2.5 py-1">
           <Text className="text-indigo-400 text-xs font-sansMedium">Pro+</Text>
         </View>
       </View>
+
+      <FirstVisitBanner
+        screenKey="simulate_changes"
+        text="Adjust variables like sleep or diet to see how your health score might respond."
+      />
 
       {/* Tabs */}
       <View className="flex-row px-6 pt-4 gap-2">

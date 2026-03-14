@@ -281,12 +281,22 @@ export interface HeartRateData {
 }
 
 // Timeline entry combining all data
+export interface AltMetrics {
+  source: string;
+  steps?: number;
+  sleep_hours?: number;
+  resting_heart_rate?: number;
+  hrv_ms?: number;
+}
+
 export interface TimelineEntry {
   date: string;
   sleep?: SleepData;
   activity?: ActivityData;
   readiness?: ReadinessData;
   insights?: AIInsight[];
+  sources?: string[];       // all sources that contributed data this day
+  alt_metrics?: AltMetrics; // secondary-source values for comparison
 }
 
 // AI Insights types

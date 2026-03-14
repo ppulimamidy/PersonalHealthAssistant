@@ -343,7 +343,10 @@ export default function DoctorPrepScreen() {
     <ScrollView className="flex-1 bg-obsidian-900" contentContainerStyle={{ paddingBottom: 40 }}>
       {/* Header */}
       <View className="flex-row items-center justify-between px-6 pt-14 pb-4 border-b border-surface-border">
-        <Text className="text-xl font-display text-[#E8EDF5]">Doctor Prep</Text>
+        <View>
+          <Text className="text-xl font-display text-[#E8EDF5]">Visit Prep</Text>
+          <Text className="text-[#526380] text-xs mt-0.5">Prepare for your next appointment</Text>
+        </View>
       </View>
 
       <View className="px-6 pt-5">

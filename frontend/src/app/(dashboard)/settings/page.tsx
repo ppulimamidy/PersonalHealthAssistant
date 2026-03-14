@@ -22,6 +22,7 @@ import {
   Trash2,
   Copy,
   Check,
+  GitCompare,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { ReferralCard } from '@/components/referral/ReferralCard';
@@ -39,6 +40,106 @@ const ALL_PERMISSIONS: { key: SharePermission; label: string }[] = [
   { key: 'care_plans', label: 'Care Plans' },
   { key: 'insights', label: 'AI Insights' },
 ];
+
+// ── Data Sources Card ─────────────────────────────────────────────────────────
+
+type SourceOption = 'auto' | 'oura' | 'healthkit';
+
+interface DataSourcePrefs {
+  steps: SourceOption;
+  sleep: SourceOption;
+  hrv: SourceOption;
+  heart_rate: SourceOption;
+}
+
+const DS_DEFAULT: DataSourcePrefs = { steps: 'auto', sleep: 'auto', hrv: 'auto', heart_rate: 'auto' };
+const DS_KEY = 'vitalix_data_source_prefs';
+
+const DS_METRICS: Array<{ key: keyof DataSourcePrefs; label: string; hint: string }> = [
+  { key: 'steps',      label: 'Steps',              hint: 'Auto prefers Apple Health — wrist step counting is typically more accurate.' },
+  { key: 'sleep',      label: 'Sleep',              hint: 'Auto prefers Oura — richer sleep staging and dedicated sleep sensors.' },
+  { key: 'hrv',        label: 'HRV',                hint: 'Auto prefers Oura — overnight HRV from a ring has less motion artifact.' },
+  { key: 'heart_rate', label: 'Resting Heart Rate', hint: 'Auto prefers Oura — overnight resting HR is more stable.' },
+];
+
+const DS_OPTIONS: Array<{ value: SourceOption; label: string }> = [
+  { value: 'auto',      label: 'Auto (recommended)' },
+  { value: 'oura',      label: 'Oura Ring' },
+  { value: 'healthkit', label: 'Apple Health' },
+];
+
+function DataSourcesCard() {
+  const [prefs, setPrefs] = useState<DataSourcePrefs>(DS_DEFAULT);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    try {
+      const raw = globalThis.localStorage?.getItem(DS_KEY);
+      if (raw) setPrefs({ ...DS_DEFAULT, ...JSON.parse(raw) });
+    } catch { /* ignore */ }
+  }, []);
+
+  const handleChange = (key: keyof DataSourcePrefs, val: SourceOption) => {
+    setPrefs((p) => ({ ...p, [key]: val }));
+    setSaved(false);
+  };
+
+  const handleSave = () => {
+    globalThis.localStorage?.setItem(DS_KEY, JSON.stringify(prefs));
+    setSaved(true);
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <GitCompare className="w-5 h-5" />
+          Data Sources
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">
+          When multiple devices track the same metric, choose which source is authoritative
+          for your insights — or run a self-experiment to compare them.
+        </p>
+        <div className="space-y-4">
+          {DS_METRICS.map(({ key, label, hint }) => (
+            <div key={key}>
+              <div className="flex items-center justify-between mb-1">
+                <label htmlFor={`ds-${key}`} className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                  {label}
+                </label>
+                <select
+                  id={`ds-${key}`}
+                  value={prefs[key]}
+                  onChange={(e) => handleChange(key, e.target.value as SourceOption)}
+                  className="text-sm px-2 py-1 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                >
+                  {DS_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                </select>
+              </div>
+              {prefs[key] === 'auto' && (
+                <p className="text-xs text-slate-400 dark:text-slate-500">{hint}</p>
+              )}
+            </div>
+          ))}
+        </div>
+        <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-700">
+          <Button size="sm" onClick={handleSave} variant={saved ? 'outline' : 'primary'}>
+            {saved ? '✓ Saved' : 'Save Preferences'}
+          </Button>
+          {!saved && (
+            <p className="text-xs text-slate-400 mt-2">
+              Changes apply to Timeline and Trends immediately after saving.
+            </p>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
 
 export default function SettingsPage() {
   const { user, profile, setProfile, logout } = useAuthStore();
@@ -738,6 +839,9 @@ export default function SettingsPage() {
             </div>
           </CardContent>
         </Card>
+
+        {/* Data Sources */}
+        <DataSourcesCard />
 
         {/* Subscription */}
         <Card>

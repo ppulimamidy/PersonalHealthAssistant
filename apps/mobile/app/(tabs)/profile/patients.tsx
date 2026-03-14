@@ -42,13 +42,26 @@ function PatientDetail({ shareToken, onClose }: { shareToken: string; onClose: (
     return String(age);
   }
 
+  const patientName = data?.label ?? 'Patient';
+
   return (
     <View className="flex-1 bg-obsidian-900">
       <View className="flex-row items-center px-6 pt-14 pb-4 border-b border-surface-border">
         <TouchableOpacity onPress={onClose} className="mr-4 p-1">
           <Ionicons name="chevron-back" size={24} color="#E8EDF5" />
         </TouchableOpacity>
-        <Text className="text-xl font-display text-[#E8EDF5] flex-1">Patient Summary</Text>
+        <View className="flex-1">
+          <Text className="text-xl font-display text-[#E8EDF5]">{patientName}</Text>
+          <Text className="text-[#526380] text-xs mt-0.5">Shared health summary · read-only</Text>
+        </View>
+      </View>
+
+      {/* 6B: Viewing-as context banner */}
+      <View className="mx-4 mt-3 flex-row items-center gap-2 bg-indigo-500/10 border border-indigo-500/25 rounded-xl px-3 py-2.5">
+        <Ionicons name="eye-outline" size={15} color="#818CF8" />
+        <Text className="text-indigo-400 text-xs flex-1">
+          Viewing <Text className="font-sansMedium">{patientName}</Text>'s shared health data
+        </Text>
       </View>
 
       {isLoading && (
@@ -70,6 +83,20 @@ function PatientDetail({ shareToken, onClose }: { shareToken: string; onClose: (
 
       {data && (
         <ScrollView className="flex-1" contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
+          {/* 6E: Visit Prep shortcut */}
+          <TouchableOpacity
+            onPress={() => router.push('/(tabs)/insights/doctor-prep')}
+            className="flex-row items-center gap-3 bg-primary-500/10 border border-primary-500/30 rounded-xl p-4 mb-4"
+            activeOpacity={0.8}
+          >
+            <Ionicons name="document-text-outline" size={20} color="#00D4AA" />
+            <View className="flex-1">
+              <Text className="text-primary-500 font-sansMedium text-sm">Generate Visit Prep Report</Text>
+              <Text className="text-[#526380] text-xs mt-0.5">Create a report to share with your doctor</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color="#00D4AA" />
+          </TouchableOpacity>
+
           {/* Stat chips */}
           <View className="flex-row gap-2 mb-4">
             {[
@@ -150,7 +177,7 @@ function PatientDetail({ shareToken, onClose }: { shareToken: string; onClose: (
               {(data.symptoms ?? []).slice(0, 5).map((s, i) => (
                 <View key={i} className="flex-row items-center justify-between py-1.5"
                   style={{ borderTopWidth: i > 0 ? 1 : 0, borderTopColor: 'rgba(255,255,255,0.04)' }}>
-                  <Text className="text-[#C8D5E8] text-sm capitalize">{s.symptom_type}</Text>
+                  <Text className="text-[#C8D5E8] text-sm capitalize">{s.symptom_name}</Text>
                   <View className="flex-row items-center gap-2">
                     <Text style={{ color: (s.severity ?? 0) >= 7 ? '#F87171' : '#526380', fontSize: 13 }}>
                       Sev {s.severity}
@@ -168,7 +195,7 @@ function PatientDetail({ shareToken, onClose }: { shareToken: string; onClose: (
               {(data.care_plans ?? []).slice(0, 3).map((cp, i) => (
                 <View key={i} className="py-1.5"
                   style={{ borderTopWidth: i > 0 ? 1 : 0, borderTopColor: 'rgba(255,255,255,0.04)' }}>
-                  <Text className="text-[#C8D5E8] text-sm">{cp.title ?? cp.plan_type}</Text>
+                  <Text className="text-[#C8D5E8] text-sm">{cp.title}</Text>
                 </View>
               ))}
             </View>

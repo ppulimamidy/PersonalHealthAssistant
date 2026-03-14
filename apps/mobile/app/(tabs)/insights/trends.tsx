@@ -4,16 +4,21 @@
  * Data: GET /api/v1/health/timeline?days=30
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, ActivityIndicator,
 } from 'react-native';
 import { router } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
-import { format } from 'date-fns';
 import { api } from '@/services/api';
 import { MiniLineChart } from '@/components/MiniLineChart';
+import {
+  loadDataSourcePrefs,
+  toApiPriority,
+  type SourceOption,
+  type DataSourcePrefs,
+} from '@/utils/dataSourcePrefs';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -88,10 +93,10 @@ const DAY_OPTIONS = [7, 14, 30] as const;
 
 // ─── Metric Chart Card ────────────────────────────────────────────────────────
 
-function MetricCard({ metric, entries }: { metric: MetricConfig; entries: TimelineEntry[] }) {
+function MetricCard({ metric, entries }: Readonly<{ metric: MetricConfig; entries: TimelineEntry[] }>) {
   const data = entries
     .map((e) => metric.key(e))
-    .filter((v): v is number => v != null && !isNaN(v));
+    .filter((v): v is number => v != null && !Number.isNaN(v));
 
   if (data.length === 0) {
     return (
@@ -107,9 +112,28 @@ function MetricCard({ metric, entries }: { metric: MetricConfig; entries: Timeli
 
   const latest = data[data.length - 1];
   const avg = data.reduce((a, b) => a + b, 0) / data.length;
-  const trend = data.length >= 7 ? latest - data[Math.max(0, data.length - 8)] : 0;
+  const trend = data.length >= 7 ? latest - (data.at(-8) ?? data[0]) : 0;
   const trendUp = trend > 0;
   const trendColor = (trendUp === metric.higherIsBetter) ? '#6EE7B7' : '#F87171';
+
+  const isScoreMetric = metric.label === 'Sleep Score' || metric.label === 'Readiness' || metric.label === 'Activity Score';
+  let latestDisplay: string;
+  if (metric.label === 'Daily Steps') {
+    latestDisplay = latest.toLocaleString();
+  } else if (isScoreMetric) {
+    latestDisplay = String(Math.round(latest));
+  } else {
+    latestDisplay = latest.toFixed(0);
+  }
+
+  let trendIcon: React.ComponentProps<typeof Ionicons>['name'];
+  if (trend === 0) {
+    trendIcon = 'remove';
+  } else if (trendUp) {
+    trendIcon = 'trending-up';
+  } else {
+    trendIcon = 'trending-down';
+  }
 
   return (
     <View className="bg-surface-raised border border-surface-border rounded-2xl p-4 mb-3">
@@ -120,16 +144,12 @@ function MetricCard({ metric, entries }: { metric: MetricConfig; entries: Timeli
         </View>
         <View className="flex-row items-center gap-1">
           <Ionicons
-            name={trend === 0 ? 'remove' : trendUp ? 'trending-up' : 'trending-down'}
+            name={trendIcon}
             size={14}
             color={trend === 0 ? '#526380' : trendColor}
           />
           <Text className="text-xl font-display" style={{ color: metric.color }}>
-            {metric.label === 'Daily Steps'
-              ? latest.toLocaleString()
-              : metric.label === 'Sleep Score' || metric.label === 'Readiness' || metric.label === 'Activity Score'
-              ? Math.round(latest)
-              : latest.toFixed(0)}
+            {latestDisplay}
           </Text>
           {metric.unit ? (
             <Text className="text-[#526380] text-xs">{metric.unit}</Text>
@@ -154,11 +174,18 @@ function MetricCard({ metric, entries }: { metric: MetricConfig; entries: Timeli
 
 export default function TrendsScreen() {
   const [days, setDays] = useState<7 | 14 | 30>(30);
+  const [sourcePriority, setSourcePriority] = useState<SourceOption>('auto');
+
+  useEffect(() => {
+    loadDataSourcePrefs().then((p: DataSourcePrefs) => setSourcePriority(toApiPriority(p)));
+  }, []);
 
   const { data, isLoading } = useQuery<{ entries: TimelineEntry[] }>({
-    queryKey: ['health-timeline', days],
+    queryKey: ['health-timeline', days, sourcePriority],
     queryFn: async () => {
-      const { data: resp } = await api.get(`/api/v1/health/timeline?days=${days}`);
+      const { data: resp } = await api.get(
+        `/api/v1/health/timeline?days=${days}&source_priority=${sourcePriority}`
+      );
       return { entries: Array.isArray(resp) ? resp : (resp?.entries ?? []) };
     },
   });
@@ -195,9 +222,8 @@ export default function TrendsScreen() {
       </View>
 
       <View className="px-6 pt-5">
-        {isLoading ? (
-          <ActivityIndicator color="#00D4AA" className="mt-10" />
-        ) : entries.length === 0 ? (
+        {isLoading && <ActivityIndicator color="#00D4AA" className="mt-10" />}
+        {!isLoading && entries.length === 0 && (
           <View className="items-center py-16">
             <Ionicons name="analytics-outline" size={44} color="#526380" />
             <Text className="text-[#526380] text-base mt-3">No trend data yet</Text>
@@ -205,11 +231,10 @@ export default function TrendsScreen() {
               Connect a wearable device to see health trends
             </Text>
           </View>
-        ) : (
-          METRICS.map((m) => (
-            <MetricCard key={m.label} metric={m} entries={entries} />
-          ))
         )}
+        {!isLoading && entries.length > 0 && METRICS.map((m) => (
+          <MetricCard key={m.label} metric={m} entries={entries} />
+        ))}
       </View>
     </ScrollView>
   );

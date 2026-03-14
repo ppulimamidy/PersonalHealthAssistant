@@ -96,9 +96,12 @@ export const ouraService = {
   },
 
   // Get combined timeline data
-  getTimeline: async (days: 14 | 30 = 14): Promise<TimelineEntry[]> => {
+  getTimeline: async (
+    days: 14 | 30 = 14,
+    sourcePriority: string = 'auto'
+  ): Promise<TimelineEntry[]> => {
     const response = await api.get('/api/v1/health/timeline', {
-      params: { days },
+      params: { days, source_priority: sourcePriority },
     });
     return response.data;
   },

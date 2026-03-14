@@ -753,9 +753,9 @@ export function DoctorPrepView() {
       {/* Header */}
       <div className="flex items-center justify-between mb-8">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Doctor Visit Prep</h1>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Visit Prep</h1>
           <p className="text-slate-500 dark:text-slate-400 mt-1">
-            Generate a summary to share with your healthcare provider
+            Prepare for your next appointment
           </p>
         </div>
       </div>

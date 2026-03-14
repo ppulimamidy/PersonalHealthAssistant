@@ -13,6 +13,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import { format } from 'date-fns';
 import { api } from '@/services/api';
+import FirstVisitBanner from '@/components/FirstVisitBanner';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -187,7 +188,7 @@ function RisksTab() {
       >
         <Ionicons name="shield-outline" size={18} color={RISK_COLOR[overall] ?? '#6EE7B7'} />
         <View>
-          <Text className="text-[#E8EDF5] font-sansMedium text-sm">Overall Risk</Text>
+          <Text className="text-[#E8EDF5] font-sansMedium text-sm">Health Watch</Text>
           <Text className="text-xs capitalize font-sansMedium" style={{ color: RISK_COLOR[overall] ?? '#6EE7B7' }}>
             {overall}
           </Text>
@@ -197,7 +198,7 @@ function RisksTab() {
       {risks.length === 0 ? (
         <View className="items-center py-8">
           <Ionicons name="checkmark-circle-outline" size={36} color="#6EE7B7" />
-          <Text className="text-[#6EE7B7] text-base mt-2">No active risks detected</Text>
+          <Text className="text-[#6EE7B7] text-base mt-2">All clear — no concerns detected</Text>
         </View>
       ) : (
         risks.map((r) => {
@@ -332,9 +333,9 @@ function TrendsTab() {
 // ─── Screen ────────────────────────────────────────────────────────────────────
 
 const TABS: Array<{ id: Tab; label: string }> = [
-  { id: 'predictions', label: 'Predictions' },
-  { id: 'risks', label: 'Risks' },
-  { id: 'trends', label: 'Trends' },
+  { id: 'predictions', label: 'Outlook' },
+  { id: 'risks', label: 'Watch For' },
+  { id: 'trends', label: 'My Trends' },
 ];
 
 export default function PredictionsScreen() {
@@ -347,8 +348,16 @@ export default function PredictionsScreen() {
         <TouchableOpacity onPress={() => router.back()} className="mr-4 p-1">
           <Ionicons name="chevron-back" size={24} color="#E8EDF5" />
         </TouchableOpacity>
-        <Text className="text-xl font-display text-[#E8EDF5]">Predictions</Text>
+        <View className="flex-1">
+          <Text className="text-xl font-display text-[#E8EDF5]">Health Forecast</Text>
+          <Text className="text-[#526380] text-xs mt-0.5">Where your trends are heading</Text>
+        </View>
       </View>
+
+      <FirstVisitBanner
+        screenKey="health_forecast"
+        text="Based on your logged trends, this estimates where key metrics are heading."
+      />
 
       {/* Tabs */}
       <View className="flex-row px-6 pt-4 gap-2">

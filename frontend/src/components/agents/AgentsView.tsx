@@ -174,10 +174,19 @@ function renderMarkdown(content: string): React.ReactNode {
   return <div className="space-y-0.5">{elements}</div>;
 }
 
+const QUICK_SUGGESTIONS = [
+  'Why do I feel tired?',
+  'Review my medications',
+  'Explain my latest labs',
+  "What's affecting my sleep?",
+  'Am I improving this week?',
+];
+
 export function AgentsView() {
   const { user, isLoading: isAuthLoading } = useAuth(true);
   const queryClient = useQueryClient();
   const [message, setMessage] = useState('');
+  const [quickAsk, setQuickAsk] = useState('');
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
   const [activeConversation, setActiveConversation] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -253,8 +262,15 @@ export function AgentsView() {
     sendMessageMutation.mutate(toSend);
   };
 
+  const handleQuickAsk = (text?: string) => {
+    const toSend = text ?? quickAsk;
+    if (!toSend.trim() || sendMessageMutation.isPending) return;
+    setQuickAsk('');
+    sendMessageMutation.mutate(toSend);
+  };
+
   const handleSampleQuestion = (q: string) => {
-    if (!selectedAgent || sendMessageMutation.isPending) return;
+    if (sendMessageMutation.isPending) return;
     handleSend(q);
   };
 
@@ -296,11 +312,48 @@ export function AgentsView() {
       <div>
         <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
           <Sparkles className="w-7 h-7 text-primary-600 dark:text-primary-400" />
-          AI Health Agents
+          Agents
         </h1>
         <p className="text-slate-600 dark:text-slate-400 mt-1">
-          Chat with specialized AI assistants for personalized health insights
+          Your AI health advisors
         </p>
+      </div>
+
+      {/* Ask-anything hero bar */}
+      <div className="rounded-2xl border border-primary-300 dark:border-primary-700 bg-primary-50/50 dark:bg-primary-900/10 p-4">
+        <div className="flex gap-3 items-center">
+          <Sparkles className="w-5 h-5 text-primary-600 dark:text-primary-400 flex-shrink-0" />
+          <input
+            type="text"
+            value={quickAsk}
+            onChange={(e) => setQuickAsk(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleQuickAsk()}
+            placeholder="Ask anything about your health…"
+            disabled={sendMessageMutation.isPending}
+            className="flex-1 bg-transparent text-slate-900 dark:text-slate-100 placeholder-slate-500 dark:placeholder-slate-400 focus:outline-none text-base"
+          />
+          {quickAsk.trim().length > 0 && (
+            <button
+              onClick={() => handleQuickAsk()}
+              disabled={sendMessageMutation.isPending}
+              className="w-8 h-8 rounded-full bg-primary-600 dark:bg-primary-500 text-white flex items-center justify-center hover:bg-primary-700 dark:hover:bg-primary-400 transition-colors disabled:opacity-50"
+            >
+              <Send className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+        <div className="flex flex-wrap gap-2 mt-3">
+          {QUICK_SUGGESTIONS.map((s) => (
+            <button
+              key={s}
+              onClick={() => handleQuickAsk(s)}
+              disabled={sendMessageMutation.isPending}
+              className="text-xs px-3 py-1.5 rounded-full border border-primary-300 dark:border-primary-700 text-primary-700 dark:text-primary-300 hover:bg-primary-100 dark:hover:bg-primary-900/30 transition-colors disabled:opacity-50"
+            >
+              {s}
+            </button>
+          ))}
+        </div>
       </div>
 
       {error && (
@@ -317,7 +370,7 @@ export function AgentsView() {
         <div className="lg:col-span-1">
           <Card>
             <CardHeader>
-              <CardTitle className="text-lg">Select an Agent</CardTitle>
+              <CardTitle className="text-lg">Choose a specialist</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="space-y-2">
@@ -448,7 +501,7 @@ export function AgentsView() {
                       </>
                     ) : (
                       <p className="text-slate-600 dark:text-slate-400">
-                        Select an agent from the left to begin
+                        Ask anything above, or pick a specialist on the left to begin
                       </p>
                     )}
                   </div>
@@ -516,17 +569,13 @@ export function AgentsView() {
                     value={message}
                     onChange={(e) => setMessage(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSend()}
-                    placeholder={
-                      selectedAgent
-                        ? 'Type your message...'
-                        : 'Select an agent first...'
-                    }
-                    disabled={!selectedAgent || sendMessageMutation.isPending}
+                    placeholder="Type your message…"
+                    disabled={sendMessageMutation.isPending}
                     className="flex-1 px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 placeholder-slate-500 dark:placeholder-slate-400 disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-primary-500 dark:focus:ring-primary-400"
                   />
                   <Button
                     onClick={() => handleSend()}
-                    disabled={!message.trim() || !selectedAgent || sendMessageMutation.isPending}
+                    disabled={!message.trim() || sendMessageMutation.isPending}
                   >
                     {sendMessageMutation.isPending ? (
                       'Sending...'

@@ -22,6 +22,7 @@ function ProfileRow({ icon, label, onPress }: { icon: React.ComponentProps<typeo
 export default function ProfileScreen() {
   const { user, profile, logout } = useAuthStore();
   const name = (user?.user_metadata?.full_name as string | undefined) ?? user?.email ?? 'User';
+  const userRole = profile?.user_role ?? 'patient';
 
   async function handleLogout() {
     await unregisterPushToken();
@@ -41,8 +42,41 @@ export default function ProfileScreen() {
         <Text className="text-[#526380] text-sm mt-1">{user?.email}</Text>
       </View>
 
+      {/* 6A: Caregiver — surface sharing at top */}
+      {userRole === 'caregiver' && (
+        <TouchableOpacity
+          onPress={() => router.push('/(tabs)/profile/sharing' as never)}
+          className="flex-row items-center bg-indigo-500/10 border border-indigo-500/30 rounded-xl p-4 mb-3"
+          activeOpacity={0.7}
+        >
+          <Ionicons name="share-social-outline" size={20} color="#818CF8" style={{ marginRight: 12 }} />
+          <View className="flex-1">
+            <Text className="text-indigo-300 font-sansMedium">Care Team Sharing</Text>
+            <Text className="text-[#526380] text-xs mt-0.5">Share your health data with family & providers</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={16} color="#818CF8" />
+        </TouchableOpacity>
+      )}
+
+      {/* 6A: Provider — surface patients at top */}
+      {userRole === 'provider' && (
+        <TouchableOpacity
+          onPress={() => router.push('/(tabs)/profile/patients' as never)}
+          className="flex-row items-center bg-indigo-500/10 border border-indigo-500/30 rounded-xl p-4 mb-3"
+          activeOpacity={0.7}
+        >
+          <Ionicons name="people-outline" size={20} color="#818CF8" style={{ marginRight: 12 }} />
+          <View className="flex-1">
+            <Text className="text-indigo-300 font-sansMedium">My Patients</Text>
+            <Text className="text-[#526380] text-xs mt-0.5">View patient roster and health summaries</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={16} color="#818CF8" />
+        </TouchableOpacity>
+      )}
+
       <ProfileRow icon="fitness-outline" label="Health Profile" onPress={() => router.push('/(tabs)/profile/health')} />
-      <ProfileRow icon="phone-portrait-outline" label="Devices & Health Sync" onPress={() => router.push('/(tabs)/profile/devices')} />
+      <ProfileRow icon="phone-portrait-outline" label="Health Devices" onPress={() => router.push('/(tabs)/profile/devices')} />
+      <ProfileRow icon="git-compare-outline" label="Data Sources" onPress={() => router.push('/(tabs)/profile/data-sources' as never)} />
       <ProfileRow icon="card-outline" label="Plan & Billing" onPress={() => router.push('/(tabs)/profile/billing')} />
       <ProfileRow icon="body-outline" label="Health Twin" onPress={() => router.push('/(tabs)/profile/health-twin')} />
       <ProfileRow icon="library-outline" label="Research" onPress={() => router.push('/(tabs)/profile/research')} />

@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { View, Text, FlatList, RefreshControl, ActivityIndicator, TouchableOpacity } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
@@ -27,6 +28,8 @@ function InsightCard({ item }: { item: AIInsight }) {
 }
 
 export default function InsightsScreen() {
+  const [advancedExpanded, setAdvancedExpanded] = useState(false);
+
   const { data, isLoading, refetch } = useQuery({
     queryKey: ['insights'],
     queryFn: async () => {
@@ -49,45 +52,63 @@ export default function InsightsScreen() {
             <Text className="text-primary-500 text-xs font-sansMedium">Doctor Prep</Text>
           </TouchableOpacity>
         </View>
-        <Text className="text-[#526380] text-sm mt-1">AI-powered health patterns</Text>
+        <Text className="text-[#526380] text-sm mt-1">Understand what's affecting your health</Text>
       </View>
 
-      {/* Quick nav */}
-      <View className="px-6 pb-3 gap-2">
+      {/* Quick nav — Tier 1 */}
+      <View className="px-6 pb-1 gap-2">
         <View className="flex-row gap-2">
           {[
-            { label: 'Trends',   icon: 'analytics-outline' as const,   route: '/(tabs)/insights/trends' },
-            { label: 'Timeline', icon: 'calendar-outline' as const,     route: '/(tabs)/insights/timeline' },
-            { label: 'Patterns', icon: 'git-branch-outline' as const,   route: '/(tabs)/insights/correlations' },
-            { label: 'Forecast', icon: 'telescope-outline' as const,    route: '/(tabs)/insights/predictions' },
+            { label: 'Trends',        icon: 'analytics-outline' as const,  route: '/(tabs)/insights/trends' },
+            { label: 'Timeline',      icon: 'calendar-outline' as const,    route: '/(tabs)/insights/timeline' },
+            { label: 'Symptom\nTriggers', icon: 'git-branch-outline' as const, route: '/(tabs)/insights/correlations' },
+            { label: 'Health\nForecast',  icon: 'telescope-outline' as const,  route: '/(tabs)/insights/predictions' },
           ].map((item) => (
             <TouchableOpacity
               key={item.label}
               onPress={() => router.push(item.route as never)}
-              className="flex-1 bg-surface-raised border border-surface-border rounded-xl py-2 items-center gap-1"
+              className="flex-1 bg-surface-raised border border-surface-border rounded-xl py-2.5 items-center gap-1"
               activeOpacity={0.7}
             >
               <Ionicons name={item.icon} size={16} color="#526380" />
-              <Text className="text-[#526380] text-xs">{item.label}</Text>
+              <Text className="text-[#526380] text-xs text-center">{item.label}</Text>
             </TouchableOpacity>
           ))}
         </View>
-        <View className="flex-row gap-2">
-          {[
-            { label: 'Causal',   icon: 'arrow-forward-circle-outline' as const, route: '/(tabs)/insights/causal-graph' },
-            { label: 'Meta-AI',  icon: 'people-outline' as const,               route: '/(tabs)/insights/meta-analysis' },
-          ].map((item) => (
-            <TouchableOpacity
-              key={item.label}
-              onPress={() => router.push(item.route as never)}
-              className="flex-1 bg-surface-raised border border-surface-border rounded-xl py-2 items-center gap-1"
-              activeOpacity={0.7}
-            >
-              <Ionicons name={item.icon} size={16} color="#526380" />
-              <Text className="text-[#526380] text-xs">{item.label}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
+
+        {/* Tier 2 — Advanced Analysis (collapsible) */}
+        <TouchableOpacity
+          onPress={() => setAdvancedExpanded((v) => !v)}
+          className="flex-row items-center justify-between py-2 mt-1"
+          activeOpacity={0.7}
+        >
+          <Text className="text-[#526380] text-xs uppercase tracking-wider">Advanced Analysis</Text>
+          <Ionicons
+            name={advancedExpanded ? 'chevron-up' : 'chevron-down'}
+            size={13}
+            color="#526380"
+          />
+        </TouchableOpacity>
+
+        {advancedExpanded && (
+          <View className="flex-row gap-2">
+            {[
+              { label: 'Root\nCauses',    icon: 'arrow-forward-circle-outline' as const, route: '/(tabs)/insights/causal-graph' },
+              { label: 'Research\nEvidence', icon: 'people-outline' as const,            route: '/(tabs)/insights/meta-analysis' },
+              { label: 'Simulate\nChanges', icon: 'construct-outline' as const,           route: '/(tabs)/profile/health-twin' },
+            ].map((item) => (
+              <TouchableOpacity
+                key={item.label}
+                onPress={() => router.push(item.route as never)}
+                className="flex-1 bg-surface-raised border border-surface-border rounded-xl py-2.5 items-center gap-1"
+                activeOpacity={0.7}
+              >
+                <Ionicons name={item.icon} size={16} color="#526380" />
+                <Text className="text-[#526380] text-xs text-center">{item.label}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
       </View>
 
       {isLoading ? (

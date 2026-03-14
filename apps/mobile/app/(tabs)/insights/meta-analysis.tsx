@@ -17,6 +17,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import { format } from 'date-fns';
 import { api } from '@/services/api';
+import FirstVisitBanner from '@/components/FirstVisitBanner';
 import type {
   MetaAnalysisReport, SpecialistInsight, CrossSystemPattern,
   EvidenceBasedRecommendation,
@@ -30,7 +31,7 @@ const TABS: Array<{ key: Tab; label: string; icon: React.ComponentProps<typeof I
   { key: 'overview',    label: 'Overview',    icon: 'stats-chart-outline' },
   { key: 'specialists', label: 'Specialists', icon: 'people-outline' },
   { key: 'patterns',    label: 'Patterns',    icon: 'git-network-outline' },
-  { key: 'protocol',    label: 'Protocol',    icon: 'clipboard-outline' },
+  { key: 'protocol',    label: 'Action Plan', icon: 'clipboard-outline' },
 ];
 
 // ─── Priority / evidence helpers ──────────────────────────────────────────────
@@ -72,7 +73,7 @@ function OverviewTab({ report }: { report: MetaAnalysisReport }) {
 
       {/* Primary diagnosis */}
       <View className="bg-surface-raised border border-surface-border rounded-2xl p-4">
-        <Text className="text-[#526380] text-xs uppercase tracking-wider mb-2">Primary Diagnosis</Text>
+        <Text className="text-[#526380] text-xs uppercase tracking-wider mb-2">Primary Finding</Text>
         <Text className="text-[#E8EDF5] font-sansMedium text-base mb-2">{report.primary_diagnosis.diagnosis}</Text>
         <View className="flex-row flex-wrap gap-2 mb-3">
           {report.primary_diagnosis.systems_involved.map((s) => (
@@ -86,7 +87,7 @@ function OverviewTab({ report }: { report: MetaAnalysisReport }) {
         </Text>
         {report.primary_diagnosis.causal_chain.length > 0 && (
           <View className="mt-3 pt-3 border-t border-surface-border">
-            <Text className="text-[#526380] text-xs uppercase tracking-wider mb-2">Causal Chain</Text>
+            <Text className="text-[#526380] text-xs uppercase tracking-wider mb-2">How This Connects</Text>
             <View className="gap-1">
               {report.primary_diagnosis.causal_chain.map((step, i) => (
                 <View key={i} className="flex-row items-start gap-2">
@@ -257,7 +258,7 @@ function ProtocolTab({ recommendations }: { recommendations: EvidenceBasedRecomm
       {sorted.length === 0 && (
         <View className="items-center py-12">
           <Ionicons name="clipboard-outline" size={40} color="#526380" />
-          <Text className="text-[#526380] text-sm mt-3">No protocol recommendations</Text>
+          <Text className="text-[#526380] text-sm mt-3">No action items yet</Text>
         </View>
       )}
       {sorted.map((rec, i) => {
@@ -334,8 +335,8 @@ export default function MetaAnalysisScreen() {
           <Ionicons name="chevron-back" size={24} color="#E8EDF5" />
         </TouchableOpacity>
         <View className="flex-1">
-          <Text className="text-xl font-display text-[#E8EDF5]">Meta-Analysis</Text>
-          <Text className="text-[#526380] text-xs mt-0.5">Specialist AI agents · All domains</Text>
+          <Text className="text-xl font-display text-[#E8EDF5]">Research Evidence</Text>
+          <Text className="text-[#526380] text-xs mt-0.5">What the science says about your patterns</Text>
         </View>
         <TouchableOpacity
           onPress={() => generate()}
@@ -355,6 +356,11 @@ export default function MetaAnalysisScreen() {
         </TouchableOpacity>
       </View>
 
+      <FirstVisitBanner
+        screenKey="research_evidence"
+        text="We match your health patterns against published medical studies relevant to your conditions."
+      />
+
       {/* Loading / empty state */}
       {isLoading && (
         <View className="flex-1 items-center justify-center">
@@ -368,7 +374,7 @@ export default function MetaAnalysisScreen() {
           style={{ backgroundColor: 'rgba(0,212,170,0.06)', borderWidth: 1, borderColor: 'rgba(0,212,170,0.15)' }}>
           <ActivityIndicator size="small" color="#00D4AA" />
           <View>
-            <Text className="text-primary-500 font-sansMedium text-sm">Specialist agents analyzing…</Text>
+            <Text className="text-primary-500 font-sansMedium text-sm">Analyzing your patterns…</Text>
             <Text className="text-[#526380] text-xs mt-0.5">This may take 30–60 seconds</Text>
           </View>
         </View>

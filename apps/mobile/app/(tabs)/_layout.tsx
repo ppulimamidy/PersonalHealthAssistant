@@ -9,7 +9,7 @@ const TAB_ICON: Record<string, { active: IconName; inactive: IconName }> = {
   home: { active: 'home', inactive: 'home-outline' },
   log: { active: 'add-circle', inactive: 'add-circle-outline' },
   insights: { active: 'bulb', inactive: 'bulb-outline' },
-  chat: { active: 'chatbubble-ellipses', inactive: 'chatbubble-ellipses-outline' },
+  chat: { active: 'hardware-chip', inactive: 'hardware-chip-outline' },
   profile: { active: 'person', inactive: 'person-outline' },
 };
 
@@ -42,8 +42,8 @@ export default function TabsLayout() {
     >
       <Tabs.Screen name="home" options={{ title: 'Home' }} />
       <Tabs.Screen name="log" options={{ title: 'Log' }} />
-      <Tabs.Screen name="insights" options={{ title: 'Insights' }} />
-      <Tabs.Screen name="chat" options={{ title: 'Chat' }} />
+      <Tabs.Screen name="insights" options={{ title: 'Understand' }} />
+      <Tabs.Screen name="chat" options={{ title: 'Ask AI' }} />
       <Tabs.Screen name="profile" options={{ title: 'Profile' }} />
     </Tabs>
   );

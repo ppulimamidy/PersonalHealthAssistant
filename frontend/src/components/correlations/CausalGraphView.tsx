@@ -101,7 +101,7 @@ export function CausalGraphView() {
     if (evidence.includes('granger_causality')) {
       return (
         <span className="px-2 py-1 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 text-xs rounded font-medium">
-          Granger Causality Confirmed
+          AI Verified
         </span>
       );
     }
@@ -121,10 +121,10 @@ export function CausalGraphView() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100">
-            Causal Graph
+            Root Causes
           </h2>
           <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
-            Directional relationships showing how nutrition causally affects health metrics
+            What's most likely driving your symptoms
           </p>
         </div>
         <div className="flex gap-2">
@@ -170,14 +170,14 @@ export function CausalGraphView() {
         {infoOpen && (
           <div className="px-4 pb-4 pt-2" style={{ backgroundColor: 'rgba(255,255,255,0.02)' }}>
             <p className="text-sm text-slate-400">
-              Causal relationships are detected using <strong className="text-slate-300">Granger causality testing</strong> — a statistical method that checks whether knowing X today helps predict Y tomorrow. Causality score combines correlation strength, temporal precedence, and predictive power.
+              These patterns show what factors most influence how you feel. The AI checks whether something happening today (like eating a certain food) consistently leads to a health change days later — not just a coincidence.
             </p>
             <div className="mt-3 flex flex-wrap gap-2">
               <span className="px-2 py-1 bg-purple-900/30 text-purple-300 text-xs rounded">
-                Granger Causality: X predicts Y
+                AI Verified: consistently predicts outcome
               </span>
               <span className="px-2 py-1 bg-blue-900/30 text-blue-300 text-xs rounded">
-                Temporal Precedence: X precedes Y
+                Time-based: cause comes before effect
               </span>
               <span className="px-2 py-1 bg-green-900/30 text-green-300 text-xs rounded">
                 Correlation: X relates to Y
@@ -230,14 +230,14 @@ export function CausalGraphView() {
                 {/* Metadata */}
                 <div className="flex flex-col gap-2 min-w-[200px]">
                   <div className="text-xs text-slate-700 dark:text-slate-300">
-                    <strong>Causality Score:</strong> {(edge.causality_score * 100).toFixed(0)}%
+                    <strong>Confidence:</strong> {(edge.causality_score * 100).toFixed(0)}%
                   </div>
                   <div className="text-xs text-slate-700 dark:text-slate-300">
                     <strong>Correlation:</strong> {edge.correlation > 0 ? '+' : ''}{(edge.correlation * 100).toFixed(0)}%
                   </div>
                   {edge.granger_p_value !== null && edge.granger_p_value !== undefined && (
                     <div className="text-xs text-slate-700 dark:text-slate-300">
-                      <strong>Granger p-value:</strong> {edge.granger_p_value.toFixed(3)}
+                      <strong>Statistical significance:</strong> {edge.granger_p_value.toFixed(3)}
                     </div>
                   )}
                   <div className="mt-1">

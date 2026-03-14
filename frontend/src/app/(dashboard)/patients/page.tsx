@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import {
   Users, Search, HeartPulse, Pill, FlaskConical, AlertTriangle,
   Target, ChevronDown, ChevronUp, CheckCircle, X, UserPlus,
-  Clock, ChevronRight, Bell, TrendingUp, TrendingDown,
+  Clock, ChevronRight, Bell, TrendingUp, TrendingDown, FileText,
 } from 'lucide-react';
 import { sharingService } from '@/services/sharing';
 import { carePlansService } from '@/services/carePlans';
@@ -795,33 +795,55 @@ export default function PatientsPage() {
               <div className="rounded-xl p-5"
                 style={{ backgroundColor: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
                 {/* Header */}
-                <div className="flex items-center justify-between mb-5 pb-4"
-                  style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl flex items-center justify-center"
-                      style={{ background: 'rgba(0,212,170,0.1)' }}>
-                      <HeartPulse className="w-5 h-5" style={{ color: '#00D4AA' }} />
-                    </div>
-                    <div>
-                      <h2 className="font-semibold" style={{ color: '#E8EDF5' }}>
-                        {patientData.label || 'Patient Summary'}
-                      </h2>
-                      <p className="text-xs flex items-center gap-1.5 mt-0.5" style={{ color: '#526380' }}>
-                        <Clock className="w-3 h-3" />
-                        {new Date(patientData.generated_at).toLocaleString()}
-                      </p>
-                    </div>
+                <div className="mb-5 pb-4" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                  {/* 6B: Viewing-as banner */}
+                  <div className="flex items-center gap-2 px-3 py-2 rounded-lg mb-3"
+                    style={{ backgroundColor: 'rgba(129,140,248,0.08)', border: '1px solid rgba(129,140,248,0.2)' }}>
+                    <svg className="w-3.5 h-3.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" style={{ color: '#818CF8' }}>
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                    </svg>
+                    <span className="text-xs" style={{ color: '#818CF8' }}>
+                      Viewing <strong>{patientData.label || 'Patient'}</strong>'s shared health data — read-only
+                    </span>
                   </div>
 
-                  {/* Save to roster button (if not yet saved) */}
-                  {!isInRoster && (
-                    <button onClick={handleSaveToRoster} disabled={savingToRoster}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium disabled:opacity-40 transition-colors"
-                      style={{ backgroundColor: 'rgba(0,212,170,0.1)', color: '#00D4AA', border: '1px solid rgba(0,212,170,0.2)' }}>
-                      <UserPlus className="w-3.5 h-3.5" />
-                      {savingToRoster ? 'Saving…' : 'Save to roster'}
-                    </button>
-                  )}
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl flex items-center justify-center"
+                        style={{ background: 'rgba(0,212,170,0.1)' }}>
+                        <HeartPulse className="w-5 h-5" style={{ color: '#00D4AA' }} />
+                      </div>
+                      <div>
+                        <h2 className="font-semibold" style={{ color: '#E8EDF5' }}>
+                          {patientData.label || 'Patient Summary'}
+                        </h2>
+                        <p className="text-xs flex items-center gap-1.5 mt-0.5" style={{ color: '#526380' }}>
+                          <Clock className="w-3 h-3" />
+                          {new Date(patientData.generated_at).toLocaleString()}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Save to roster button (if not yet saved) */}
+                    {!isInRoster && (
+                      <button onClick={handleSaveToRoster} disabled={savingToRoster}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium disabled:opacity-40 transition-colors"
+                        style={{ backgroundColor: 'rgba(0,212,170,0.1)', color: '#00D4AA', border: '1px solid rgba(0,212,170,0.2)' }}>
+                        <UserPlus className="w-3.5 h-3.5" />
+                        {savingToRoster ? 'Saving…' : 'Save to roster'}
+                      </button>
+                    )}
+                  </div>
+
+                  {/* 6E: Visit Prep shortcut */}
+                  <Link href="/doctor-prep"
+                    className="flex items-center gap-2 mt-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors hover:brightness-110"
+                    style={{ backgroundColor: 'rgba(0,212,170,0.08)', color: '#00D4AA', border: '1px solid rgba(0,212,170,0.2)' }}>
+                    <FileText className="w-4 h-4" />
+                    Generate Visit Prep Report
+                    <ChevronRight className="w-3.5 h-3.5 ml-auto" />
+                  </Link>
                 </div>
 
                 <PatientSummaryPanel data={patientData} />

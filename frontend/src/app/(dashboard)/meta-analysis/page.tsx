@@ -45,10 +45,10 @@ export default function MetaAnalysisPage() {
     <div>
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-[#E8EDF5] mb-1">
-          Meta-Analysis Report
+          Research Evidence
         </h1>
         <p className="text-sm" style={{ color: '#526380' }}>
-          Comprehensive health analysis by specialist AI agents across all domains
+          What the science says about your patterns
         </p>
       </div>
 
