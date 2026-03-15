@@ -22,6 +22,7 @@ import { getSyncTimestamp, setSyncTimestamp } from '@/utils/syncTimestamp';
 
 function buildMockHealthPoints() {
   const points: Array<{ metric_type: string; date: string; value_json: object }> = [];
+  const workoutTypes = ['yoga', 'running', 'cycling', 'strength', 'walking'];
   for (let i = 6; i >= 0; i--) {
     const date = format(subDays(new Date(), i), 'yyyy-MM-dd');
     points.push({ metric_type: 'steps',              date, value_json: { steps: 6000 + Math.floor(Math.random() * 6000) } });
@@ -29,6 +30,18 @@ function buildMockHealthPoints() {
     points.push({ metric_type: 'hrv_sdnn',           date, value_json: { ms: 38 + Math.round(Math.random() * 24 * 10) / 10 } });
     points.push({ metric_type: 'spo2',               date, value_json: { pct: 96 + Math.round(Math.random() * 3 * 10) / 10 } });
     points.push({ metric_type: 'sleep',              date, value_json: { hours: 5.5 + Math.round(Math.random() * 3 * 10) / 10 } });
+    points.push({ metric_type: 'respiratory_rate',   date, value_json: { rate: 13 + Math.round(Math.random() * 5 * 10) / 10 } });
+    points.push({ metric_type: 'active_calories',    date, value_json: { kcal: 250 + Math.floor(Math.random() * 350) } });
+    // Workouts ~5 out of 7 days
+    if (i !== 1 && i !== 4) {
+      const type = workoutTypes[Math.floor(Math.random() * workoutTypes.length)];
+      const mins = 25 + Math.floor(Math.random() * 45);
+      points.push({ metric_type: 'workout', date, value_json: { minutes: mins, sessions: 1, active_calories: Math.round(mins * 4.5), types: [type] } });
+    }
+    // VO2 max only syncs occasionally (latest reading)
+    if (i === 0) {
+      points.push({ metric_type: 'vo2_max', date, value_json: { ml_kg_min: 36 + Math.round(Math.random() * 14 * 10) / 10 } });
+    }
   }
   return points;
 }
@@ -46,11 +59,15 @@ interface SyncMetric {
 }
 
 const METRICS: SyncMetric[] = [
-  { label: 'Steps',      icon: 'footsteps-outline', unit: 'steps/day', color: '#6EE7B7', metricType: 'steps',              valueKey: 'steps',  format: (v) => v.toLocaleString() },
-  { label: 'Sleep',      icon: 'moon-outline',      unit: 'hours',     color: '#818CF8', metricType: 'sleep',              valueKey: 'hours',  format: (v) => v.toFixed(1) + 'h' },
-  { label: 'Heart Rate', icon: 'heart-outline',     unit: 'bpm',       color: '#F87171', metricType: 'resting_heart_rate', valueKey: 'bpm',    format: (v) => String(Math.round(v)) + ' bpm' },
-  { label: 'HRV',        icon: 'pulse-outline',     unit: 'ms',        color: '#00D4AA', metricType: 'hrv_sdnn',           valueKey: 'ms',     format: (v) => v.toFixed(1) + ' ms' },
-  { label: 'SpO₂',       icon: 'water-outline',     unit: '%',         color: '#60A5FA', metricType: 'spo2',               valueKey: 'pct',    format: (v) => v.toFixed(1) + '%' },
+  { label: 'Steps',            icon: 'footsteps-outline',   unit: 'steps/day',  color: '#6EE7B7', metricType: 'steps',              valueKey: 'steps',      format: (v) => v.toLocaleString() },
+  { label: 'Sleep',            icon: 'moon-outline',        unit: 'hours',      color: '#818CF8', metricType: 'sleep',              valueKey: 'hours',      format: (v) => v.toFixed(1) + 'h' },
+  { label: 'Heart Rate',       icon: 'heart-outline',       unit: 'bpm',        color: '#F87171', metricType: 'resting_heart_rate', valueKey: 'bpm',        format: (v) => String(Math.round(v)) + ' bpm' },
+  { label: 'HRV',              icon: 'pulse-outline',       unit: 'ms',         color: '#00D4AA', metricType: 'hrv_sdnn',           valueKey: 'ms',         format: (v) => v.toFixed(1) + ' ms' },
+  { label: 'SpO₂',             icon: 'water-outline',       unit: '%',          color: '#60A5FA', metricType: 'spo2',               valueKey: 'pct',        format: (v) => v.toFixed(1) + '%' },
+  { label: 'Respiratory Rate', icon: 'cellular-outline',    unit: 'breaths/min', color: '#A78BFA', metricType: 'respiratory_rate',  valueKey: 'rate',       format: (v) => v.toFixed(1) + ' /min' },
+  { label: 'Active Calories',  icon: 'flame-outline',       unit: 'kcal',       color: '#FB923C', metricType: 'active_calories',    valueKey: 'kcal',       format: (v) => Math.round(v) + ' kcal' },
+  { label: 'Workouts',         icon: 'barbell-outline',     unit: 'min',        color: '#F59E0B', metricType: 'workout',            valueKey: 'minutes',    format: (v) => Math.round(v) + ' min' },
+  { label: 'VO₂ Max',          icon: 'speedometer-outline', unit: 'mL/kg/min',  color: '#34D399', metricType: 'vo2_max',            valueKey: 'ml_kg_min',  format: (v) => v.toFixed(1) + ' mL/kg/min' },
 ];
 
 // ─── iOS HealthKit ─────────────────────────────────────────────────────────────
@@ -168,6 +185,75 @@ async function syncHealthKit(onProgress: (msg: string) => void) {
     }
   } catch { /* no data */ }
 
+  onProgress('Querying respiratory rate…');
+  try {
+    const rr: Array<{ startDate: number; quantity: number }> =
+      await HK.queryQuantitySamples('HKQuantityTypeIdentifierRespiratoryRate', fromMs, toMs);
+    const byDay: Record<string, number[]> = {};
+    for (const s of rr) {
+      const day = format(new Date(s.startDate), 'yyyy-MM-dd');
+      (byDay[day] ??= []).push(s.quantity);
+    }
+    for (const [date, vals] of Object.entries(byDay)) {
+      const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
+      dataPoints.push({ metric_type: 'respiratory_rate', date, value_json: { rate: Math.round(avg * 10) / 10 } });
+    }
+  } catch { /* no data */ }
+
+  onProgress('Querying active calories…');
+  try {
+    const energy: Array<{ startDate: number; quantity: number }> =
+      await HK.queryQuantitySamples('HKQuantityTypeIdentifierActiveEnergyBurned', fromMs, toMs);
+    const byDay: Record<string, number> = {};
+    for (const s of energy) {
+      const day = format(new Date(s.startDate), 'yyyy-MM-dd');
+      byDay[day] = (byDay[day] ?? 0) + s.quantity;
+    }
+    for (const [date, total] of Object.entries(byDay)) {
+      dataPoints.push({ metric_type: 'active_calories', date, value_json: { kcal: Math.round(total) } });
+    }
+  } catch { /* no data */ }
+
+  onProgress('Querying VO₂ max…');
+  try {
+    const vo2: Array<{ startDate: number; quantity: number }> =
+      await HK.queryQuantitySamples('HKQuantityTypeIdentifierVO2Max', fromMs, toMs);
+    const byDay: Record<string, number[]> = {};
+    for (const s of vo2) {
+      const day = format(new Date(s.startDate), 'yyyy-MM-dd');
+      (byDay[day] ??= []).push(s.quantity);
+    }
+    for (const [date, vals] of Object.entries(byDay)) {
+      const latest = vals[vals.length - 1];
+      dataPoints.push({ metric_type: 'vo2_max', date, value_json: { ml_kg_min: Math.round(latest * 10) / 10 } });
+    }
+  } catch { /* no data */ }
+
+  onProgress('Querying workouts…');
+  try {
+    const workoutActivityMap: Record<number, string> = {
+      37: 'running', 13: 'cycling', 52: 'walking', 43: 'yoga',
+      20: 'strength', 50: 'strength', 53: 'mindfulness', 79: 'pilates',
+      66: 'hiit', 46: 'swimming', 51: 'tennis', 3: 'boxing',
+    };
+    const workouts: Array<{ startDate: number; endDate: number; activityType: number; totalEnergyBurned?: number }> =
+      await HK.queryWorkoutSamples(fromMs, toMs);
+    const byDay: Record<string, { minutes: number; sessions: number; active_calories: number; types: string[] }> = {};
+    for (const w of workouts) {
+      const day = format(new Date(w.startDate), 'yyyy-MM-dd');
+      const durationMin = (w.endDate - w.startDate) / 60_000;
+      const typeName = workoutActivityMap[w.activityType] ?? 'other';
+      if (!byDay[day]) byDay[day] = { minutes: 0, sessions: 0, active_calories: 0, types: [] };
+      byDay[day].minutes += durationMin;
+      byDay[day].sessions += 1;
+      byDay[day].active_calories += w.totalEnergyBurned ?? 0;
+      if (!byDay[day].types.includes(typeName)) byDay[day].types.push(typeName);
+    }
+    for (const [date, agg] of Object.entries(byDay)) {
+      dataPoints.push({ metric_type: 'workout', date, value_json: { minutes: Math.round(agg.minutes), sessions: agg.sessions, active_calories: Math.round(agg.active_calories), types: agg.types } });
+    }
+  } catch { /* no data */ }
+
   if (dataPoints.length === 0) {
     return { accepted: 0, skipped: 0, message: 'No new data since last sync.' };
   }
@@ -187,6 +273,25 @@ async function syncHealthKit(onProgress: (msg: string) => void) {
 // ─── Android Health Connect ────────────────────────────────────────────────────
 
 async function syncHealthConnect(onProgress: (msg: string) => void) {
+  if (!Device.isDevice) {
+    onProgress('Emulator detected — using sample data…');
+    const dataPoints = buildMockHealthPoints();
+    const now = new Date();
+    onProgress(`Uploading ${dataPoints.length} data points…`);
+    const { data: result } = await api.post('/api/v1/health-data/ingest', {
+      source: 'health_connect',
+      data_points: dataPoints,
+      sync_timestamp: now.toISOString(),
+    });
+    await setSyncTimestamp('health_connect', now.toISOString());
+    const latest: Record<string, number> = {};
+    for (const dp of dataPoints) {
+      const val = Object.values(dp.value_json as Record<string, number>)[0];
+      if (val != null) latest[dp.metric_type] = val;
+    }
+    return { ...result, latestValues: latest };
+  }
+
   const { initialize, requestPermission, readRecords } =
     await import('react-native-health-connect');
 
@@ -204,6 +309,8 @@ async function syncHealthConnect(onProgress: (msg: string) => void) {
     { accessType: 'read', recordType: 'HeartRateVariabilityRmssd' },
     { accessType: 'read', recordType: 'OxygenSaturation' },
     { accessType: 'read', recordType: 'ExerciseSession' },
+    { accessType: 'read', recordType: 'ActiveCaloriesBurned' },
+    { accessType: 'read', recordType: 'RespiratoryRate' },
   ]);
 
   const lastSync = await getSyncTimestamp('health_connect');
@@ -242,6 +349,79 @@ async function syncHealthConnect(onProgress: (msg: string) => void) {
     for (const [date, vals] of Object.entries(byDay)) {
       const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
       dataPoints.push({ metric_type: 'resting_heart_rate', date, value_json: { bpm: Math.round(avg) } });
+    }
+  } catch { /* no data */ }
+
+  try {
+    const { records: hrv } = await readRecords('HeartRateVariabilityRmssd', { timeRangeFilter });
+    const byDay: Record<string, number[]> = {};
+    for (const r of hrv) {
+      const day = format(new Date(r.time), 'yyyy-MM-dd');
+      (byDay[day] ??= []).push(r.heartRateVariabilityMillis);
+    }
+    for (const [date, vals] of Object.entries(byDay)) {
+      const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
+      dataPoints.push({ metric_type: 'hrv_sdnn', date, value_json: { ms: Math.round(avg * 10) / 10 } });
+    }
+  } catch { /* no data */ }
+
+  try {
+    const { records: spo2 } = await readRecords('OxygenSaturation', { timeRangeFilter });
+    const byDay: Record<string, number[]> = {};
+    for (const r of spo2) {
+      const day = format(new Date(r.time), 'yyyy-MM-dd');
+      (byDay[day] ??= []).push(r.percentage * 100);
+    }
+    for (const [date, vals] of Object.entries(byDay)) {
+      const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
+      dataPoints.push({ metric_type: 'spo2', date, value_json: { pct: Math.round(avg * 10) / 10 } });
+    }
+  } catch { /* no data */ }
+
+  try {
+    const { records: rr } = await readRecords('RespiratoryRate', { timeRangeFilter });
+    const byDay: Record<string, number[]> = {};
+    for (const r of rr) {
+      const day = format(new Date(r.time), 'yyyy-MM-dd');
+      (byDay[day] ??= []).push(r.rate);
+    }
+    for (const [date, vals] of Object.entries(byDay)) {
+      const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
+      dataPoints.push({ metric_type: 'respiratory_rate', date, value_json: { rate: Math.round(avg * 10) / 10 } });
+    }
+  } catch { /* no data */ }
+
+  try {
+    const { records: cals } = await readRecords('ActiveCaloriesBurned', { timeRangeFilter });
+    const byDay: Record<string, number> = {};
+    for (const r of cals) {
+      const day = format(new Date(r.startTime), 'yyyy-MM-dd');
+      byDay[day] = (byDay[day] ?? 0) + r.energy.inKilocalories;
+    }
+    for (const [date, total] of Object.entries(byDay)) {
+      dataPoints.push({ metric_type: 'active_calories', date, value_json: { kcal: Math.round(total) } });
+    }
+  } catch { /* no data */ }
+
+  try {
+    const { records: sessions } = await readRecords('ExerciseSession', { timeRangeFilter });
+    const exerciseTypeMap: Record<number, string> = {
+      56: 'yoga', 79: 'running', 8: 'cycling', 62: 'pilates',
+      70: 'rowing', 97: 'strength', 99: 'swimming', 37: 'walking',
+      54: 'hiit', 55: 'interval_training',
+    };
+    const byDay: Record<string, { minutes: number; sessions: number; types: string[] }> = {};
+    for (const s of sessions) {
+      const day = format(new Date(s.startTime), 'yyyy-MM-dd');
+      const durationMin = (new Date(s.endTime).getTime() - new Date(s.startTime).getTime()) / 60_000;
+      const typeName = exerciseTypeMap[s.exerciseType] ?? 'other';
+      if (!byDay[day]) byDay[day] = { minutes: 0, sessions: 0, types: [] };
+      byDay[day].minutes += durationMin;
+      byDay[day].sessions += 1;
+      if (!byDay[day].types.includes(typeName)) byDay[day].types.push(typeName);
+    }
+    for (const [date, agg] of Object.entries(byDay)) {
+      dataPoints.push({ metric_type: 'workout', date, value_json: { minutes: Math.round(agg.minutes), sessions: agg.sessions, active_calories: 0, types: agg.types } });
     }
   } catch { /* no data */ }
 
@@ -329,6 +509,8 @@ function WearableTile({
 export default function DevicesScreen() {
   const queryClient = useQueryClient();
   const [syncing, setSyncing] = useState(false);
+  const [isConnecting, setIsConnecting] = useState(false);
+  const [isDisconnecting, setIsDisconnecting] = useState(false);
   const [progress, setProgress] = useState('');
   const [lastResult, setLastResult] = useState<{ accepted: number; skipped: number; message?: string } | null>(null);
   const [latestValues, setLatestValues] = useState<Record<string, number>>({});
@@ -339,6 +521,41 @@ export default function DevicesScreen() {
     queryKey: ['sync-timestamp', syncKey],
     queryFn: () => getSyncTimestamp(syncKey),
   });
+
+  const { data: nativeHealthStatus, refetch: refetchNativeStatus } = useQuery({
+    queryKey: ['native-health-status'],
+    queryFn: async () => {
+      try {
+        const { data } = await api.get('/api/v1/health-data/status');
+        return data as {
+          healthkit: { connected: boolean; last_sync: string | null };
+          health_connect: { connected: boolean; last_sync: string | null };
+        };
+      } catch {
+        return null;
+      }
+    },
+    staleTime: 0,
+  });
+
+  const nativeConnected = Platform.OS === 'ios'
+    ? !!nativeHealthStatus?.healthkit?.connected
+    : !!nativeHealthStatus?.health_connect?.connected;
+
+  const { data: ouraStatus } = useQuery({
+    queryKey: ['oura-connection'],
+    queryFn: async () => {
+      try {
+        const { data } = await api.get('/api/v1/oura/connection');
+        return data as { is_active: boolean; is_sandbox?: boolean } | null;
+      } catch {
+        return null;
+      }
+    },
+    staleTime: 0,
+  });
+
+  const ouraConnected = !!ouraStatus?.is_active;
 
   const handleSync = useCallback(async () => {
     setSyncing(true);
@@ -352,12 +569,94 @@ export default function DevicesScreen() {
       setLastResult(result);
       queryClient.invalidateQueries({ queryKey: ['sync-timestamp'] });
       queryClient.invalidateQueries({ queryKey: ['batch'] });
+      refetchNativeStatus();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Sync failed';
       Alert.alert('Sync failed', msg);
     } finally {
       setSyncing(false);
       setProgress('');
+    }
+  }, [queryClient, refetchNativeStatus]);
+
+  const handleHealthDisconnect = useCallback(() => {
+    const sourceName = Platform.OS === 'ios' ? 'Apple Health' : 'Health Connect';
+    const sourceKey = Platform.OS === 'ios' ? 'healthkit' : 'health_connect';
+    Alert.alert(
+      `Disconnect ${sourceName}`,
+      'This will remove all synced health data. You can reconnect anytime.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Disconnect',
+          style: 'destructive',
+          onPress: async () => {
+            setIsDisconnecting(true);
+            try {
+              await api.delete(`/api/v1/health-data/source/${sourceKey}`);
+              setLatestValues({});
+              setLastResult(null);
+              queryClient.invalidateQueries({ queryKey: ['native-health-status'] });
+              queryClient.invalidateQueries({ queryKey: ['batch'] });
+            } catch {
+              Alert.alert('Error', `Could not disconnect ${sourceName}`);
+            } finally {
+              setIsDisconnecting(false);
+            }
+          },
+        },
+      ]
+    );
+  }, [queryClient]);
+
+  const handleOuraSync = useCallback(async () => {
+    setSyncing(true);
+    try {
+      const { data } = await api.post('/api/v1/oura/sync');
+      setLastResult({ accepted: data?.synced_records ?? 0, skipped: 0 });
+      queryClient.invalidateQueries({ queryKey: ['batch'] });
+    } catch {
+      Alert.alert('Sync failed', 'Could not sync Oura data');
+    } finally {
+      setSyncing(false);
+    }
+  }, [queryClient]);
+
+  const handleOuraDisconnect = useCallback(() => {
+    Alert.alert('Disconnect Oura Ring', 'Stop syncing Oura data?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Disconnect',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await api.delete('/api/v1/oura/connection');
+            queryClient.setQueryData(['oura-connection'], null);
+          } catch {
+            Alert.alert('Error', 'Could not disconnect Oura Ring');
+          }
+        },
+      },
+    ]);
+  }, [queryClient]);
+
+  const handleOuraConnect = useCallback(async () => {
+    setIsConnecting(true);
+    try {
+      const { data } = await api.get('/api/v1/oura/auth-url');
+      if (data?.sandbox_mode) {
+        queryClient.setQueryData(['oura-connection'], { is_active: true, is_sandbox: true });
+      } else if (data?.auth_url) {
+        // Production OAuth — open in browser
+        const { Linking } = await import('react-native');
+        await Linking.openURL(data.auth_url);
+      } else {
+        Alert.alert('Not configured', 'Oura integration is not set up yet.');
+      }
+    } catch {
+      Alert.alert('Error', 'Could not initiate Oura connection');
+    } finally {
+      setIsConnecting(false);
     }
   }, [queryClient]);
 
@@ -380,7 +679,7 @@ export default function DevicesScreen() {
         {/* ── YOUR DEVICES ─────────────────────────────────────────────────── */}
         <Text className="text-[#526380] text-xs uppercase tracking-wider mb-3">Your Devices</Text>
 
-        {/* Apple Health card */}
+        {/* Apple Health / Health Connect card */}
         <View className="bg-surface-raised border border-surface-border rounded-2xl p-4 mb-3">
           {/* Device row */}
           <View className="flex-row items-center mb-4">
@@ -390,14 +689,16 @@ export default function DevicesScreen() {
             <View className="flex-1">
               <Text className="text-[#E8EDF5] font-sansMedium text-base">{platformName}</Text>
               <Text className="text-[#526380] text-xs mt-0.5">
-                {lastSyncTs
-                  ? `Last synced ${format(new Date(lastSyncTs), 'MMM d, h:mm a')}`
-                  : 'Never synced'}
+                {nativeConnected
+                  ? (lastSyncTs ? `Last synced ${format(new Date(lastSyncTs), 'MMM d, h:mm a')}` : 'Synced')
+                  : 'Not connected'}
               </Text>
             </View>
             <View className="flex-row items-center gap-1.5">
-              <View className="w-2 h-2 rounded-full bg-[#6EE7B7]" />
-              <Text className="text-[#6EE7B7] text-xs font-sansMedium">Connected</Text>
+              <View className="w-2 h-2 rounded-full" style={{ backgroundColor: nativeConnected ? '#6EE7B7' : '#3A4A5C' }} />
+              <Text className="text-xs font-sansMedium" style={{ color: nativeConnected ? '#6EE7B7' : '#526380' }}>
+                {nativeConnected ? 'Connected' : 'Not linked'}
+              </Text>
             </View>
           </View>
 
@@ -413,29 +714,62 @@ export default function DevicesScreen() {
             </View>
           )}
 
-          {/* Sync button */}
-          <TouchableOpacity
-            onPress={handleSync}
-            disabled={syncing}
-            className="bg-primary-500 rounded-xl py-3 items-center"
-            activeOpacity={0.8}
-          >
-            {syncing ? (
-              <View className="flex-row items-center gap-2">
-                <ActivityIndicator size="small" color="#080B10" />
-                <Text className="text-obsidian-900 font-sansMedium text-sm">{progress}</Text>
-              </View>
-            ) : (
-              <Text className="text-obsidian-900 font-sansMedium text-sm">Sync Now</Text>
-            )}
-          </TouchableOpacity>
+          {nativeConnected ? (
+            /* Connected — show Sync Now + Disconnect */
+            <View className="flex-row gap-2">
+              <TouchableOpacity
+                onPress={handleSync}
+                disabled={syncing || isDisconnecting}
+                className="flex-1 bg-primary-500 rounded-xl py-3 items-center"
+                activeOpacity={0.8}
+              >
+                {syncing ? (
+                  <View className="flex-row items-center gap-2">
+                    <ActivityIndicator size="small" color="#080B10" />
+                    <Text className="text-obsidian-900 font-sansMedium text-sm">{progress}</Text>
+                  </View>
+                ) : (
+                  <Text className="text-obsidian-900 font-sansMedium text-sm">Sync Now</Text>
+                )}
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={handleHealthDisconnect}
+                disabled={syncing || isDisconnecting}
+                className="px-4 rounded-xl py-3 items-center"
+                style={{ backgroundColor: 'rgba(255,255,255,0.04)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)' }}
+                activeOpacity={0.8}
+              >
+                {isDisconnecting
+                  ? <ActivityIndicator size="small" color="#526380" />
+                  : <Text className="text-[#526380] font-sansMedium text-sm">Disconnect</Text>
+                }
+              </TouchableOpacity>
+            </View>
+          ) : (
+            /* Not connected — show Connect & Sync */
+            <TouchableOpacity
+              onPress={handleSync}
+              disabled={syncing}
+              className="bg-primary-500 rounded-xl py-3 items-center"
+              activeOpacity={0.8}
+            >
+              {syncing ? (
+                <View className="flex-row items-center gap-2">
+                  <ActivityIndicator size="small" color="#080B10" />
+                  <Text className="text-obsidian-900 font-sansMedium text-sm">{progress}</Text>
+                </View>
+              ) : (
+                <Text className="text-obsidian-900 font-sansMedium text-sm">Connect & Sync</Text>
+              )}
+            </TouchableOpacity>
+          )}
 
           {/* Metric rows — shown after first sync */}
           {hasValues && (
             <View className="mt-4 pt-4 border-t border-surface-border">
               <View className="flex-row items-center mb-2">
                 <Ionicons name="heart" size={12} color="#F87171" />
-                <Text className="text-[#526380] text-xs ml-1.5">Apple Health</Text>
+                <Text className="text-[#526380] text-xs ml-1.5">{platformName}</Text>
               </View>
               {METRICS.map((m) => (
                 <MetricRow
@@ -456,24 +790,51 @@ export default function DevicesScreen() {
             </View>
             <View className="flex-1">
               <Text className="text-[#E8EDF5] font-sansMedium text-base">Oura Ring</Text>
-              <Text className="text-[#526380] text-xs mt-0.5">Track sleep, HRV &amp; readiness</Text>
+              <Text className="text-[#526380] text-xs mt-0.5">
+                {ouraConnected ? 'Sleep, HRV & readiness syncing' : 'Track sleep, HRV & readiness'}
+              </Text>
             </View>
             <View className="flex-row items-center gap-1.5">
-              <View className="w-2 h-2 rounded-full bg-[#3A4A5C]" />
-              <Text className="text-[#526380] text-xs font-sansMedium">Not linked</Text>
+              <View className="w-2 h-2 rounded-full" style={{ backgroundColor: ouraConnected ? '#6EE7B7' : '#3A4A5C' }} />
+              <Text className="text-xs font-sansMedium" style={{ color: ouraConnected ? '#6EE7B7' : '#526380' }}>
+                {ouraConnected ? 'Connected' : 'Not linked'}
+              </Text>
             </View>
           </View>
 
-          <TouchableOpacity
-            disabled
-            className="rounded-xl py-3 items-center"
-            style={{ backgroundColor: '#1E2A3B', borderWidth: 1, borderColor: '#2A3A4E' }}
-          >
-            <View className="flex-row items-center gap-2">
-              <Text className="text-[#526380] font-sansMedium text-sm">Connect</Text>
-              <ComingSoonBadge />
+          {ouraConnected ? (
+            <View className="flex-row gap-2">
+              <TouchableOpacity
+                onPress={handleOuraSync}
+                disabled={syncing}
+                className="flex-1 bg-primary-500/10 border border-primary-500/30 rounded-xl py-3 items-center"
+                activeOpacity={0.8}
+              >
+                <Text className="text-primary-500 font-sansMedium text-sm">Sync Now</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={handleOuraDisconnect}
+                className="px-4 rounded-xl py-3 items-center"
+                style={{ backgroundColor: 'rgba(255,255,255,0.04)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)' }}
+                activeOpacity={0.8}
+              >
+                <Text className="text-[#526380] font-sansMedium text-sm">Disconnect</Text>
+              </TouchableOpacity>
             </View>
-          </TouchableOpacity>
+          ) : (
+            <TouchableOpacity
+              onPress={handleOuraConnect}
+              disabled={isConnecting}
+              className="rounded-xl py-3 items-center"
+              style={{ backgroundColor: '#818CF820', borderWidth: 1, borderColor: '#818CF840' }}
+              activeOpacity={0.8}
+            >
+              {isConnecting
+                ? <ActivityIndicator size="small" color="#818CF8" />
+                : <Text className="text-[#818CF8] font-sansMedium text-sm">Connect Oura Ring</Text>
+              }
+            </TouchableOpacity>
+          )}
         </View>
 
         {/* ── ADD A WEARABLE ────────────────────────────────────────────────── */}

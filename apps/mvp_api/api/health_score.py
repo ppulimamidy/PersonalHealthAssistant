@@ -85,26 +85,65 @@ async def get_health_score(current_user: dict = Depends(get_user_optional)):
     }
 
 
+def _native_sleep_score(sleep_entry) -> float | None:
+    """Estimate a 0–100 sleep quality score from raw sleep duration (no Oura data)."""
+    duration_sec = getattr(sleep_entry, "total_sleep_duration", 0) or 0
+    if duration_sec <= 0:
+        return None
+    hours = duration_sec / 3600
+    score: float
+    if hours < 4:
+        score = 20.0
+    elif hours < 6:
+        score = 40 + (hours - 4) * 20
+    elif hours <= 8:
+        score = 70 + (hours - 6) * 7.5
+    elif hours <= 9:
+        score = 85 - (hours - 8) * 5
+    else:
+        score = 80.0
+    return min(100, max(0, round(score)))
+
+
+def _native_activity_score(activity_entry) -> float | None:
+    """Estimate a 0–100 activity score from step count (no Oura data)."""
+    steps = getattr(activity_entry, "steps", 0) or 0
+    if steps <= 0:
+        return None
+    if steps < 2000:
+        score = steps / 2000 * 20
+    elif steps < 7500:
+        score = 20 + (steps - 2000) / 5500 * 50
+    elif steps < 12000:
+        score = 70 + (steps - 7500) / 4500 * 30
+    else:
+        score = 100
+    return min(100, max(0, round(score)))
+
+
 def _compute_score(entry) -> tuple:
     """Compute weighted health score from a timeline entry. Returns (score, breakdown)."""
     if entry is None:
         return None, {}
 
-    sleep_score = (
-        getattr(entry.sleep, "sleep_score", None)
-        if getattr(entry, "sleep", None)
-        else None
-    )
+    sleep_entry = getattr(entry, "sleep", None)
+    readiness_entry = getattr(entry, "readiness", None)
+    activity_entry = getattr(entry, "activity", None)
+
+    sleep_score = getattr(sleep_entry, "sleep_score", None) if sleep_entry else None
     readiness_score = (
-        getattr(entry.readiness, "readiness_score", None)
-        if getattr(entry, "readiness", None)
-        else None
+        getattr(readiness_entry, "readiness_score", None) if readiness_entry else None
     )
     activity_score = (
-        getattr(entry.activity, "activity_score", None)
-        if getattr(entry, "activity", None)
-        else None
+        getattr(activity_entry, "activity_score", None) if activity_entry else None
     )
+
+    # Fall back to native-derived scores when Oura scores are absent or zero
+    if (sleep_score is None or sleep_score == 0) and sleep_entry:
+        sleep_score = _native_sleep_score(sleep_entry)
+
+    if (activity_score is None or activity_score == 0) and activity_entry:
+        activity_score = _native_activity_score(activity_entry)
 
     components = []
     breakdown = {}
@@ -158,20 +197,21 @@ def _empty_score():
 
 # ── Trajectory score ───────────────────────────────────────────────────────────
 
+
 class TrajectoryComponent(BaseModel):
     name: str
     label: str
-    score: float        # 0–100
-    weight: float       # 0–1
-    available: bool     # False when insufficient data
+    score: float  # 0–100
+    weight: float  # 0–1
+    available: bool  # False when insufficient data
 
 
 class TrajectoryResponse(BaseModel):
-    score: Optional[float]          # weighted composite 0–100
-    delta_30d: Optional[float]      # change vs 30 days ago
-    direction: str                  # "up" | "down" | "stable" | "insufficient"
+    score: Optional[float]  # weighted composite 0–100
+    delta_30d: Optional[float]  # change vs 30 days ago
+    direction: str  # "up" | "down" | "stable" | "insufficient"
     components: List[TrajectoryComponent]
-    data_quality: str               # "good" | "partial" | "insufficient"
+    data_quality: str  # "good" | "partial" | "insufficient"
 
 
 def _avg(vals: list) -> Optional[float]:
@@ -195,22 +235,28 @@ async def get_trajectory(current_user: dict = Depends(get_current_user)):
 
     components: List[TrajectoryComponent] = []
     period_scores: Dict[str, Optional[float]] = {}  # current period
-    prev_scores: Dict[str, Optional[float]] = {}    # 30–60d ago
+    prev_scores: Dict[str, Optional[float]] = {}  # 30–60d ago
 
     # ── 1. Medication adherence ──────────────────────────────────────────────
     try:
         start_curr = (today - timedelta(days=30)).isoformat()
         start_prev = (today - timedelta(days=60)).isoformat()
-        end_prev   = (today - timedelta(days=30)).isoformat()
+        end_prev = (today - timedelta(days=30)).isoformat()
 
-        rows_curr = await _supabase_get(
-            "medication_adherence_log",
-            f"user_id=eq.{user_id}&date=gte.{start_curr}&select=was_taken&limit=500",
-        ) or []
-        rows_prev = await _supabase_get(
-            "medication_adherence_log",
-            f"user_id=eq.{user_id}&date=gte.{start_prev}&date=lte.{end_prev}&select=was_taken&limit=500",
-        ) or []
+        rows_curr = (
+            await _supabase_get(
+                "medication_adherence_log",
+                f"user_id=eq.{user_id}&date=gte.{start_curr}&select=was_taken&limit=500",
+            )
+            or []
+        )
+        rows_prev = (
+            await _supabase_get(
+                "medication_adherence_log",
+                f"user_id=eq.{user_id}&date=gte.{start_prev}&date=lte.{end_prev}&select=was_taken&limit=500",
+            )
+            or []
+        )
 
         if rows_curr:
             taken = sum(1 for r in rows_curr if r.get("was_taken"))
@@ -219,30 +265,47 @@ async def get_trajectory(current_user: dict = Depends(get_current_user)):
             taken_p = sum(1 for r in rows_prev if r.get("was_taken"))
             prev_scores["adherence"] = round(taken_p / len(rows_prev) * 100)
 
-        components.append(TrajectoryComponent(
-            name="adherence", label="Med. Adherence",
-            score=period_scores.get("adherence") or 0.0,
-            weight=0.25,
-            available="adherence" in period_scores,
-        ))
+        components.append(
+            TrajectoryComponent(
+                name="adherence",
+                label="Med. Adherence",
+                score=period_scores.get("adherence") or 0.0,
+                weight=0.25,
+                available="adherence" in period_scores,
+            )
+        )
     except Exception as exc:
         logger.warning("Trajectory adherence: %s", exc)
-        components.append(TrajectoryComponent(name="adherence", label="Med. Adherence", score=0, weight=0.25, available=False))
+        components.append(
+            TrajectoryComponent(
+                name="adherence",
+                label="Med. Adherence",
+                score=0,
+                weight=0.25,
+                available=False,
+            )
+        )
 
     # ── 2. Symptom severity (inverted: lower = better score) ─────────────────
     try:
         start_curr = (today - timedelta(days=30)).isoformat()
         start_prev = (today - timedelta(days=60)).isoformat()
-        end_prev   = (today - timedelta(days=30)).isoformat()
+        end_prev = (today - timedelta(days=30)).isoformat()
 
-        symp_curr = await _supabase_get(
-            "symptom_journal",
-            f"user_id=eq.{user_id}&symptom_date=gte.{start_curr}&select=severity&limit=200",
-        ) or []
-        symp_prev = await _supabase_get(
-            "symptom_journal",
-            f"user_id=eq.{user_id}&symptom_date=gte.{start_prev}&symptom_date=lte.{end_prev}&select=severity&limit=200",
-        ) or []
+        symp_curr = (
+            await _supabase_get(
+                "symptom_journal",
+                f"user_id=eq.{user_id}&symptom_date=gte.{start_curr}&select=severity&limit=200",
+            )
+            or []
+        )
+        symp_prev = (
+            await _supabase_get(
+                "symptom_journal",
+                f"user_id=eq.{user_id}&symptom_date=gte.{start_prev}&symptom_date=lte.{end_prev}&select=severity&limit=200",
+            )
+            or []
+        )
 
         def _sev_to_score(rows: list) -> Optional[float]:
             sevs = [r["severity"] for r in rows if r.get("severity") is not None]
@@ -258,30 +321,49 @@ async def get_trajectory(current_user: dict = Depends(get_current_user)):
         if sp is not None:
             prev_scores["symptoms"] = sp
 
-        components.append(TrajectoryComponent(
-            name="symptoms", label="Symptom Control",
-            score=period_scores.get("symptoms") or 0.0,
-            weight=0.25,
-            available="symptoms" in period_scores,
-        ))
+        components.append(
+            TrajectoryComponent(
+                name="symptoms",
+                label="Symptom Control",
+                score=period_scores.get("symptoms") or 0.0,
+                weight=0.25,
+                available="symptoms" in period_scores,
+            )
+        )
     except Exception as exc:
         logger.warning("Trajectory symptoms: %s", exc)
-        components.append(TrajectoryComponent(name="symptoms", label="Symptom Control", score=0, weight=0.25, available=False))
+        components.append(
+            TrajectoryComponent(
+                name="symptoms",
+                label="Symptom Control",
+                score=0,
+                weight=0.25,
+                available=False,
+            )
+        )
 
     # ── 3. Goal / care-plan engagement ───────────────────────────────────────
     try:
-        goals_all = await _supabase_get(
-            "user_goals",
-            f"user_id=eq.{user_id}&select=status&limit=100",
-        ) or []
-        plans_all = await _supabase_get(
-            "care_plans",
-            f"user_id=eq.{user_id}&select=status&limit=100",
-        ) or []
+        goals_all = (
+            await _supabase_get(
+                "user_goals",
+                f"user_id=eq.{user_id}&select=status&limit=100",
+            )
+            or []
+        )
+        plans_all = (
+            await _supabase_get(
+                "care_plans",
+                f"user_id=eq.{user_id}&select=status&limit=100",
+            )
+            or []
+        )
 
         all_items = goals_all + plans_all
         if all_items:
-            completed = sum(1 for i in all_items if i.get("status") in ("achieved", "completed"))
+            completed = sum(
+                1 for i in all_items if i.get("status") in ("achieved", "completed")
+            )
             total = len(all_items)
             # Score: proportion completed + partial credit for having active items
             active = sum(1 for i in all_items if i.get("status") == "active")
@@ -292,26 +374,43 @@ async def get_trajectory(current_user: dict = Depends(get_current_user)):
         else:
             period_scores["engagement"] = None
 
-        components.append(TrajectoryComponent(
-            name="engagement", label="Goal Engagement",
-            score=period_scores.get("engagement") or 0.0,
-            weight=0.25,
-            available=period_scores.get("engagement") is not None,
-        ))
+        components.append(
+            TrajectoryComponent(
+                name="engagement",
+                label="Goal Engagement",
+                score=period_scores.get("engagement") or 0.0,
+                weight=0.25,
+                available=period_scores.get("engagement") is not None,
+            )
+        )
     except Exception as exc:
         logger.warning("Trajectory engagement: %s", exc)
-        components.append(TrajectoryComponent(name="engagement", label="Goal Engagement", score=0, weight=0.25, available=False))
+        components.append(
+            TrajectoryComponent(
+                name="engagement",
+                label="Goal Engagement",
+                score=0,
+                weight=0.25,
+                available=False,
+            )
+        )
 
     # ── 4. Well-being check-ins (energy + mood) ───────────────────────────────
     try:
-        checkins_curr = await _supabase_get(
-            "weekly_checkins",
-            f"user_id=eq.{user_id}&order=checked_in_at.desc&select=energy,mood&limit=4",
-        ) or []
-        checkins_prev = await _supabase_get(
-            "weekly_checkins",
-            f"user_id=eq.{user_id}&order=checked_in_at.desc&select=energy,mood&limit=4&offset=4",
-        ) or []
+        checkins_curr = (
+            await _supabase_get(
+                "weekly_checkins",
+                f"user_id=eq.{user_id}&order=checked_in_at.desc&select=energy,mood&limit=4",
+            )
+            or []
+        )
+        checkins_prev = (
+            await _supabase_get(
+                "weekly_checkins",
+                f"user_id=eq.{user_id}&order=checked_in_at.desc&select=energy,mood&limit=4&offset=4",
+            )
+            or []
+        )
 
         def _checkin_score(rows: list) -> Optional[float]:
             if not rows:
@@ -329,22 +428,36 @@ async def get_trajectory(current_user: dict = Depends(get_current_user)):
         if wbp is not None:
             prev_scores["wellbeing"] = wbp
 
-        components.append(TrajectoryComponent(
-            name="wellbeing", label="Well-being",
-            score=period_scores.get("wellbeing") or 0.0,
-            weight=0.25,
-            available="wellbeing" in period_scores,
-        ))
+        components.append(
+            TrajectoryComponent(
+                name="wellbeing",
+                label="Well-being",
+                score=period_scores.get("wellbeing") or 0.0,
+                weight=0.25,
+                available="wellbeing" in period_scores,
+            )
+        )
     except Exception as exc:
         logger.warning("Trajectory wellbeing: %s", exc)
-        components.append(TrajectoryComponent(name="wellbeing", label="Well-being", score=0, weight=0.25, available=False))
+        components.append(
+            TrajectoryComponent(
+                name="wellbeing",
+                label="Well-being",
+                score=0,
+                weight=0.25,
+                available=False,
+            )
+        )
 
     # ── Composite score ───────────────────────────────────────────────────────
     available = [c for c in components if c.available]
     if len(available) == 0:
         return TrajectoryResponse(
-            score=None, delta_30d=None, direction="insufficient",
-            components=components, data_quality="insufficient",
+            score=None,
+            delta_30d=None,
+            direction="insufficient",
+            components=components,
+            data_quality="insufficient",
         )
 
     total_weight = sum(c.weight for c in available)
@@ -355,23 +468,31 @@ async def get_trajectory(current_user: dict = Depends(get_current_user)):
     if prev_available_keys:
         prev_comps = [c for c in components if c.name in prev_available_keys]
         prev_total_w = sum(c.weight for c in prev_comps)
-        prev_composite: Optional[float] = sum(
-            prev_scores[c.name] * c.weight for c in prev_comps  # type: ignore[operator]
-        ) / prev_total_w if prev_total_w > 0 else None
+        prev_composite: Optional[float] = (
+            sum(((prev_scores[c.name] or 0.0) * c.weight for c in prev_comps), 0.0)
+            / prev_total_w
+            if prev_total_w > 0
+            else None
+        )
     else:
         prev_composite = None
 
     delta = round(composite - prev_composite, 1) if prev_composite is not None else None
     direction = (
-        "up" if delta is not None and delta > 3
-        else "down" if delta is not None and delta < -3
-        else "stable" if delta is not None
+        "up"
+        if delta is not None and delta > 3
+        else "down"
+        if delta is not None and delta < -3
+        else "stable"
+        if delta is not None
         else "insufficient"
     )
 
     data_quality = (
-        "good" if len(available) == 4
-        else "partial" if len(available) >= 2
+        "good"
+        if len(available) == 4
+        else "partial"
+        if len(available) >= 2
         else "insufficient"
     )
 

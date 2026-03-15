@@ -13,6 +13,10 @@ export interface DataSourcePrefs {
   sleep: SourceOption;
   hrv: SourceOption;
   heart_rate: SourceOption;
+  respiratory_rate: SourceOption;
+  active_calories: SourceOption;
+  workouts: SourceOption;
+  vo2_max: SourceOption;
 }
 
 export const DEFAULT_PREFS: DataSourcePrefs = {
@@ -20,6 +24,10 @@ export const DEFAULT_PREFS: DataSourcePrefs = {
   sleep: 'auto',
   hrv: 'auto',
   heart_rate: 'auto',
+  respiratory_rate: 'auto',
+  active_calories: 'auto',
+  workouts: 'auto',
+  vo2_max: 'auto',
 };
 
 const STORAGE_KEY = '@vitalix/data_source_prefs';

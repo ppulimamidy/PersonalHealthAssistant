@@ -1,0 +1,41 @@
+[MASTER]
+# Allow short variable names common in tests and math contexts
+# Disable style-only checks that don't affect correctness
+
+[MESSAGES CONTROL]
+disable=
+    # Line length — black handles formatting
+    C0301,
+    # Too many lines in module — ai_agents.py is intentionally large
+    C0302,
+    # Short variable names (r, m, s, etc.) — common in tests and closures
+    C0103,
+    # Missing class/function docstrings — test files don't need them
+    C0115,
+    C0116,
+    # Too few public methods — Pydantic models have none
+    R0903,
+    # Too many instance attributes — complex domain models
+    R0902,
+    # Too many local variables — complex functions
+    R0914,
+    # Too many branches — complex routing logic
+    R0912,
+    # Too many statements — complex handlers
+    R0915,
+    # Catching broad Exception — intentional resilience in async handlers
+    W0703,
+    # Redefining name from outer scope — common pytest fixture pattern
+    W0621,
+    # Attribute name "id" — used by Pydantic/FastAPI models
+    C0103
+
+[FORMAT]
+max-line-length=120
+
+[DESIGN]
+max-args=10
+max-locals=20
+max-branches=20
+max-statements=60
+max-attributes=10

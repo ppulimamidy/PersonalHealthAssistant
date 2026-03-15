@@ -88,6 +88,11 @@ _OURA_VARS: frozenset = frozenset(
         "steps",
         "activity_score",
         "active_calories",
+        # Native wearable metrics
+        "respiratory_rate",
+        "spo2",
+        "workout_minutes",
+        "vo2_max",
     }
 )
 
@@ -192,6 +197,11 @@ METRIC_LABELS: Dict[str, str] = {
     "steps": "Daily Steps",
     "activity_score": "Activity Score",
     "active_calories": "Active Calories",
+    # Native wearable metrics
+    "respiratory_rate": "Respiratory Rate",
+    "spo2": "Blood Oxygen (SpO₂)",
+    "workout_minutes": "Workout Duration (min)",
+    "vo2_max": "VO₂ Max",
 }
 
 # Key pairs for multi-lag analysis (1 to MAX_LAG_DAYS): (nutrition_metric, oura_metric, category)
@@ -581,6 +591,29 @@ def _extract_oura_daily(timeline: list) -> Dict[str, Dict[str, float]]:
             row["temperature_deviation"] = float(
                 getattr(r, "temperature_deviation", 0) or 0
             )
+
+        # Native wearable metrics (Apple Health, Health Connect, any Tier 1/2 device)
+        n = entry.native if hasattr(entry, "native") else entry.get("native")
+        if n:
+            for field, key in [
+                ("respiratory_rate", "respiratory_rate"),
+                ("spo2", "spo2"),
+                ("active_calories", "active_calories"),
+                ("workout_minutes", "workout_minutes"),
+                ("vo2_max", "vo2_max"),
+            ]:
+                val = (
+                    getattr(n, field, None)
+                    if hasattr(n, field)
+                    else (n.get(field) if isinstance(n, dict) else None)
+                )
+                if val is not None and val != 0:
+                    row[key] = float(val)
+            # If native active_calories is present but activity entry already has it, prefer the larger value
+            if "active_calories" in row and a:
+                oura_cal = float(getattr(a, "active_calories", 0) or 0)
+                if oura_cal > row.get("active_calories", 0):
+                    row["active_calories"] = oura_cal
 
         if row:
             daily[day] = row

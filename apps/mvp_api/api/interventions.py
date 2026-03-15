@@ -129,6 +129,12 @@ TRACKED_METRICS = [
     "temperature_deviation",
     "steps",
     "activity_score",
+    # Native wearable metrics (Apple Health, Health Connect, any Tier 1/2 device)
+    "respiratory_rate",
+    "spo2",
+    "active_calories",
+    "workout_minutes",
+    "vo2_max",
 ]
 
 
@@ -151,10 +157,15 @@ def _extract_metrics(timeline: list) -> Dict[str, Optional[float]]:
         readiness = oura.get("readiness") or {}
         activity = oura.get("activity") or {}
 
+        # Also check native_health_data fields surfaced by the timeline aggregator
+        native = entry.get("native", {}) or {}
+
         metric_map = {
             "sleep_score": sleep.get("score"),
             "sleep_efficiency": sleep.get("efficiency"),
-            "deep_sleep_hours": (sleep.get("deep") or 0) / 3600 if sleep.get("deep") else None,
+            "deep_sleep_hours": (sleep.get("deep") or 0) / 3600
+            if sleep.get("deep")
+            else None,
             "hrv_balance": readiness.get("hrv_balance"),
             "resting_heart_rate": readiness.get("resting_heart_rate"),
             "readiness_score": readiness.get("score"),
@@ -162,6 +173,13 @@ def _extract_metrics(timeline: list) -> Dict[str, Optional[float]]:
             "temperature_deviation": readiness.get("temperature_deviation"),
             "steps": activity.get("steps"),
             "activity_score": activity.get("score"),
+            # Native wearable metrics — populated from Apple Health / Health Connect
+            "respiratory_rate": native.get("respiratory_rate"),
+            "spo2": native.get("spo2"),
+            "active_calories": native.get("active_calories")
+            or activity.get("active_calories"),
+            "workout_minutes": native.get("workout_minutes"),
+            "vo2_max": native.get("vo2_max"),
         }
         # Also check top-level normalised fields (future Apple/Google sources)
         for m in TRACKED_METRICS:
@@ -181,7 +199,9 @@ def _extract_metrics(timeline: list) -> Dict[str, Optional[float]]:
     return result
 
 
-def _compute_delta(baseline: Dict[str, Any], outcome: Dict[str, Any]) -> Dict[str, float]:
+def _compute_delta(
+    baseline: Dict[str, Any], outcome: Dict[str, Any]
+) -> Dict[str, float]:
     """Compute % change between baseline and outcome for available metrics."""
     delta: Dict[str, float] = {}
     for metric, base_val in baseline.items():
@@ -241,7 +261,9 @@ async def _write_learned_pattern(
             "is_active": True,
         },
     )
-    logger.info("Wrote learned_pattern to agent_memory: %s for user %s", memory_key, user_id)
+    logger.info(
+        "Wrote learned_pattern to agent_memory: %s for user %s", memory_key, user_id
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -268,7 +290,9 @@ async def _generate_outcome_summary(
         friendly = metric.replace("_", " ").title()
         delta_lines.append(f"  - {friendly}: {direction} by {abs(pct):.1f}%")
 
-    delta_text = "\n".join(delta_lines) if delta_lines else "  - No significant changes detected"
+    delta_text = (
+        "\n".join(delta_lines) if delta_lines else "  - No significant changes detected"
+    )
 
     prompt = f"""A user completed a {duration}-day {pattern.replace('_', ' ')} nutrition intervention titled "{title}".
 
@@ -293,7 +317,9 @@ Write a 2–3 sentence plain-English summary of what this personal experiment re
     timeout = aiohttp.ClientTimeout(total=15)
     connector = aiohttp.TCPConnector(ssl=_ssl_ctx())
     try:
-        async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
+        async with aiohttp.ClientSession(
+            timeout=timeout, connector=connector
+        ) as session:
             async with session.post(url, headers=headers, json=payload) as resp:
                 if resp.status == 200:
                     result = await resp.json()
@@ -384,7 +410,9 @@ async def start_intervention(
         "status": "active",
         "baseline_metrics": baseline,
         "adherence_days": 0,
-        "data_sources": ["oura"],  # will expand when Apple/Google Health integrations land
+        "data_sources": [
+            "oura"
+        ],  # will expand when Apple/Google Health integrations land
     }
 
     result = await _supabase_insert("active_interventions", row)
@@ -447,7 +475,9 @@ async def get_intervention(
     return ActiveIntervention(**intervention)
 
 
-@router.post("/{intervention_id}/checkin", response_model=InterventionCheckin, status_code=201)
+@router.post(
+    "/{intervention_id}/checkin", response_model=InterventionCheckin, status_code=201
+)
 async def daily_checkin(
     intervention_id: str,
     body: CheckinRequest,
@@ -547,7 +577,9 @@ async def complete_intervention(
     adherence_pct = round((adherence_days / duration) * 100, 1)
 
     # Generate AI plain-English summary
-    summary = await _generate_outcome_summary(intervention, outcome_delta, adherence_pct)
+    summary = await _generate_outcome_summary(
+        intervention, outcome_delta, adherence_pct
+    )
 
     completed_at = datetime.now(timezone.utc).isoformat()
 

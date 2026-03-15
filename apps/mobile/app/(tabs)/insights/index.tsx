@@ -91,11 +91,12 @@ export default function InsightsScreen() {
         </TouchableOpacity>
 
         {advancedExpanded && (
-          <View className="flex-row gap-2">
+          <View className="flex-row gap-2 flex-wrap">
             {[
-              { label: 'Root\nCauses',    icon: 'arrow-forward-circle-outline' as const, route: '/(tabs)/insights/causal-graph' },
-              { label: 'Research\nEvidence', icon: 'people-outline' as const,            route: '/(tabs)/insights/meta-analysis' },
-              { label: 'Simulate\nChanges', icon: 'construct-outline' as const,           route: '/(tabs)/profile/health-twin' },
+              { label: 'Root\nCauses',       icon: 'arrow-forward-circle-outline' as const, route: '/(tabs)/insights/causal-graph' },
+              { label: 'Research\nEvidence', icon: 'people-outline' as const,               route: '/(tabs)/insights/meta-analysis' },
+              { label: 'Evidence\nLibrary',  icon: 'library-outline' as const,              route: '/(tabs)/insights/research' },
+              { label: 'Simulate\nChanges',  icon: 'construct-outline' as const,            route: '/(tabs)/profile/health-twin' },
             ].map((item) => (
               <TouchableOpacity
                 key={item.label}

@@ -20,6 +20,9 @@ router = APIRouter()
 # Sandbox mode - uses mock data, no real API calls
 USE_SANDBOX = os.getenv("USE_SANDBOX", "true").lower() in ("true", "1", "yes")
 
+# In-memory store for sandbox disconnect state (per user_id)
+_sandbox_disconnected: set[str] = set()
+
 
 # Helper function for optional auth in sandbox mode
 async def get_user_optional(request: Request) -> dict:
@@ -32,16 +35,19 @@ async def get_user_optional(request: Request) -> dict:
             return {
                 "id": "sandbox-user-123",
                 "email": "sandbox@example.com",
-                "user_type": "sandbox"
+                "user_type": "sandbox",
             }
     else:
         # In production, require authentication
         return await get_current_user(request)
 
+
 # Oura OAuth Configuration (only needed in production mode)
 OURA_CLIENT_ID = os.getenv("OURA_CLIENT_ID", "")
 OURA_CLIENT_SECRET = os.getenv("OURA_CLIENT_SECRET", "")
-OURA_REDIRECT_URI = os.getenv("OURA_REDIRECT_URI", "http://localhost:3000/api/oura/callback")
+OURA_REDIRECT_URI = os.getenv(
+    "OURA_REDIRECT_URI", "http://localhost:3000/api/oura/callback"
+)
 OURA_AUTH_URL = "https://cloud.ouraring.com/oauth/authorize"
 OURA_TOKEN_URL = "https://api.ouraring.com/oauth/token"
 
@@ -73,7 +79,9 @@ async def get_status():
     return {
         "sandbox_mode": USE_SANDBOX,
         "oauth_configured": bool(OURA_CLIENT_ID),
-        "message": "Using mock data (sandbox mode)" if USE_SANDBOX else "Production mode"
+        "message": "Using mock data (sandbox mode)"
+        if USE_SANDBOX
+        else "Production mode",
     }
 
 
@@ -84,17 +92,18 @@ async def get_auth_url(current_user: dict = Depends(get_user_optional)):
     In sandbox mode, returns a mock URL that auto-connects.
     """
     if USE_SANDBOX:
-        # In sandbox mode, return a URL that will auto-connect
+        # Reconnecting — clear any prior disconnect
+        _sandbox_disconnected.discard(current_user["id"])
         return {
             "auth_url": None,
             "sandbox_mode": True,
-            "message": "Sandbox mode - device is automatically connected with mock data"
+            "message": "Sandbox mode - device is automatically connected with mock data",
         }
 
     if not OURA_CLIENT_ID:
         raise HTTPException(
             status_code=500,
-            detail="Oura OAuth not configured. Set OURA_CLIENT_ID or enable sandbox mode."
+            detail="Oura OAuth not configured. Set OURA_CLIENT_ID or enable sandbox mode.",
         )
 
     auth_url = (
@@ -111,17 +120,17 @@ async def get_auth_url(current_user: dict = Depends(get_user_optional)):
 
 @router.post("/callback")
 async def handle_callback(
-    request: OuraCallbackRequest,
-    current_user: dict = Depends(get_user_optional)
+    request: OuraCallbackRequest, current_user: dict = Depends(get_user_optional)
 ):
     """
     Handle OAuth callback from Oura.
     In sandbox mode, this immediately returns a connected status.
     """
     if USE_SANDBOX:
+        _sandbox_disconnected.discard(current_user["id"])
         return OuraConnectionResponse(
             id=f"oura_sandbox_{current_user['id']}",
-            user_id=current_user['id'],
+            user_id=current_user["id"],
             is_active=True,
             is_sandbox=True,
             connected_at=datetime.utcnow(),
@@ -138,7 +147,7 @@ async def handle_callback(
                 "client_id": OURA_CLIENT_ID,
                 "client_secret": OURA_CLIENT_SECRET,
                 "redirect_uri": OURA_REDIRECT_URI,
-            }
+            },
         ) as response:
             if response.status != 200:
                 error_text = await response.text()
@@ -149,11 +158,12 @@ async def handle_callback(
 
     connection = OuraConnectionResponse(
         id=f"oura_{current_user['id']}",
-        user_id=current_user['id'],
+        user_id=current_user["id"],
         is_active=True,
         is_sandbox=False,
         connected_at=datetime.utcnow(),
-        expires_at=datetime.utcnow() + timedelta(seconds=token_data.get("expires_in", 86400))
+        expires_at=datetime.utcnow()
+        + timedelta(seconds=token_data.get("expires_in", 86400)),
     )
 
     logger.info(f"Oura connected for user {current_user['id']}")
@@ -167,19 +177,21 @@ async def get_connection_status(current_user: dict = Depends(get_user_optional))
     In sandbox mode, always returns connected.
     """
     if USE_SANDBOX:
+        user_id = current_user["id"]
+        is_active = user_id not in _sandbox_disconnected
         return OuraConnectionResponse(
-            id=f"oura_sandbox_{current_user['id']}",
-            user_id=current_user['id'],
-            is_active=True,
+            id=f"oura_sandbox_{user_id}",
+            user_id=user_id,
+            is_active=is_active,
             is_sandbox=True,
-            connected_at=datetime.utcnow() - timedelta(days=7),
+            connected_at=datetime.utcnow() - timedelta(days=7) if is_active else None,
         )
 
     # In production, query database for connection status
     if OURA_CLIENT_ID:
         return OuraConnectionResponse(
             id=f"oura_{current_user['id']}",
-            user_id=current_user['id'],
+            user_id=current_user["id"],
             is_active=True,
             is_sandbox=False,
             connected_at=datetime.utcnow() - timedelta(days=7),
@@ -187,7 +199,7 @@ async def get_connection_status(current_user: dict = Depends(get_user_optional))
 
     return OuraConnectionResponse(
         id="",
-        user_id=current_user['id'],
+        user_id=current_user["id"],
         is_active=False,
         is_sandbox=False,
     )
@@ -200,6 +212,7 @@ async def disconnect(current_user: dict = Depends(get_user_optional)):
     In sandbox mode, this is a no-op.
     """
     if USE_SANDBOX:
+        _sandbox_disconnected.add(current_user["id"])
         return {"status": "disconnected", "message": "Sandbox mode - reconnect anytime"}
 
     logger.info(f"Oura disconnected for user {current_user['id']}")
@@ -220,23 +233,25 @@ async def sync_data(current_user: dict = Depends(get_user_optional)):
         async with OuraAPIClient(
             access_token=access_token if not USE_SANDBOX else None,
             use_sandbox=USE_SANDBOX or not access_token,
-            user_id=current_user['id']
+            user_id=current_user["id"],
         ) as client:
             end_date = datetime.utcnow()
             start_date = end_date - timedelta(days=7)
 
             data = await client.get_all_data(start_date, end_date)
 
-            synced = sum([
-                len(data.get("daily_sleep", {}).get("data", [])),
-                len(data.get("daily_activity", {}).get("data", [])),
-                len(data.get("daily_readiness", {}).get("data", [])),
-            ])
+            synced = sum(
+                [
+                    len(data.get("daily_sleep", {}).get("data", [])),
+                    len(data.get("daily_activity", {}).get("data", [])),
+                    len(data.get("daily_readiness", {}).get("data", [])),
+                ]
+            )
 
             return SyncResponse(
                 synced_records=synced,
                 last_sync=datetime.utcnow(),
-                is_sandbox=USE_SANDBOX
+                is_sandbox=USE_SANDBOX,
             )
     except Exception as e:
         logger.error(f"Oura sync failed: {e}")
@@ -247,7 +262,7 @@ async def sync_data(current_user: dict = Depends(get_user_optional)):
 async def get_sleep_data(
     start_date: str = Query(..., description="Start date (YYYY-MM-DD)"),
     end_date: str = Query(..., description="End date (YYYY-MM-DD)"),
-    current_user: dict = Depends(get_user_optional)
+    current_user: dict = Depends(get_user_optional),
 ):
     """Get sleep data for date range."""
     from apps.device_data.services.oura_client import OuraAPIClient
@@ -257,7 +272,7 @@ async def get_sleep_data(
     async with OuraAPIClient(
         access_token=access_token if not USE_SANDBOX else None,
         use_sandbox=USE_SANDBOX or not access_token,
-        user_id=current_user['id']
+        user_id=current_user["id"],
     ) as client:
         data = await client.get_daily_sleep(start_date, end_date)
         return data.get("data", [])
@@ -267,7 +282,7 @@ async def get_sleep_data(
 async def get_activity_data(
     start_date: str = Query(..., description="Start date (YYYY-MM-DD)"),
     end_date: str = Query(..., description="End date (YYYY-MM-DD)"),
-    current_user: dict = Depends(get_user_optional)
+    current_user: dict = Depends(get_user_optional),
 ):
     """Get activity data for date range."""
     from apps.device_data.services.oura_client import OuraAPIClient
@@ -277,7 +292,7 @@ async def get_activity_data(
     async with OuraAPIClient(
         access_token=access_token if not USE_SANDBOX else None,
         use_sandbox=USE_SANDBOX or not access_token,
-        user_id=current_user['id']
+        user_id=current_user["id"],
     ) as client:
         data = await client.get_daily_activity(start_date, end_date)
         return data.get("data", [])
@@ -287,7 +302,7 @@ async def get_activity_data(
 async def get_readiness_data(
     start_date: str = Query(..., description="Start date (YYYY-MM-DD)"),
     end_date: str = Query(..., description="End date (YYYY-MM-DD)"),
-    current_user: dict = Depends(get_user_optional)
+    current_user: dict = Depends(get_user_optional),
 ):
     """Get readiness data for date range."""
     from apps.device_data.services.oura_client import OuraAPIClient
@@ -297,7 +312,7 @@ async def get_readiness_data(
     async with OuraAPIClient(
         access_token=access_token if not USE_SANDBOX else None,
         use_sandbox=USE_SANDBOX or not access_token,
-        user_id=current_user['id']
+        user_id=current_user["id"],
     ) as client:
         data = await client.get_daily_readiness(start_date, end_date)
         return data.get("data", [])

@@ -13,6 +13,7 @@ import {
   Radio,
 } from 'lucide-react';
 import { ouraService } from '@/services/oura';
+import { api } from '@/services/api';
 import { useAuthStore } from '@/stores/authStore';
 import { Button } from '@/components/ui/Button';
 import toast from 'react-hot-toast';
@@ -142,6 +143,66 @@ function DeviceCard({
   );
 }
 
+// ── Native health metrics grid ────────────────────────────────────────────────
+
+const NATIVE_METRICS = [
+  { key: 'steps',              label: 'Steps',        format: (v: number) => v.toLocaleString() },
+  { key: 'sleep',              label: 'Sleep',        format: (v: number) => `${v.toFixed(1)}h` },
+  { key: 'resting_heart_rate', label: 'Heart Rate',   format: (v: number) => `${Math.round(v)} bpm` },
+  { key: 'hrv_sdnn',           label: 'HRV',          format: (v: number) => `${v.toFixed(1)} ms` },
+  { key: 'spo2',               label: 'SpO₂',         format: (v: number) => `${v.toFixed(1)}%` },
+  { key: 'respiratory_rate',   label: 'Resp. Rate',   format: (v: number) => `${v.toFixed(1)}/min` },
+  { key: 'active_calories',    label: 'Active Cal.',  format: (v: number) => `${Math.round(v)} kcal` },
+  { key: 'workout',            label: 'Workout',      format: (v: number) => `${Math.round(v)} min` },
+  { key: 'vo2_max',            label: 'VO₂ Max',      format: (v: number) => `${v.toFixed(1)} mL/kg/min` },
+];
+
+function NativeMetricsGrid({ recentData }: { recentData: Record<string, number> }) {
+  const available = NATIVE_METRICS.filter((m) => recentData[m.key] != null);
+  if (available.length === 0) return null;
+
+  return (
+    <div className="grid grid-cols-3 gap-2 pt-1">
+      {available.map((m) => (
+        <div
+          key={m.key}
+          className="rounded-xl px-3 py-2.5 flex flex-col gap-0.5"
+          style={{ backgroundColor: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}
+        >
+          <p className="text-[10px] text-[#526380]">{m.label}</p>
+          <p className="text-sm font-semibold text-[#E8EDF5]">{m.format(recentData[m.key])}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Per-source metrics panel ──────────────────────────────────────────────────
+
+function SourceMetricsPanel({
+  label,
+  data,
+  isLoading,
+}: Readonly<{
+  label: string;
+  data: Record<string, number> | undefined;
+  isLoading: boolean;
+}>) {
+  return (
+    <div
+      className="rounded-2xl p-5"
+      style={{ backgroundColor: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}
+    >
+      <p className="text-[11px] font-semibold uppercase tracking-widest text-[#526380] mb-3">{label}</p>
+      {isLoading && <p className="text-xs text-[#526380]">Loading…</p>}
+      {!isLoading && data && Object.keys(data).length > 0 && <NativeMetricsGrid recentData={data} />}
+      {!isLoading && (!data || Object.keys(data).length === 0) && (
+        <p className="text-xs text-[#526380]">No data yet — open the Vitalix mobile app and tap Sync.</p>
+      )}
+    </div>
+  );
+}
+
 // ── Wearable grid tile (compact, for "Add a Wearable") ────────────────────────
 
 function WearableTile({
@@ -189,6 +250,8 @@ const OuraIcon = ({ color = '#8B97A8' }: { color?: string }) => (
 export function DeviceHub() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
+  const [isDisconnectingHk, setIsDisconnectingHk] = useState(false);
+  const [isDisconnectingHc, setIsDisconnectingHc] = useState(false);
   const { setOuraConnection } = useAuthStore();
   const queryClient = useQueryClient();
 
@@ -197,13 +260,33 @@ export function DeviceHub() {
     queryFn: ouraService.getConnectionStatus,
   });
 
+  const { data: nativeHealthStatus } = useQuery({
+    queryKey: ['native-health-status'],
+    queryFn: async () => {
+      const { data } = await api.get('/api/v1/health-data/status');
+      return data as {
+        healthkit: { connected: boolean; last_sync: string | null };
+        health_connect: { connected: boolean; last_sync: string | null };
+      };
+    },
+  });
+
+  const fetchRecent = async (source: string): Promise<Record<string, number>> => {
+    try {
+      const { data } = await api.get(`/api/v1/health-data/recent?source=${source}`);
+      return (data ?? {}) as Record<string, number>;
+    } catch {
+      return {};
+    }
+  };
+
   const disconnectMutation = useMutation({
     mutationFn: ouraService.disconnect,
     onSuccess: () => {
+      // Immediately clear the cache so the UI reflects disconnected state now
+      queryClient.setQueryData(['oura-connection'], null);
       setOuraConnection(null);
       toast.success('Oura Ring disconnected');
-      refetch();
-      queryClient.invalidateQueries({ queryKey: ['oura-connection'] });
     },
     onError: () => {
       toast.error('Failed to disconnect');
@@ -242,7 +325,53 @@ export function DeviceHub() {
     }
   };
 
-  const ouraConnected = !!connectionStatus?.is_active;
+  const handleNativeDisconnect = async (source: 'healthkit' | 'health_connect', setLoading: (v: boolean) => void) => {
+    setLoading(true);
+    try {
+      await api.delete(`/api/v1/health-data/source/${source}`);
+      queryClient.invalidateQueries({ queryKey: ['native-health-status'] });
+      queryClient.invalidateQueries({ queryKey: ['native-health-recent', source] });
+      toast.success(`${source === 'healthkit' ? 'Apple Health' : 'Health Connect'} disconnected`);
+    } catch {
+      toast.error('Failed to disconnect');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleNativeConnect = (sourceName: string, deviceName: string) => {
+    toast(`Open the Vitalix app on your ${deviceName} and tap "Sync Now" to connect ${sourceName}.`, {
+      icon: '📱',
+      duration: 5000,
+    });
+  };
+
+  const handleNativeSync = (deviceName: string) => {
+    toast(`Open the Vitalix app on your ${deviceName} and tap "Sync Now" to pull the latest data.`, {
+      icon: '🔄',
+      duration: 4000,
+    });
+  };
+
+  const ouraConnected   = !!connectionStatus?.is_active;
+  const hkConnected     = !!nativeHealthStatus?.healthkit?.connected;
+  const hcConnected     = !!nativeHealthStatus?.health_connect?.connected;
+  const hkLastSync      = nativeHealthStatus?.healthkit?.last_sync ?? null;
+  const hcLastSync      = nativeHealthStatus?.health_connect?.last_sync ?? null;
+
+  const { data: hkRecentData, isLoading: isLoadingHk } = useQuery({
+    queryKey: ['native-health-recent', 'healthkit'],
+    queryFn: () => fetchRecent('healthkit'),
+    enabled: hkConnected,
+    staleTime: 0,
+  });
+
+  const { data: hcRecentData, isLoading: isLoadingHc } = useQuery({
+    queryKey: ['native-health-recent', 'health_connect'],
+    queryFn: () => fetchRecent('health_connect'),
+    enabled: hcConnected,
+    staleTime: 0,
+  });
 
   return (
     <div>
@@ -277,15 +406,39 @@ export function DeviceHub() {
               isDisconnecting={disconnectMutation.isPending}
             />
 
-            {/* Apple Health — live on mobile, coming soon on web */}
+            {/* Apple Health (iOS) */}
             <DeviceCard
               name="Apple Health"
-              description="Steps, sleep, heart rate & more from iPhone"
-              dataTypes={['Steps', 'Sleep', 'Heart Rate', 'HRV', 'SpO₂']}
+              description={hkConnected ? (hkLastSync ? `Synced from iPhone · last ${hkLastSync}` : 'Synced from iPhone') : 'Connect via the Vitalix iOS app'}
+              dataTypes={['Steps', 'Sleep', 'Heart Rate', 'HRV', 'SpO₂', 'Workouts', 'VO₂ Max']}
               icon={<Heart className="w-6 h-6" style={{ color: '#F87171' }} />}
               accentColor="#F87171"
-              comingSoon
+              connected={hkConnected}
+              onConnect={() => handleNativeConnect('Apple Health', 'iPhone')}
+              onSync={() => handleNativeSync('iPhone')}
+              onDisconnect={() => handleNativeDisconnect('healthkit', setIsDisconnectingHk)}
+              isDisconnecting={isDisconnectingHk}
             />
+            {hkConnected && (
+              <SourceMetricsPanel label="Latest values from iPhone" data={hkRecentData} isLoading={isLoadingHk} />
+            )}
+
+            {/* Health Connect (Android) */}
+            <DeviceCard
+              name="Health Connect"
+              description={hcConnected ? (hcLastSync ? `Synced from Android · last ${hcLastSync}` : 'Synced from Android') : 'Connect via the Vitalix Android app'}
+              dataTypes={['Steps', 'Sleep', 'Heart Rate', 'HRV', 'SpO₂', 'Workouts', 'VO₂ Max']}
+              icon={<Smartphone className="w-6 h-6" style={{ color: '#34D399' }} />}
+              accentColor="#34D399"
+              connected={hcConnected}
+              onConnect={() => handleNativeConnect('Health Connect', 'Android phone')}
+              onSync={() => handleNativeSync('Android phone')}
+              onDisconnect={() => handleNativeDisconnect('health_connect', setIsDisconnectingHc)}
+              isDisconnecting={isDisconnectingHc}
+            />
+            {hcConnected && (
+              <SourceMetricsPanel label="Latest values from Android" data={hcRecentData} isLoading={isLoadingHc} />
+            )}
           </div>
         </section>
 

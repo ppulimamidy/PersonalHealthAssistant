@@ -8,11 +8,17 @@
  */
 
 import axios from 'axios';
+import { Platform } from 'react-native';
 import { router } from 'expo-router';
 import { supabase } from '../lib/supabase';
 import { useSubscriptionStore } from '../stores/subscriptionStore';
 
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8100';
+// On Android emulator, localhost refers to the emulator itself; 10.0.2.2 reaches the host Mac.
+const _rawUrl = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8100';
+const API_BASE_URL =
+  Platform.OS === 'android'
+    ? _rawUrl.replace('localhost', '10.0.2.2')
+    : _rawUrl;
 
 export const api = axios.create({
   baseURL: API_BASE_URL,

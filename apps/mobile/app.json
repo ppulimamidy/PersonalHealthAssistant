@@ -39,6 +39,7 @@
     "android": {
       "package": "com.vitalix.app",
       "versionCode": 1,
+      "minSdkVersion": 26,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#080B10"

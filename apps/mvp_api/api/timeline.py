@@ -98,6 +98,18 @@ class AltMetrics(BaseModel):
     hrv_ms: Optional[float] = None  # SDNN in ms
 
 
+class NativeMetrics(BaseModel):
+    """Extended metrics from Apple Health, Health Connect, or any Tier 1/2 wearable."""
+
+    respiratory_rate: Optional[float] = None  # breaths/min
+    spo2: Optional[float] = None  # %
+    active_calories: Optional[int] = None  # kcal
+    workout_minutes: Optional[int] = None  # total workout duration minutes
+    workout_sessions: Optional[int] = None  # number of workout sessions
+    workout_types: Optional[List[str]] = None  # e.g. ["yoga", "running"]
+    vo2_max: Optional[float] = None  # mL/kg/min
+
+
 class TimelineEntry(BaseModel):
     """Combined daily metrics across sleep/activity/readiness."""
 
@@ -107,6 +119,7 @@ class TimelineEntry(BaseModel):
     readiness: Optional[ReadinessData] = None
     sources: List[str] = []  # all sources that contributed data this day
     alt_metrics: Optional[AltMetrics] = None  # secondary-source values for comparison
+    native: Optional[NativeMetrics] = None  # extended native wearable metrics
 
 
 @router.get("/timeline", response_model=List[TimelineEntry])
@@ -434,10 +447,69 @@ async def get_timeline(
                         if nhd_hrv:
                             alt["hrv_ms"] = nhd_hrv
 
-            # Promote alt_metrics dicts to AltMetrics model objects
+                # ── Extended native metrics (respiratory, SpO2, calories, workout, VO2) ──
+                native = entry.setdefault("native", {})
+
+                if "respiratory_rate" in metrics:
+                    vj = metrics["respiratory_rate"]["value_json"]
+                    rate = vj.get("rate")
+                    if rate is not None:
+                        native["respiratory_rate"] = float(rate)
+
+                if "spo2" in metrics:
+                    vj = metrics["spo2"]["value_json"]
+                    pct = vj.get("pct")
+                    if pct is not None:
+                        native["spo2"] = float(pct)
+
+                if "active_calories" in metrics:
+                    vj = metrics["active_calories"]["value_json"]
+                    kcal = vj.get("kcal")
+                    if kcal is not None:
+                        native["active_calories"] = int(kcal)
+                        # Also surface to ActivityData if no Oura active_calories
+                        if (
+                            "activity" in entry
+                            and entry["activity"].active_calories == 0
+                        ):
+                            act = entry["activity"]
+                            entry["activity"] = ActivityData(
+                                id=act.id,
+                                date=act.date,
+                                steps=act.steps,
+                                active_calories=int(kcal),
+                                total_calories=act.total_calories,
+                                activity_score=act.activity_score,
+                                high_activity_time=act.high_activity_time,
+                                medium_activity_time=act.medium_activity_time,
+                                low_activity_time=act.low_activity_time,
+                                sedentary_time=act.sedentary_time,
+                            )
+
+                if "workout" in metrics:
+                    vj = metrics["workout"]["value_json"]
+                    mins = vj.get("minutes")
+                    if mins is not None:
+                        native["workout_minutes"] = int(mins)
+                        native["workout_sessions"] = int(vj.get("sessions", 1))
+                        native["workout_types"] = vj.get("types", [])
+
+                if "vo2_max" in metrics:
+                    vj = metrics["vo2_max"]["value_json"]
+                    ml = vj.get("ml_kg_min")
+                    if ml is not None:
+                        native["vo2_max"] = float(ml)
+
+            # Promote alt_metrics and native dicts to model objects
             for entry in timeline.values():
                 if "alt_metrics" in entry and isinstance(entry["alt_metrics"], dict):
                     entry["alt_metrics"] = AltMetrics(**entry["alt_metrics"])
+                if (
+                    "native" in entry
+                    and isinstance(entry["native"], dict)
+                    and entry["native"]
+                ):
+                    entry["native"] = NativeMetrics(**entry["native"])
 
             # Sort by date descending
             sorted_entries = sorted(

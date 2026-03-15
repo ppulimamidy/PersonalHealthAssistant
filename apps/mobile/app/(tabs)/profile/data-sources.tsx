@@ -60,12 +60,41 @@ const METRICS: MetricConfig[] = [
     color: '#F87171',
     autoHeuristic: 'Prefers Oura — overnight resting HR is more stable than a daytime wrist reading.',
   },
+  {
+    key: 'respiratory_rate',
+    label: 'Respiratory Rate',
+    icon: 'cellular-outline',
+    color: '#A78BFA',
+    autoHeuristic: 'Prefers Apple Health / wearable — nighttime respiratory rate from a wrist or ring sensor.',
+  },
+  {
+    key: 'active_calories',
+    label: 'Active Calories',
+    icon: 'flame-outline',
+    color: '#FB923C',
+    autoHeuristic: 'Prefers Apple Health — Apple Watch active energy is the gold standard for calorie tracking.',
+  },
+  {
+    key: 'workouts',
+    label: 'Workouts',
+    icon: 'barbell-outline',
+    color: '#F59E0B',
+    autoHeuristic: 'Prefers Apple Health / Health Connect — uses GPS and motion sensors to detect workout type and duration.',
+  },
+  {
+    key: 'vo2_max',
+    label: 'VO₂ Max',
+    icon: 'speedometer-outline',
+    color: '#34D399',
+    autoHeuristic: 'Prefers Apple Health — Apple Watch estimates VO₂ max during outdoor runs and walks.',
+  },
 ];
 
 const SOURCE_OPTIONS: Array<{ value: SourceOption; label: string; sub: string }> = [
-  { value: 'auto',       label: 'Auto',          sub: 'Smart default — see note below' },
-  { value: 'oura',       label: 'Oura Ring',     sub: 'Always use Oura when available' },
-  { value: 'healthkit',  label: 'Apple Health',  sub: 'Always use Apple Health / Watch' },
+  { value: 'auto',           label: 'Auto',                 sub: 'Smart default — see note below' },
+  { value: 'oura',           label: 'Oura Ring',            sub: 'Always use Oura when available' },
+  { value: 'healthkit',      label: 'Apple Health',         sub: 'Always use Apple Health / Watch' },
+  { value: 'health_connect', label: 'Google Health Connect', sub: 'Always use Android Health Connect' },
 ];
 
 // ─── Metric Card ──────────────────────────────────────────────────────────────

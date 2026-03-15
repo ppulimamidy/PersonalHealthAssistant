@@ -48,13 +48,28 @@ out/
 # ── Expo / React Native ──────────────────────────────────────────────────────
 .expo/
 .expo-shared/
-# Android generated
+
+# Android — build artifacts and secrets (source files are committed)
 android/build/
 android/.gradle/
 android/app/build/
 android/app/release/
+# Explicit paths for nested android dir (apps/mobile/android/)
+apps/mobile/android/build/
+apps/mobile/android/.gradle/
+apps/mobile/android/app/build/
+apps/mobile/android/app/release/
+# Never commit keystores (debug or release signing keys)
+debug.keystore
+release.keystore
+*.keystore
+*.jks
+# Android Studio local config
+local.properties
+
 *.apk
 *.aab
+
 # iOS generated (Pods and build/ handled by apps/mobile/ios/.gitignore)
 *.ipa
 *.dSYM.zip
@@ -80,6 +95,7 @@ android/app/release/
 *.log.*
 logs/
 traefik/logs/
+nohup.out
 
 # ── Test results / scratch output ─────────────────────────────────────────────
 *_test_results*.json

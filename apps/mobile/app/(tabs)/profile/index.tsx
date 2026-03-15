@@ -78,10 +78,13 @@ export default function ProfileScreen() {
       <ProfileRow icon="phone-portrait-outline" label="Health Devices" onPress={() => router.push('/(tabs)/profile/devices')} />
       <ProfileRow icon="git-compare-outline" label="Data Sources" onPress={() => router.push('/(tabs)/profile/data-sources' as never)} />
       <ProfileRow icon="card-outline" label="Plan & Billing" onPress={() => router.push('/(tabs)/profile/billing')} />
-      <ProfileRow icon="body-outline" label="Health Twin" onPress={() => router.push('/(tabs)/profile/health-twin')} />
-      <ProfileRow icon="library-outline" label="Research" onPress={() => router.push('/(tabs)/profile/research')} />
-      <ProfileRow icon="share-social-outline" label="Care Team Sharing" onPress={() => router.push('/(tabs)/profile/sharing' as never)} />
-      <ProfileRow icon="people-outline" label="Patients" onPress={() => router.push('/(tabs)/profile/patients' as never)} />
+      <ProfileRow icon="body-outline" label="Simulate Changes" onPress={() => router.push('/(tabs)/profile/health-twin')} />
+      {userRole === 'caregiver' && (
+        <ProfileRow icon="share-social-outline" label="Care Team Sharing" onPress={() => router.push('/(tabs)/profile/sharing' as never)} />
+      )}
+      {userRole === 'provider' && (
+        <ProfileRow icon="people-outline" label="Patients" onPress={() => router.push('/(tabs)/profile/patients' as never)} />
+      )}
       <ProfileRow icon="settings-outline" label="Settings" onPress={() => router.push('/(tabs)/profile/settings')} />
 
       <View className="mt-6">

@@ -34,9 +34,9 @@ Supabase table DDL (run once in Supabase SQL editor):
 """
 
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Literal
+from typing import Any, Dict, List, Literal, Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 import aiohttp
@@ -168,25 +168,108 @@ async def ingest_health_data(
     )
 
 
-@router.get("/recent")
-async def get_recent_health_data(
+@router.get("/status")
+async def get_native_health_status(
     current_user: dict = Depends(get_current_user),
 ):
-    """Return the most recent value for each metric type for the current user."""
+    """Return connection status per native health source (healthkit / health_connect)."""
     user_id = current_user["id"]
     rows = await _supabase_get(
         "native_health_data",
-        f"user_id=eq.{user_id}&order=date.desc&limit=50&select=metric_type,value_json",
+        f"user_id=eq.{user_id}&select=source,date&order=date.desc&limit=200",
     )
-    # Pick the most recent row per metric_type
+    sources: Dict[str, Any] = {}
+    for row in rows:
+        src = row.get("source")
+        if src and src not in sources:
+            sources[src] = {"connected": True, "last_sync": row.get("date")}
+    return {
+        "healthkit": sources.get("healthkit", {"connected": False, "last_sync": None}),
+        "health_connect": sources.get(
+            "health_connect", {"connected": False, "last_sync": None}
+        ),
+    }
+
+
+@router.delete("/source/{source}", status_code=204)
+async def disconnect_source(
+    source: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Delete all synced data for the given source, effectively disconnecting it.
+
+    Source must be 'healthkit' or 'health_connect'.
+    """
+    if source not in ("healthkit", "health_connect"):
+        raise HTTPException(
+            status_code=400, detail="source must be healthkit or health_connect"
+        )
+
+    user_id = current_user["id"]
+
+    if SUPABASE_URL and SUPABASE_SERVICE_KEY:
+        url = (
+            f"{SUPABASE_URL}/rest/v1/native_health_data"
+            f"?user_id=eq.{user_id}&source=eq.{source}"
+        )
+        try:
+            async with aiohttp.ClientSession(
+                timeout=aiohttp.ClientTimeout(total=30),
+                connector=aiohttp.TCPConnector(ssl=_ssl_context()),
+            ) as session:
+                async with session.delete(url, headers=_supabase_headers()) as resp:
+                    if resp.status not in (200, 204):
+                        err = await resp.text()
+                        logger.error(
+                            "Source delete failed status=%d error=%s", resp.status, err
+                        )
+                        raise HTTPException(
+                            status_code=500, detail="Failed to disconnect source"
+                        )
+        except HTTPException:
+            raise
+        except Exception as exc:  # pylint: disable=broad-except
+            logger.error("Source delete exception: %s", exc)
+            raise HTTPException(
+                status_code=500, detail="Failed to disconnect source"
+            ) from exc
+
+    logger.info("Health source disconnected user=%s source=%s", user_id, source)
+
+
+@router.get("/recent")
+async def get_recent_health_data(
+    current_user: dict = Depends(get_current_user),
+    source: Optional[str] = None,
+):
+    """Return the most recent value for each metric type for the current user."""
+    user_id = current_user["id"]
+    source_filter = (
+        f"&source=eq.{source}" if source in ("healthkit", "health_connect") else ""
+    )
+    rows = await _supabase_get(
+        "native_health_data",
+        f"user_id=eq.{user_id}{source_filter}&order=date.desc&limit=50&select=metric_type,value_json",
+    )
+    # Primary numeric key per metric type (JSONB key order is not guaranteed)
+    _PRIMARY_KEY: Dict[str, str] = {
+        "steps": "steps",
+        "sleep": "hours",
+        "resting_heart_rate": "bpm",
+        "hrv_sdnn": "ms",
+        "spo2": "pct",
+        "respiratory_rate": "rate",
+        "active_calories": "kcal",
+        "workout": "minutes",
+        "vo2_max": "ml_kg_min",
+    }
     seen: set = set()
     result: Dict[str, Any] = {}
     for row in rows:
         metric_type = row.get("metric_type")
         if metric_type and metric_type not in seen:
             seen.add(metric_type)
-            value_json = row.get("value_json", {})
-            # Extract the primary numeric value from value_json
-            if isinstance(value_json, dict) and value_json:
-                result[metric_type] = next(iter(value_json.values()))
-    return result
+            vj = row.get("value_json") or {}
+            key = _PRIMARY_KEY.get(metric_type)
+            result[metric_type] = vj.get(key) if key and isinstance(vj, dict) else None
+    return {k: v for k, v in result.items() if v is not None}

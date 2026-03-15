@@ -9,6 +9,8 @@ Phase 3 of Health Intelligence Features
 
 import json
 import os
+import re as _re
+import uuid as _uuid
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
@@ -132,10 +134,218 @@ _DEFAULT_AGENTS = [
     },
 ]
 
-import uuid as _uuid
-
 # In-memory conversation store — used as fallback when Supabase is unavailable
 _local_conversations: Dict[str, dict] = {}
+
+# ============================================================================
+# TOPIC GUARD — reject off-topic messages without calling the LLM
+# ============================================================================
+
+# Terms that indicate health-related content → always allow (tier 1)
+_HEALTH_KEYWORDS: frozenset = frozenset(
+    [
+        # Core health
+        "health",
+        "wellness",
+        "wellbeing",
+        "well-being",
+        "medical",
+        "medicine",
+        "doctor",
+        "physician",
+        "nurse",
+        "hospital",
+        "clinic",
+        "diagnosis",
+        "treatment",
+        "therapy",
+        "therapeutic",
+        "prescription",
+        "medication",
+        "drug",
+        "supplement",
+        "vitamin",
+        "mineral",
+        # Body & physiology
+        "body",
+        "blood",
+        "heart",
+        "brain",
+        "lung",
+        "liver",
+        "kidney",
+        "muscle",
+        "bone",
+        "nerve",
+        "hormone",
+        "immune",
+        "metabolism",
+        "glucose",
+        "insulin",
+        "cholesterol",
+        "blood pressure",
+        "heart rate",
+        "hrv",
+        "oxygen",
+        "spo2",
+        "inflammation",
+        "cortisol",
+        "testosterone",
+        "estrogen",
+        # Symptoms & conditions
+        "symptom",
+        "pain",
+        "ache",
+        "fatigue",
+        "tired",
+        "sleep",
+        "insomnia",
+        "headache",
+        "migraine",
+        "nausea",
+        "dizzy",
+        "dizziness",
+        "fever",
+        "anxiety",
+        "depression",
+        "stress",
+        "mood",
+        "energy",
+        "chronic",
+        "diabetes",
+        "hypertension",
+        "asthma",
+        "arthritis",
+        "cancer",
+        "allergy",
+        "autoimmune",
+        "thyroid",
+        "adhd",
+        "autism",
+        # Nutrition & fitness
+        "nutrition",
+        "diet",
+        "calorie",
+        "protein",
+        "carb",
+        "fat",
+        "fiber",
+        "meal",
+        "food",
+        "eat",
+        "drink",
+        "weight",
+        "bmi",
+        "exercise",
+        "workout",
+        "fitness",
+        "steps",
+        "run",
+        "walk",
+        "cardio",
+        "strength",
+        # Labs & metrics
+        "lab",
+        "test result",
+        "biomarker",
+        "a1c",
+        "hba1c",
+        "creatinine",
+        "hemoglobin",
+        "white blood",
+        "red blood",
+        "platelet",
+        "liver enzyme",
+        "ferritin",
+        "vitamin d",
+        "b12",
+        # Mental health
+        "mental health",
+        "mindfulness",
+        "meditation",
+        "cognitive",
+        "emotional",
+        "burnout",
+        "sleep quality",
+        "recovery",
+        # Pharmacology
+        "side effect",
+        "interaction",
+        "dose",
+        "dosage",
+        "adherence",
+        "contraindication",
+        # Personal health phrases
+        "my health",
+        "my symptoms",
+        "my medication",
+        "my diet",
+        "my weight",
+        "my blood",
+        "my sleep",
+        "my heart",
+        "my doctor",
+        "my lab",
+        "my results",
+        "my condition",
+        "my body",
+        "my pain",
+    ]
+)
+
+# Patterns that strongly indicate off-topic content → block if no health term matched (tier 2)
+_OFFTOPIC_PATTERNS: tuple = (
+    r"\bwrite\s+(me\s+)?(a\s+)?(function|code|script|program|algorithm|class|method)\b",
+    r"\b(debug|refactor|compile|deploy|kubernetes|docker|sql\s+query)\b",
+    r"\b(python|javascript|typescript|java\s+code|c\+\+|rust|golang|php|ruby)\s+(code|script|program|function)\b",
+    r"\bwrite\s+(\w+\s+){0,3}(poem|story|essay|novel|song|lyrics|haiku|sonnet)\b",
+    r"\bwrite\s+(\w+\s+){0,4}(algorithm|function|code|script|program|class|method)\b",
+    r"\b(creative\s+writing|fiction|screenplay)\b",
+    r"\btell\s+(me\s+)?a\s+joke\b",
+    r"\b(quantum\s+(physics|mechanics|entanglement)|string\s+theory)\b",
+    r"\b(black\s+hole|neutron\s+star|galaxy\s+formation)\b",
+    r"\b(bitcoin|ethereum|cryptocurrency|crypto\s+coin)\b",
+    r"\b(stock\s+(market|trading|price)|forex|invest(ing|ment)\s+(advice|tips|strategy))\b",
+    r"\b(political\s+(opinion|party)|vote\s+for\s+\w+|election\s+prediction)\b",
+    r"\bwhat\s+is\s+the\s+capital\s+of\b",
+    r"\btranslate\b.{0,30}\b(to|into)\s+\w+(ese|ish|ian|ench|man|ish)?\b",
+    r"\bplan\s+(a|my|our)\s+(vacation|trip|travel|holiday|tour)\b",
+    r"\b(proofread|grammar\s+check|spell\s+check)\b",
+)
+
+_OFFTOPIC_REFUSAL = (
+    "I'm your personal health assistant. I can only help with questions about "
+    "your health, wellness, nutrition, symptoms, medications, and related medical topics. "
+    "For other questions, please use a general-purpose assistant."
+)
+
+_COMPILED_OFFTOPIC = [_re.compile(p, _re.IGNORECASE) for p in _OFFTOPIC_PATTERNS]
+
+
+def _is_off_topic(message: str) -> bool:
+    """
+    Return True if the message is clearly not health-related.
+
+    Tier 1: health keyword found → allow (False).
+    Tier 2: off-topic pattern matched → block (True).
+    Tier 3: ambiguous → allow (False), let the agent decide.
+
+    Runs in < 1 ms with no I/O.
+    """
+    msg_lower = message.lower()
+
+    # Tier 1: health keyword allow
+    for kw in _HEALTH_KEYWORDS:
+        if kw in msg_lower:
+            return False
+
+    # Tier 2: off-topic signal block
+    for pattern in _COMPILED_OFFTOPIC:
+        if pattern.search(message):
+            return True
+
+    return False
+
 
 # ============================================================================
 # REQUEST/RESPONSE MODELS
@@ -233,6 +443,13 @@ class Agent:
                 f"I'm {self.agent_name}, your {self.agent_description}. "
                 "I'm here to help! (Anthropic API key not configured on the server. Set ANTHROPIC_API_KEY in your deployment environment, e.g. Render → Environment.)"
             )
+
+        # Topic guard — reject off-topic messages without an LLM call
+        if _is_off_topic(user_message):
+            logger.info(
+                "Topic guard blocked off-topic message (agent=%s)", self.agent_type
+            )
+            return _OFFTOPIC_REFUSAL
 
         # Build system prompt — Anthropic takes system as a top-level string, not a message role
         system_prompt = self.system_prompt
@@ -662,6 +879,13 @@ class NutritionAnalystAgent(Agent):
                 f"I'm {self.agent_name}, your personalised nutritionist. "
                 "(Anthropic API key not configured. Set ANTHROPIC_API_KEY in your deployment environment.)"
             )
+
+        # Topic guard — reject off-topic messages without an LLM call
+        if _is_off_topic(user_message):
+            logger.info(
+                "Topic guard blocked off-topic message (agent=nutrition_analyst)"
+            )
+            return _OFFTOPIC_REFUSAL
 
         # Load preferences, collecting them if this is the first turn
         prefs: Optional[Dict[str, Any]] = (
