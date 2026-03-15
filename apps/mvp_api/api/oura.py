@@ -2,6 +2,23 @@
 Oura Ring Integration API
 Endpoints for connecting and syncing data from Oura Ring.
 Supports sandbox mode for development (mock data, no OAuth required).
+
+Supabase table required (run once in SQL editor):
+    CREATE TABLE public.oura_connections (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE UNIQUE,
+        access_token TEXT NOT NULL,
+        refresh_token TEXT,
+        token_type TEXT DEFAULT 'Bearer',
+        scope TEXT,
+        expires_at TIMESTAMPTZ,
+        connected_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    ALTER TABLE public.oura_connections ENABLE ROW LEVEL SECURITY;
+    CREATE POLICY "own oura connection" ON public.oura_connections
+        FOR ALL USING (auth.uid() = user_id)
+        WITH CHECK (auth.uid() = user_id);
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -12,6 +29,15 @@ import os
 
 from common.middleware.auth import get_current_user
 from common.utils.logging import get_logger
+from ..dependencies.usage_gate import (
+    _supabase_get,
+    _supabase_upsert,
+    _supabase_delete,
+    SUPABASE_URL,
+    SUPABASE_SERVICE_KEY,
+    _supabase_headers,
+    _ssl_context,
+)
 
 logger = get_logger(__name__)
 
@@ -46,10 +72,103 @@ async def get_user_optional(request: Request) -> dict:
 OURA_CLIENT_ID = os.getenv("OURA_CLIENT_ID", "")
 OURA_CLIENT_SECRET = os.getenv("OURA_CLIENT_SECRET", "")
 OURA_REDIRECT_URI = os.getenv(
-    "OURA_REDIRECT_URI", "http://localhost:3000/api/oura/callback"
+    "OURA_REDIRECT_URI", "http://localhost:3000/oura/callback"
 )
 OURA_AUTH_URL = "https://cloud.ouraring.com/oauth/authorize"
 OURA_TOKEN_URL = "https://api.ouraring.com/oauth/token"
+
+
+async def _load_oura_token(user_id: str) -> Optional[dict]:
+    """Load the stored Oura OAuth token for a user from Supabase."""
+    rows = await _supabase_get("oura_connections", f"user_id=eq.{user_id}&limit=1")
+    return rows[0] if rows else None
+
+
+async def _save_oura_token(user_id: str, token_data: dict) -> None:
+    """Upsert the Oura OAuth token for a user into Supabase."""
+    from datetime import timezone
+
+    expires_in = token_data.get("expires_in", 86400)
+    expires_at = (
+        datetime.now(timezone.utc) + timedelta(seconds=expires_in)
+    ).isoformat()
+    row = {
+        "user_id": user_id,
+        "access_token": token_data["access_token"],
+        "refresh_token": token_data.get("refresh_token"),
+        "token_type": token_data.get("token_type", "Bearer"),
+        "scope": token_data.get("scope"),
+        "expires_at": expires_at,
+        "connected_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await _supabase_upsert("oura_connections", row, "user_id")
+
+
+async def _delete_oura_token(user_id: str) -> None:
+    """Remove the Oura OAuth token for a user from Supabase."""
+    await _supabase_delete("oura_connections", f"user_id=eq.{user_id}")
+
+
+async def _get_valid_access_token(user_id: str) -> Optional[str]:
+    """
+    Return a valid Oura access token for the user.
+    Auto-refreshes if the token is expired (or within 5 min of expiry).
+    Returns None if no token is stored.
+    """
+    from datetime import timezone
+
+    row = await _load_oura_token(user_id)
+    if not row:
+        return None
+
+    access_token = row.get("access_token")
+    refresh_token = row.get("refresh_token")
+    expires_at_str = row.get("expires_at")
+
+    # Check if token is about to expire
+    if expires_at_str and refresh_token:
+        try:
+            expires_at = datetime.fromisoformat(expires_at_str.replace("Z", "+00:00"))
+            now = datetime.now(timezone.utc)
+            if expires_at - now < timedelta(minutes=5):
+                # Refresh the token
+                access_token = await _refresh_oura_token(user_id, refresh_token)
+        except (ValueError, TypeError):
+            pass  # Use existing token if parsing fails
+
+    return access_token
+
+
+async def _refresh_oura_token(user_id: str, refresh_token: str) -> Optional[str]:
+    """
+    Exchange a refresh token for a new access token.
+    Saves the new token to DB. Returns the new access_token or None on failure.
+    """
+    import aiohttp
+
+    try:
+        async with aiohttp.ClientSession(
+            connector=aiohttp.TCPConnector(ssl=_ssl_context())
+        ) as session:
+            async with session.post(
+                OURA_TOKEN_URL,
+                data={
+                    "grant_type": "refresh_token",
+                    "refresh_token": refresh_token,
+                    "client_id": OURA_CLIENT_ID,
+                    "client_secret": OURA_CLIENT_SECRET,
+                },
+            ) as resp:
+                if resp.status != 200:
+                    logger.error("Oura token refresh failed: %s", await resp.text())
+                    return None
+                token_data = await resp.json()
+                await _save_oura_token(user_id, token_data)
+                return token_data.get("access_token")
+    except Exception as exc:  # pylint: disable=broad-except
+        logger.error("Oura token refresh exception: %s", exc)
+        return None
 
 
 class OuraConnectionResponse(BaseModel):
@@ -138,7 +257,9 @@ async def handle_callback(
 
     import aiohttp
 
-    async with aiohttp.ClientSession() as session:
+    async with aiohttp.ClientSession(
+        connector=aiohttp.TCPConnector(ssl=_ssl_context())
+    ) as session:
         async with session.post(
             OURA_TOKEN_URL,
             data={
@@ -155,6 +276,8 @@ async def handle_callback(
                 raise HTTPException(status_code=400, detail="Failed to connect Oura")
 
             token_data = await response.json()
+
+    await _save_oura_token(current_user["id"], token_data)
 
     connection = OuraConnectionResponse(
         id=f"oura_{current_user['id']}",
@@ -188,13 +311,21 @@ async def get_connection_status(current_user: dict = Depends(get_user_optional))
         )
 
     # In production, query database for connection status
-    if OURA_CLIENT_ID:
+    row = await _load_oura_token(current_user["id"])
+    if row:
+        connected_at = row.get("connected_at")
+        expires_at = row.get("expires_at")
         return OuraConnectionResponse(
             id=f"oura_{current_user['id']}",
             user_id=current_user["id"],
             is_active=True,
             is_sandbox=False,
-            connected_at=datetime.utcnow() - timedelta(days=7),
+            connected_at=datetime.fromisoformat(connected_at.replace("Z", "+00:00"))
+            if connected_at
+            else None,
+            expires_at=datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+            if expires_at
+            else None,
         )
 
     return OuraConnectionResponse(
@@ -209,12 +340,13 @@ async def get_connection_status(current_user: dict = Depends(get_user_optional))
 async def disconnect(current_user: dict = Depends(get_user_optional)):
     """
     Disconnect Oura Ring.
-    In sandbox mode, this is a no-op.
+    In sandbox mode, marks as disconnected in-memory.
     """
     if USE_SANDBOX:
         _sandbox_disconnected.add(current_user["id"])
         return {"status": "disconnected", "message": "Sandbox mode - reconnect anytime"}
 
+    await _delete_oura_token(current_user["id"])
     logger.info(f"Oura disconnected for user {current_user['id']}")
     return {"status": "disconnected"}
 
@@ -227,12 +359,22 @@ async def sync_data(current_user: dict = Depends(get_user_optional)):
     """
     from apps.device_data.services.oura_client import OuraAPIClient
 
-    access_token = os.getenv("OURA_ACCESS_TOKEN", "")
+    if USE_SANDBOX:
+        access_token = None
+        use_sandbox = True
+    else:
+        access_token = await _get_valid_access_token(current_user["id"])
+        if not access_token:
+            raise HTTPException(
+                status_code=401,
+                detail="Please connect your Oura Ring first",
+            )
+        use_sandbox = False
 
     try:
         async with OuraAPIClient(
-            access_token=access_token if not USE_SANDBOX else None,
-            use_sandbox=USE_SANDBOX or not access_token,
+            access_token=access_token,
+            use_sandbox=use_sandbox,
             user_id=current_user["id"],
         ) as client:
             end_date = datetime.utcnow()
@@ -267,11 +409,16 @@ async def get_sleep_data(
     """Get sleep data for date range."""
     from apps.device_data.services.oura_client import OuraAPIClient
 
-    access_token = os.getenv("OURA_ACCESS_TOKEN", "")
+    if USE_SANDBOX:
+        access_token = None
+        use_sandbox = True
+    else:
+        access_token = await _get_valid_access_token(current_user["id"])
+        use_sandbox = not access_token
 
     async with OuraAPIClient(
-        access_token=access_token if not USE_SANDBOX else None,
-        use_sandbox=USE_SANDBOX or not access_token,
+        access_token=access_token,
+        use_sandbox=use_sandbox,
         user_id=current_user["id"],
     ) as client:
         data = await client.get_daily_sleep(start_date, end_date)
@@ -287,11 +434,16 @@ async def get_activity_data(
     """Get activity data for date range."""
     from apps.device_data.services.oura_client import OuraAPIClient
 
-    access_token = os.getenv("OURA_ACCESS_TOKEN", "")
+    if USE_SANDBOX:
+        access_token = None
+        use_sandbox = True
+    else:
+        access_token = await _get_valid_access_token(current_user["id"])
+        use_sandbox = not access_token
 
     async with OuraAPIClient(
-        access_token=access_token if not USE_SANDBOX else None,
-        use_sandbox=USE_SANDBOX or not access_token,
+        access_token=access_token,
+        use_sandbox=use_sandbox,
         user_id=current_user["id"],
     ) as client:
         data = await client.get_daily_activity(start_date, end_date)
@@ -307,11 +459,16 @@ async def get_readiness_data(
     """Get readiness data for date range."""
     from apps.device_data.services.oura_client import OuraAPIClient
 
-    access_token = os.getenv("OURA_ACCESS_TOKEN", "")
+    if USE_SANDBOX:
+        access_token = None
+        use_sandbox = True
+    else:
+        access_token = await _get_valid_access_token(current_user["id"])
+        use_sandbox = not access_token
 
     async with OuraAPIClient(
-        access_token=access_token if not USE_SANDBOX else None,
-        use_sandbox=USE_SANDBOX or not access_token,
+        access_token=access_token,
+        use_sandbox=use_sandbox,
         user_id=current_user["id"],
     ) as client:
         data = await client.get_daily_readiness(start_date, end_date)

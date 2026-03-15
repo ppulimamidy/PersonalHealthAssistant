@@ -647,9 +647,23 @@ export default function DevicesScreen() {
       if (data?.sandbox_mode) {
         queryClient.setQueryData(['oura-connection'], { is_active: true, is_sandbox: true });
       } else if (data?.auth_url) {
-        // Production OAuth — open in browser
-        const { Linking } = await import('react-native');
-        await Linking.openURL(data.auth_url);
+        // Production OAuth — use in-app browser that captures the deep link callback
+        const { openAuthSessionAsync } = await import('expo-web-browser');
+        const redirectUrl = 'vitalix://oura-callback';
+        const result = await openAuthSessionAsync(data.auth_url, redirectUrl);
+        if (result.type === 'success' && result.url) {
+          // Parse the code from the redirect URL
+          const url = new URL(result.url);
+          const code = url.searchParams.get('code');
+          if (code) {
+            await api.post('/api/v1/oura/callback', { code });
+            queryClient.invalidateQueries({ queryKey: ['oura-connection'] });
+          } else {
+            Alert.alert('Connection failed', 'Authorization code not received.');
+          }
+        } else if (result.type === 'cancel') {
+          // User dismissed — no-op
+        }
       } else {
         Alert.alert('Not configured', 'Oura integration is not set up yet.');
       }
