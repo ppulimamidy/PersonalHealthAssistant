@@ -13,7 +13,9 @@
       "resizeMode": "contain",
       "backgroundColor": "#080B10"
     },
-    "assetBundlePatterns": ["**/*"],
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "ios": {
       "bundleIdentifier": "com.vitalix.app",
       "buildNumber": "1",
@@ -21,7 +23,10 @@
       "infoPlist": {
         "NSHealthShareUsageDescription": "Vitalix reads your steps, sleep, heart rate, HRV, SpO₂, and workout data to generate personalized health insights and help you prepare for doctor visits.",
         "NSHealthUpdateUsageDescription": "Vitalix may write workout sessions you log in the app back to Apple Health.",
-        "UIBackgroundModes": ["fetch", "remote-notification"],
+        "UIBackgroundModes": [
+          "fetch",
+          "remote-notification"
+        ],
         "NSAppTransportSecurity": {
           "NSAllowsLocalNetworking": true,
           "NSExceptionDomains": {
@@ -51,7 +56,8 @@
         "android.permission.health.READ_HEART_RATE_VARIABILITY",
         "android.permission.health.READ_OXYGEN_SATURATION",
         "android.permission.health.READ_EXERCISE",
-        "android.permission.RECEIVE_BOOT_COMPLETED"
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        "android.permission.WAKE_LOCK"
       ]
     },
     "plugins": [
@@ -76,6 +82,13 @@
     ],
     "experiments": {
       "typedRoutes": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "b3d2c24a-e3dc-4bf9-8d97-30cb5c77fd2f"
+      }
+    },
+    "owner": "ppulimamidy"
   }
 }
