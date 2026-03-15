@@ -31,6 +31,7 @@ seaborn==0.12.2
 google-cloud-vision==3.4.4
 azure-cognitiveservices-vision-computervision==0.9.0
 openai==1.3.7
+anthropic>=0.40.0
 
 # Nutrition databases
 nutritionix==1.0.0
