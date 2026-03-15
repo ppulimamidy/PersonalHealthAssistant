@@ -1,4 +1,4 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import { Syne, DM_Sans, DM_Mono } from 'next/font/google';
 import '@/styles/globals.css';
 import { Providers } from './providers';
@@ -31,12 +31,15 @@ export const metadata: Metadata = {
   title: 'Personal Health Assistant',
   description: 'Your AI-powered personal health companion',
   manifest: '/manifest.json',
-  themeColor: '#00D4AA',
   appleWebApp: {
     capable: true,
     statusBarStyle: 'black-translucent',
     title: 'HealthAI',
   },
+};
+
+export const viewport: Viewport = {
+  themeColor: '#00D4AA',
 };
 
 export default function RootLayout({
