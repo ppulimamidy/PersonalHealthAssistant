@@ -1,6 +1,6 @@
 import '../global.css';
 import { useEffect, useState } from 'react';
-import { AppState, AppStateStatus } from 'react-native';
+import { AppState, AppStateStatus, Linking } from 'react-native';
 import { Slot, router, useSegments, useRootNavigationState } from 'expo-router';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -11,6 +11,7 @@ import { DMSans_400Regular, DMSans_500Medium } from '@expo-google-fonts/dm-sans'
 import * as SplashScreen from 'expo-splash-screen';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/authStore';
+import { api } from '@/services/api';
 
 // Keep splash visible until fonts are ready
 SplashScreen.preventAutoHideAsync();
@@ -77,6 +78,30 @@ function AppStateListener() {
   return null;
 }
 
+function DeepLinkHandler() {
+  useEffect(() => {
+    const handleUrl = async (url: string) => {
+      if (url.startsWith('vitalix://oura-callback')) {
+        try {
+          const parsed = new URL(url);
+          const code = parsed.searchParams.get('code');
+          if (code) {
+            await api.post('/api/v1/oura/callback', { code });
+            queryClient.invalidateQueries({ queryKey: ['oura-connection'] });
+          }
+        } catch (_e) {
+          // silent — user will see disconnected state
+        }
+      }
+    };
+
+    const subscription = Linking.addEventListener('url', ({ url }) => handleUrl(url));
+    Linking.getInitialURL().then((url) => { if (url) handleUrl(url); });
+    return () => subscription.remove();
+  }, []);
+  return null;
+}
+
 export default function RootLayout() {
   const [fontsLoaded, fontError] = useFonts({
     Syne_700Bold,
@@ -97,6 +122,7 @@ export default function RootLayout() {
     <GestureHandlerRootView className="flex-1 bg-obsidian-900">
       <QueryClientProvider client={queryClient}>
         <AppStateListener />
+        <DeepLinkHandler />
         <StatusBar style="light" />
         {/* Slot FIRST — mounts the navigator before AuthGate fires its effects */}
         <Slot />
