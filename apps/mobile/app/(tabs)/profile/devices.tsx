@@ -18,9 +18,8 @@ import * as Device from 'expo-device';
 import { api } from '@/services/api';
 import { getSyncTimestamp, setSyncTimestamp } from '@/utils/syncTimestamp';
 
-// Static import required for react-native-health (CommonJS module — dynamic .default fails)
-// Safe to import on iOS only; Android never calls syncHealthKit
-import AppleHealthKit from 'react-native-health';
+// @kingstinct/react-native-healthkit is dynamically imported inside syncHealthKit
+// to prevent Android from trying to resolve the iOS-only native module.
 
 // ─── Simulator mock data ───────────────────────────────────────────────────────
 
@@ -76,19 +75,6 @@ const METRICS: SyncMetric[] = [
 
 // ─── iOS HealthKit ─────────────────────────────────────────────────────────────
 
-// Promisify react-native-health callback API
-function hkQuery<T>(
-  fn: (opts: object, cb: (err: string, results: T) => void) => void,
-  opts: object
-): Promise<T> {
-  return new Promise((resolve, reject) => {
-    fn(opts, (err, results) => {
-      if (err) reject(new Error(err));
-      else resolve(results);
-    });
-  });
-}
-
 async function syncHealthKit(onProgress: (msg: string) => void) {
   if (!Device.isDevice) {
     onProgress('Simulator detected — using sample data…');
@@ -109,70 +95,62 @@ async function syncHealthKit(onProgress: (msg: string) => void) {
     return { ...result, latestValues: latest };
   }
 
-  if (typeof AppleHealthKit?.initHealthKit !== 'function') {
+  // Dynamic import keeps Android bundler from resolving this iOS-only module
+  const HealthKit = (await import('@kingstinct/react-native-healthkit')).default;
+  const { HKQuantityTypeIdentifier, HKCategoryTypeIdentifier } =
+    await import('@kingstinct/react-native-healthkit');
+
+  const available = await HealthKit.isHealthDataAvailable();
+  if (!available) {
     throw new Error('Apple Health is not available on this device. Make sure you have a supported iPhone with iOS 13+.');
   }
 
   onProgress('Requesting permissions…');
 
-  await new Promise<void>((resolve, reject) => {
-    AppleHealthKit.initHealthKit(
-      {
-        permissions: {
-          read: [
-            'Steps',
-            'HeartRate',
-            'HeartRateVariability',
-            'OxygenSaturation',
-            'SleepAnalysis',
-            'RespiratoryRate',
-            'ActiveEnergyBurned',
-            'Vo2Max',
-            'Workout',
-          ] as any[],
-          write: ['Workout'] as any[],
-        },
-      },
-      (err: string) => {
-        if (err) reject(new Error(err));
-        else resolve();
-      }
-    );
-  });
+  await HealthKit.requestAuthorization(
+    [],
+    [
+      HKQuantityTypeIdentifier.stepCount,
+      HKQuantityTypeIdentifier.heartRate,
+      HKQuantityTypeIdentifier.heartRateVariabilitySDNN,
+      HKQuantityTypeIdentifier.oxygenSaturation,
+      HKQuantityTypeIdentifier.respiratoryRate,
+      HKQuantityTypeIdentifier.activeEnergyBurned,
+      HKQuantityTypeIdentifier.vo2Max,
+      HKCategoryTypeIdentifier.sleepAnalysis,
+      'HKWorkoutTypeIdentifier' as any,
+    ]
+  );
 
   onProgress('Permissions granted, reading data…');
   const lastSync = await getSyncTimestamp('healthkit');
   const since = lastSync ? new Date(lastSync) : subDays(new Date(), 7);
   const now = new Date();
-  const startDate = since.toISOString();
-  const endDate = now.toISOString();
 
   const dataPoints: Array<{ metric_type: string; date: string; value_json: object }> = [];
 
   onProgress('Querying steps…');
   try {
-    type StepSample = { startDate: string; value: number };
-    const steps = await hkQuery<StepSample[]>(
-      (o: object, cb: (e: string, r: any) => void) => AppleHealthKit.getDailyStepCountSamples(o as any, cb),
-      { startDate, endDate, includeManuallyAdded: false }
+    const samples = await HealthKit.queryQuantitySamples(
+      HKQuantityTypeIdentifier.stepCount,
+      { from: since, to: now }
     );
-    for (const s of steps) {
-      const date = format(new Date(s.startDate), 'yyyy-MM-dd');
-      dataPoints.push({ metric_type: 'steps', date, value_json: { steps: Math.round(s.value) } });
+    for (const s of samples) {
+      const date = format(s.startDate, 'yyyy-MM-dd');
+      dataPoints.push({ metric_type: 'steps', date, value_json: { steps: Math.round(s.quantity) } });
     }
   } catch { /* no data */ }
 
   onProgress('Querying heart rate…');
   try {
-    type HKSample = { startDate: string; value: number };
-    const hr = await hkQuery<HKSample[]>(
-      (o: object, cb: (e: string, r: any) => void) => AppleHealthKit.getHeartRateSamples(o as any, cb),
-      { startDate, endDate, ascending: false }
+    const samples = await HealthKit.queryQuantitySamples(
+      HKQuantityTypeIdentifier.heartRate,
+      { from: since, to: now }
     );
     const byDay: Record<string, number[]> = {};
-    for (const s of hr) {
-      const day = format(new Date(s.startDate), 'yyyy-MM-dd');
-      (byDay[day] ??= []).push(s.value);
+    for (const s of samples) {
+      const day = format(s.startDate, 'yyyy-MM-dd');
+      (byDay[day] ??= []).push(s.quantity);
     }
     for (const [date, vals] of Object.entries(byDay)) {
       const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
@@ -182,15 +160,14 @@ async function syncHealthKit(onProgress: (msg: string) => void) {
 
   onProgress('Querying HRV…');
   try {
-    type HKSample = { startDate: string; value: number };
-    const hrv = await hkQuery<HKSample[]>(
-      (o: object, cb: (e: string, r: any) => void) => AppleHealthKit.getHeartRateVariabilitySamples(o as any, cb),
-      { startDate, endDate }
+    const samples = await HealthKit.queryQuantitySamples(
+      HKQuantityTypeIdentifier.heartRateVariabilitySDNN,
+      { from: since, to: now }
     );
     const byDay: Record<string, number[]> = {};
-    for (const s of hrv) {
-      const day = format(new Date(s.startDate), 'yyyy-MM-dd');
-      (byDay[day] ??= []).push(s.value * 1000); // convert s → ms
+    for (const s of samples) {
+      const day = format(s.startDate, 'yyyy-MM-dd');
+      (byDay[day] ??= []).push(s.quantity * 1000); // s → ms
     }
     for (const [date, vals] of Object.entries(byDay)) {
       const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
@@ -200,15 +177,14 @@ async function syncHealthKit(onProgress: (msg: string) => void) {
 
   onProgress('Querying SpO₂…');
   try {
-    type HKSample = { startDate: string; value: number };
-    const spo2 = await hkQuery<HKSample[]>(
-      (o: object, cb: (e: string, r: any) => void) => AppleHealthKit.getOxygenSaturationSamples(o as any, cb),
-      { startDate, endDate }
+    const samples = await HealthKit.queryQuantitySamples(
+      HKQuantityTypeIdentifier.oxygenSaturation,
+      { from: since, to: now }
     );
     const byDay: Record<string, number[]> = {};
-    for (const s of spo2) {
-      const day = format(new Date(s.startDate), 'yyyy-MM-dd');
-      (byDay[day] ??= []).push(s.value * 100);
+    for (const s of samples) {
+      const day = format(s.startDate, 'yyyy-MM-dd');
+      (byDay[day] ??= []).push(s.quantity * 100); // fraction → percent
     }
     for (const [date, vals] of Object.entries(byDay)) {
       const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
@@ -218,16 +194,15 @@ async function syncHealthKit(onProgress: (msg: string) => void) {
 
   onProgress('Querying sleep…');
   try {
-    type SleepSample = { startDate: string; endDate: string; value: string };
-    const sleep = await hkQuery<SleepSample[]>(
-      (o: object, cb: (e: string, r: any) => void) => AppleHealthKit.getSleepSamples(o as any, cb),
-      { startDate, endDate }
+    const samples = await HealthKit.queryCategorySamples(
+      HKCategoryTypeIdentifier.sleepAnalysis,
+      { from: since, to: now }
     );
     const byDay: Record<string, number> = {};
-    for (const s of sleep) {
-      if (s.value === 'INBED') continue; // only count asleep time
-      const day = format(new Date(s.startDate), 'yyyy-MM-dd');
-      const hrs = (new Date(s.endDate).getTime() - new Date(s.startDate).getTime()) / 3_600_000;
+    for (const s of samples) {
+      if (s.value === 0) continue; // skip InBed (0), count all sleep stages (1–5)
+      const day = format(s.startDate, 'yyyy-MM-dd');
+      const hrs = (s.endDate.getTime() - s.startDate.getTime()) / 3_600_000;
       byDay[day] = (byDay[day] ?? 0) + hrs;
     }
     for (const [date, hrs] of Object.entries(byDay)) {
@@ -237,15 +212,14 @@ async function syncHealthKit(onProgress: (msg: string) => void) {
 
   onProgress('Querying respiratory rate…');
   try {
-    type HKSample = { startDate: string; value: number };
-    const rr = await hkQuery<HKSample[]>(
-      (o: object, cb: (e: string, r: any) => void) => AppleHealthKit.getRespiratoryRateSamples(o as any, cb),
-      { startDate, endDate }
+    const samples = await HealthKit.queryQuantitySamples(
+      HKQuantityTypeIdentifier.respiratoryRate,
+      { from: since, to: now }
     );
     const byDay: Record<string, number[]> = {};
-    for (const s of rr) {
-      const day = format(new Date(s.startDate), 'yyyy-MM-dd');
-      (byDay[day] ??= []).push(s.value);
+    for (const s of samples) {
+      const day = format(s.startDate, 'yyyy-MM-dd');
+      (byDay[day] ??= []).push(s.quantity);
     }
     for (const [date, vals] of Object.entries(byDay)) {
       const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
@@ -255,15 +229,14 @@ async function syncHealthKit(onProgress: (msg: string) => void) {
 
   onProgress('Querying active calories…');
   try {
-    type EnergySample = { startDate: string; value: number };
-    const energy = await hkQuery<EnergySample[]>(
-      (o: object, cb: (e: string, r: any) => void) => AppleHealthKit.getActiveEnergyBurned(o as any, cb),
-      { startDate, endDate }
+    const samples = await HealthKit.queryQuantitySamples(
+      HKQuantityTypeIdentifier.activeEnergyBurned,
+      { from: since, to: now }
     );
     const byDay: Record<string, number> = {};
-    for (const s of energy) {
-      const day = format(new Date(s.startDate), 'yyyy-MM-dd');
-      byDay[day] = (byDay[day] ?? 0) + s.value;
+    for (const s of samples) {
+      const day = format(s.startDate, 'yyyy-MM-dd');
+      byDay[day] = (byDay[day] ?? 0) + s.quantity;
     }
     for (const [date, total] of Object.entries(byDay)) {
       dataPoints.push({ metric_type: 'active_calories', date, value_json: { kcal: Math.round(total) } });
@@ -272,40 +245,35 @@ async function syncHealthKit(onProgress: (msg: string) => void) {
 
   onProgress('Querying VO₂ max…');
   try {
-    type HKSample = { startDate: string; value: number };
-    const vo2 = await hkQuery<HKSample[]>(
-      (o: object, cb: (e: string, r: any) => void) => AppleHealthKit.getVo2MaxSamples(o as any, cb),
-      { startDate, endDate }
+    const samples = await HealthKit.queryQuantitySamples(
+      HKQuantityTypeIdentifier.vo2Max,
+      { from: since, to: now }
     );
-    for (const s of vo2) {
-      const date = format(new Date(s.startDate), 'yyyy-MM-dd');
-      dataPoints.push({ metric_type: 'vo2_max', date, value_json: { ml_kg_min: Math.round(s.value * 10) / 10 } });
+    for (const s of samples) {
+      const date = format(s.startDate, 'yyyy-MM-dd');
+      dataPoints.push({ metric_type: 'vo2_max', date, value_json: { ml_kg_min: Math.round(s.quantity * 10) / 10 } });
     }
   } catch { /* no data */ }
 
   onProgress('Querying workouts…');
   try {
-    const workoutActivityMap: Record<string, string> = {
-      'Running': 'running', 'Cycling': 'cycling', 'Walking': 'walking',
-      'Yoga': 'yoga', 'FunctionalStrengthTraining': 'strength',
-      'TraditionalStrengthTraining': 'strength', 'Mindfulness': 'mindfulness',
-      'Pilates': 'pilates', 'HighIntensityIntervalTraining': 'hiit',
-      'Swimming': 'swimming', 'Tennis': 'tennis', 'Boxing': 'boxing',
+    // HKWorkoutActivityType numeric values: running=37, cycling=13, walking=52, yoga=57,
+    // strengthTraining=50, swimming=46, pilates=84, hiit=64, mindfulnessSession=72
+    const workoutTypeMap: Record<number, string> = {
+      13: 'cycling', 37: 'running', 46: 'swimming', 50: 'strength',
+      52: 'walking', 57: 'yoga', 64: 'hiit', 72: 'mindfulness', 84: 'pilates',
     };
-    type WorkoutSample = { startDate: string; endDate: string; activityName: string; calories: number };
-    const workouts = await hkQuery<WorkoutSample[]>(
-      (o: object, cb: (e: string, r: any) => void) => AppleHealthKit.getSamples(o as any, cb),
-      { startDate, endDate, type: 'Workout' }
-    );
+    const workouts = await HealthKit.queryWorkoutSamples({ from: since, to: now });
     const byDay: Record<string, { minutes: number; sessions: number; active_calories: number; types: string[] }> = {};
     for (const w of workouts) {
-      const day = format(new Date(w.startDate), 'yyyy-MM-dd');
-      const durationMin = (new Date(w.endDate).getTime() - new Date(w.startDate).getTime()) / 60_000;
-      const typeName = workoutActivityMap[w.activityName] ?? 'other';
+      const day = format(w.startDate, 'yyyy-MM-dd');
+      const durationMin = (w.endDate.getTime() - w.startDate.getTime()) / 60_000;
+      const typeName = workoutTypeMap[w.workoutActivityType as number] ?? 'other';
+      const kcal = (w.totalEnergyBurned as any)?.quantity ?? 0;
       if (!byDay[day]) byDay[day] = { minutes: 0, sessions: 0, active_calories: 0, types: [] };
       byDay[day].minutes += durationMin;
       byDay[day].sessions += 1;
-      byDay[day].active_calories += w.calories ?? 0;
+      byDay[day].active_calories += kcal;
       if (!byDay[day].types.includes(typeName)) byDay[day].types.push(typeName);
     }
     for (const [date, agg] of Object.entries(byDay)) {

@@ -7,7 +7,7 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
     "scheme": "vitalix",
-    "newArchEnabled": false,
+    "newArchEnabled": true,
     "splash": {
       "image": "./assets/splash.png",
       "resizeMode": "contain",
@@ -66,13 +66,6 @@
       "expo-notifications",
       "expo-background-fetch",
       "expo-task-manager",
-      [
-        "react-native-health",
-        {
-          "healthSharePermission": "Vitalix reads your steps, sleep, heart rate, HRV, SpO₂, and workout data to generate personalized health insights.",
-          "healthUpdatePermission": "Vitalix may write workout sessions you log in the app back to Apple Health."
-        }
-      ],
       [
         "react-native-health-connect",
         {

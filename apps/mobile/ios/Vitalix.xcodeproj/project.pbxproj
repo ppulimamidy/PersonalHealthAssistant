@@ -8,30 +8,28 @@
 
 /* Begin PBXBuildFile section */
 		13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB51A68108700A75B9A /* Images.xcassets */; };
-		3462FFED9C9BDFF3C16300C8 /* ExpoModulesProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35256B3B82DB2506B70B7C87 /* ExpoModulesProvider.swift */; };
+		192A142CBD1A668B4EB1299A /* libPods-Vitalix.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 778A20541C726B0053FA96A8 /* libPods-Vitalix.a */; };
 		3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */; };
-		5ACD783143B3AE3B6F54D16F /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 7440ADCA0AE024789A01CE4B /* PrivacyInfo.xcprivacy */; };
-		AA11223344556677AABBCCDD /* VitalixHealthKitModule.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA11223344556677AABBCCEE /* VitalixHealthKitModule.swift */; };
+		940E1E4727277D32A8A5320C /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 9484DD3742EED96947877EF5 /* PrivacyInfo.xcprivacy */; };
 		BB2F792D24A3F905000567C9 /* Expo.plist in Resources */ = {isa = PBXBuildFile; fileRef = BB2F792C24A3F905000567C9 /* Expo.plist */; };
-		DC5FF0D93DEC0C09359700CA /* libPods-Vitalix.a in Frameworks */ = {isa = PBXBuildFile; fileRef = F444C4CFE577237DAE13BB7E /* libPods-Vitalix.a */; };
+		C2A61276C970BC2D065EFA12 /* ExpoModulesProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8E219304691834529FFE7A1 /* ExpoModulesProvider.swift */; };
 		F11748422D0307B40044C1D9 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11748412D0307B40044C1D9 /* AppDelegate.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		07C2FDE347BB8E82EB6CFE18 /* Pods-Vitalix.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Vitalix.release.xcconfig"; path = "Target Support Files/Pods-Vitalix/Pods-Vitalix.release.xcconfig"; sourceTree = "<group>"; };
 		13B07F961A680F5B00A75B9A /* Vitalix.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Vitalix.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		13B07FB51A68108700A75B9A /* Images.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Images.xcassets; path = Vitalix/Images.xcassets; sourceTree = "<group>"; };
 		13B07FB61A68108700A75B9A /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = Info.plist; path = Vitalix/Info.plist; sourceTree = "<group>"; };
-		35256B3B82DB2506B70B7C87 /* ExpoModulesProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ExpoModulesProvider.swift; path = "Pods/Target Support Files/Pods-Vitalix/ExpoModulesProvider.swift"; sourceTree = "<group>"; };
-		7440ADCA0AE024789A01CE4B /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; name = PrivacyInfo.xcprivacy; path = Vitalix/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
-		AA11223344556677AABBCCEE /* VitalixHealthKitModule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VitalixHealthKitModule.swift; path = Vitalix/VitalixHealthKitModule.swift; sourceTree = "<group>"; };
+		778A20541C726B0053FA96A8 /* libPods-Vitalix.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-Vitalix.a"; sourceTree = BUILT_PRODUCTS_DIR; };
+		9007E8BD2BF10BC279766B4C /* Pods-Vitalix.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Vitalix.debug.xcconfig"; path = "Target Support Files/Pods-Vitalix/Pods-Vitalix.debug.xcconfig"; sourceTree = "<group>"; };
+		9484DD3742EED96947877EF5 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; name = PrivacyInfo.xcprivacy; path = Vitalix/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = SplashScreen.storyboard; path = Vitalix/SplashScreen.storyboard; sourceTree = "<group>"; };
 		BB2F792C24A3F905000567C9 /* Expo.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = Expo.plist; sourceTree = "<group>"; };
-		EB62C187CB35B30E04226CB7 /* Pods-Vitalix.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Vitalix.debug.xcconfig"; path = "Target Support Files/Pods-Vitalix/Pods-Vitalix.debug.xcconfig"; sourceTree = "<group>"; };
-		EC84C0973B514321BA1FBB2D /* Pods-Vitalix.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Vitalix.release.xcconfig"; path = "Target Support Files/Pods-Vitalix/Pods-Vitalix.release.xcconfig"; sourceTree = "<group>"; };
+		E8E219304691834529FFE7A1 /* ExpoModulesProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ExpoModulesProvider.swift; path = "Pods/Target Support Files/Pods-Vitalix/ExpoModulesProvider.swift"; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
 		F11748412D0307B40044C1D9 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppDelegate.swift; path = Vitalix/AppDelegate.swift; sourceTree = "<group>"; };
 		F11748442D0722820044C1D9 /* Vitalix-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = "Vitalix-Bridging-Header.h"; path = "Vitalix/Vitalix-Bridging-Header.h"; sourceTree = "<group>"; };
-		F444C4CFE577237DAE13BB7E /* libPods-Vitalix.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-Vitalix.a"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -39,7 +37,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				DC5FF0D93DEC0C09359700CA /* libPods-Vitalix.a in Frameworks */,
+				192A142CBD1A668B4EB1299A /* libPods-Vitalix.a in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -50,13 +48,12 @@
 			isa = PBXGroup;
 			children = (
 				F11748412D0307B40044C1D9 /* AppDelegate.swift */,
-				AA11223344556677AABBCCEE /* VitalixHealthKitModule.swift */,
 				F11748442D0722820044C1D9 /* Vitalix-Bridging-Header.h */,
 				BB2F792B24A3F905000567C9 /* Supporting */,
 				13B07FB51A68108700A75B9A /* Images.xcassets */,
 				13B07FB61A68108700A75B9A /* Info.plist */,
 				AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */,
-				7440ADCA0AE024789A01CE4B /* PrivacyInfo.xcprivacy */,
+				9484DD3742EED96947877EF5 /* PrivacyInfo.xcprivacy */,
 			);
 			name = Vitalix;
 			sourceTree = "<group>";
@@ -65,35 +62,27 @@
 			isa = PBXGroup;
 			children = (
 				ED297162215061F000B7C4FE /* JavaScriptCore.framework */,
-				F444C4CFE577237DAE13BB7E /* libPods-Vitalix.a */,
+				778A20541C726B0053FA96A8 /* libPods-Vitalix.a */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
 		};
-		3A072CB6B94AA2F4CD42A2B0 /* Vitalix */ = {
+		4A691A1E69AFA9369FAF61C7 /* Pods */ = {
 			isa = PBXGroup;
 			children = (
-				35256B3B82DB2506B70B7C87 /* ExpoModulesProvider.swift */,
-			);
-			name = Vitalix;
-			sourceTree = "<group>";
-		};
-		4A6D39FA8931B657AD2C64FA /* ExpoModulesProviders */ = {
-			isa = PBXGroup;
-			children = (
-				3A072CB6B94AA2F4CD42A2B0 /* Vitalix */,
-			);
-			name = ExpoModulesProviders;
-			sourceTree = "<group>";
-		};
-		697CA1108B2D8CE746EE4DD8 /* Pods */ = {
-			isa = PBXGroup;
-			children = (
-				EB62C187CB35B30E04226CB7 /* Pods-Vitalix.debug.xcconfig */,
-				EC84C0973B514321BA1FBB2D /* Pods-Vitalix.release.xcconfig */,
+				9007E8BD2BF10BC279766B4C /* Pods-Vitalix.debug.xcconfig */,
+				07C2FDE347BB8E82EB6CFE18 /* Pods-Vitalix.release.xcconfig */,
 			);
 			name = Pods;
 			path = Pods;
+			sourceTree = "<group>";
+		};
+		4EB814D188C29897780E001B /* Vitalix */ = {
+			isa = PBXGroup;
+			children = (
+				E8E219304691834529FFE7A1 /* ExpoModulesProvider.swift */,
+			);
+			name = Vitalix;
 			sourceTree = "<group>";
 		};
 		832341AE1AAA6A7D00B99B32 /* Libraries */ = {
@@ -110,8 +99,8 @@
 				832341AE1AAA6A7D00B99B32 /* Libraries */,
 				83CBBA001A601CBA00E9B192 /* Products */,
 				2D16E6871FA4F8E400B85C8A /* Frameworks */,
-				697CA1108B2D8CE746EE4DD8 /* Pods */,
-				4A6D39FA8931B657AD2C64FA /* ExpoModulesProviders */,
+				4A691A1E69AFA9369FAF61C7 /* Pods */,
+				83FDD93F38033A2241B5F434 /* ExpoModulesProviders */,
 			);
 			indentWidth = 2;
 			sourceTree = "<group>";
@@ -124,6 +113,14 @@
 				13B07F961A680F5B00A75B9A /* Vitalix.app */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		83FDD93F38033A2241B5F434 /* ExpoModulesProviders */ = {
+			isa = PBXGroup;
+			children = (
+				4EB814D188C29897780E001B /* Vitalix */,
+			);
+			name = ExpoModulesProviders;
 			sourceTree = "<group>";
 		};
 		BB2F792B24A3F905000567C9 /* Supporting */ = {
@@ -143,13 +140,13 @@
 			buildConfigurationList = 13B07F931A680F5B00A75B9A /* Build configuration list for PBXNativeTarget "Vitalix" */;
 			buildPhases = (
 				08A4A3CD28434E44B6B9DE2E /* [CP] Check Pods Manifest.lock */,
-				87269562A810104615EDAE15 /* [Expo] Configure project */,
+				9DDE4C67FEDB35E63504FAA0 /* [Expo] Configure project */,
 				13B07F871A680F5B00A75B9A /* Sources */,
 				13B07F8C1A680F5B00A75B9A /* Frameworks */,
 				13B07F8E1A680F5B00A75B9A /* Resources */,
 				00DD1BFF1BD5951E006B06BC /* Bundle React Native code and images */,
 				800E24972A6A228C8D4807E9 /* [CP] Copy Pods Resources */,
-				1EE373D59DDDA4AF24EB5C60 /* [CP] Embed Pods Frameworks */,
+				3C95157C186C9CFF3A51C0E6 /* [CP] Embed Pods Frameworks */,
 			);
 			buildRules = (
 			);
@@ -199,7 +196,7 @@
 				BB2F792D24A3F905000567C9 /* Expo.plist in Resources */,
 				13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */,
 				3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */,
-				5ACD783143B3AE3B6F54D16F /* PrivacyInfo.xcprivacy in Resources */,
+				940E1E4727277D32A8A5320C /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -245,7 +242,7 @@
 			shellScript = "diff \"${PODS_PODFILE_DIR_PATH}/Podfile.lock\" \"${PODS_ROOT}/Manifest.lock\" > /dev/null\nif [ $? != 0 ] ; then\n    # print error to STDERR\n    echo \"error: The sandbox is not in sync with the Podfile.lock. Run 'pod install' or update your CocoaPods installation.\" >&2\n    exit 1\nfi\n# This output is used by Xcode 'outputs' to avoid re-running this script phase.\necho \"SUCCESS\" > \"${SCRIPT_OUTPUT_FILE_0}\"\n";
 			showEnvVarsInLog = 0;
 		};
-		1EE373D59DDDA4AF24EB5C60 /* [CP] Embed Pods Frameworks */ = {
+		3C95157C186C9CFF3A51C0E6 /* [CP] Embed Pods Frameworks */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -279,10 +276,12 @@
 				"${PODS_CONFIGURATION_BUILD_DIR}/EXConstants/ExpoConstants_privacy.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/EXNotifications/ExpoNotifications_privacy.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/EXTaskManager/ExpoTaskManager_privacy.bundle",
+				"${PODS_CONFIGURATION_BUILD_DIR}/EXUpdates/EXUpdates.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/ExpoDevice/ExpoDevice_privacy.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/ExpoFileSystem/ExpoFileSystem_privacy.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/RNCAsyncStorage/RNCAsyncStorage_resources.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/RNSVG/RNSVGFilters.bundle",
+				"${PODS_CONFIGURATION_BUILD_DIR}/ReachabilitySwift/ReachabilitySwift.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/React-Core/React-Core_privacy.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/React-cxxreact/React-cxxreact_privacy.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/SDWebImage/SDWebImage.bundle",
@@ -296,10 +295,12 @@
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/ExpoConstants_privacy.bundle",
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/ExpoNotifications_privacy.bundle",
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/ExpoTaskManager_privacy.bundle",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/EXUpdates.bundle",
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/ExpoDevice_privacy.bundle",
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/ExpoFileSystem_privacy.bundle",
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/RNCAsyncStorage_resources.bundle",
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/RNSVGFilters.bundle",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/ReachabilitySwift.bundle",
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/React-Core_privacy.bundle",
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/React-cxxreact_privacy.bundle",
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/SDWebImage.bundle",
@@ -311,7 +312,7 @@
 			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-Vitalix/Pods-Vitalix-resources.sh\"\n";
 			showEnvVarsInLog = 0;
 		};
-		87269562A810104615EDAE15 /* [Expo] Configure project */ = {
+		9DDE4C67FEDB35E63504FAA0 /* [Expo] Configure project */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
@@ -343,8 +344,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				F11748422D0307B40044C1D9 /* AppDelegate.swift in Sources */,
-				AA11223344556677AABBCCDD /* VitalixHealthKitModule.swift in Sources */,
-				3462FFED9C9BDFF3C16300C8 /* ExpoModulesProvider.swift in Sources */,
+				C2A61276C970BC2D065EFA12 /* ExpoModulesProvider.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -353,14 +353,13 @@
 /* Begin XCBuildConfiguration section */
 		13B07F941A680F5B00A75B9A /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = EB62C187CB35B30E04226CB7 /* Pods-Vitalix.debug.xcconfig */;
+			baseConfigurationReference = 9007E8BD2BF10BC279766B4C /* Pods-Vitalix.debug.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = Vitalix/Vitalix.entitlements;
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_BITCODE = NO;
-				ENTITLEMENTS_ALLOWED = YES;
 				GCC_PREPROCESSOR_DEFINITIONS = (
 					"$(inherited)",
 					"FB_SONARKIT_ENABLED=1",
@@ -390,13 +389,12 @@
 		};
 		13B07F951A680F5B00A75B9A /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = EC84C0973B514321BA1FBB2D /* Pods-Vitalix.release.xcconfig */;
+			baseConfigurationReference = 07C2FDE347BB8E82EB6CFE18 /* Pods-Vitalix.release.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = Vitalix/Vitalix.entitlements;
 				CURRENT_PROJECT_VERSION = 1;
-				ENTITLEMENTS_ALLOWED = YES;
 				INFOPLIST_FILE = Vitalix/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.1;
 				LD_RUNPATH_SEARCH_PATHS = (
