@@ -269,7 +269,7 @@ export default function TrendsScreen() {
         <TouchableOpacity onPress={() => router.back()} className="mr-4 p-1">
           <Ionicons name="chevron-back" size={24} color="#E8EDF5" />
         </TouchableOpacity>
-        <Text className="text-xl font-display text-[#E8EDF5] flex-1">Trends</Text>
+        <Text className="text-xl font-display text-[#E8EDF5] flex-1">Health Timeline</Text>
         {/* Day range */}
         <View className="flex-row gap-1">
           {DAY_OPTIONS.map((d) => (
@@ -334,7 +334,131 @@ export default function TrendsScreen() {
         {!isLoading && entries.length > 0 && METRICS.map((m) => (
           <MetricCard key={m.label} metric={m} entries={entries} />
         ))}
+
+        {/* Daily Timeline Cards */}
+        {!isLoading && entries.length > 0 && (
+          <>
+            <Text className="text-[#526380] text-xs uppercase tracking-wider mt-6 mb-3">Daily Timeline</Text>
+            {entries.map((entry) => (
+              <DailyTimelineCard key={entry.date} entry={entry} />
+            ))}
+          </>
+        )}
       </View>
     </ScrollView>
+  );
+}
+
+// ─── Daily Timeline Card (mobile) ────────────────────────────────────────────
+
+function DailyTimelineCard({ entry }: { entry: TimelineEntry }) {
+  const [expanded, setExpanded] = useState(false);
+  const native = entry.native;
+  const sources = entry.sources ?? [];
+
+  const formatDur = (secs?: number) => {
+    if (!secs) return '—';
+    const h = Math.floor(secs / 3600);
+    const m = Math.floor((secs % 3600) / 60);
+    return `${h}h ${m}m`;
+  };
+
+  const dateLabel = (() => {
+    const d = new Date(entry.date + 'T00:00:00');
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  })();
+
+  return (
+    <View className="bg-surface-raised border border-surface-border rounded-2xl p-4 mb-2">
+      <TouchableOpacity onPress={() => setExpanded((v) => !v)} activeOpacity={0.8}>
+        <View className="flex-row items-center justify-between">
+          <View>
+            <Text className="text-[#E8EDF5] text-sm font-sansMedium">{dateLabel}</Text>
+            {sources.length > 0 && (
+              <View className="flex-row gap-1 mt-1">
+                {sources.map((s) => {
+                  const badge = SOURCE_BADGE[s];
+                  return badge ? (
+                    <Text key={s} style={{ color: badge.color, fontSize: 9 }}>{badge.label}</Text>
+                  ) : null;
+                })}
+              </View>
+            )}
+          </View>
+          <View className="flex-row items-center gap-3">
+            {entry.sleep?.sleep_score != null && (
+              <View className="items-center">
+                <View className="w-10 h-10 rounded-full items-center justify-center border-2" style={{ borderColor: '#818CF8' }}>
+                  <Text className="text-xs font-sansMedium" style={{ color: '#818CF8' }}>{entry.sleep.sleep_score}</Text>
+                </View>
+                <Text className="text-[8px] text-[#526380] mt-0.5">Sleep</Text>
+              </View>
+            )}
+            {entry.readiness?.hrv_balance != null && (
+              <View className="items-center">
+                <View className="w-10 h-10 rounded-full items-center justify-center border-2" style={{ borderColor: '#F87171' }}>
+                  <Text className="text-xs font-sansMedium" style={{ color: '#F87171' }}>{Math.round(entry.readiness.hrv_balance)}</Text>
+                </View>
+                <Text className="text-[8px] text-[#526380] mt-0.5">Heart</Text>
+              </View>
+            )}
+            {entry.activity?.activity_score != null && (
+              <View className="items-center">
+                <View className="w-10 h-10 rounded-full items-center justify-center border-2" style={{ borderColor: '#6EE7B7' }}>
+                  <Text className="text-xs font-sansMedium" style={{ color: '#6EE7B7' }}>{entry.activity.activity_score}</Text>
+                </View>
+                <Text className="text-[8px] text-[#526380] mt-0.5">Activity</Text>
+              </View>
+            )}
+            {entry.readiness?.readiness_score != null && (
+              <View className="items-center">
+                <View className="w-10 h-10 rounded-full items-center justify-center border-2" style={{ borderColor: '#F59E0B' }}>
+                  <Text className="text-xs font-sansMedium" style={{ color: '#F59E0B' }}>{entry.readiness.readiness_score}</Text>
+                </View>
+                <Text className="text-[8px] text-[#526380] mt-0.5">Recovery</Text>
+              </View>
+            )}
+            <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={16} color="#526380" />
+          </View>
+        </View>
+      </TouchableOpacity>
+
+      {expanded && (
+        <View className="mt-3 pt-3 border-t border-surface-border">
+          <View className="flex-row flex-wrap gap-x-6 gap-y-3">
+            {/* Sleep */}
+            {entry.sleep && (
+              <View style={{ minWidth: '40%' }}>
+                <Text className="text-[10px] font-sansMedium mb-1" style={{ color: '#818CF8' }}>Sleep</Text>
+                <Text className="text-[#526380] text-[10px]">Duration: <Text className="text-[#E8EDF5]">{formatDur(entry.sleep.total_sleep_duration)}</Text></Text>
+                <Text className="text-[#526380] text-[10px]">Deep: <Text className="text-[#E8EDF5]">{formatDur(entry.sleep.deep_sleep_duration)}</Text></Text>
+                <Text className="text-[#526380] text-[10px]">REM: <Text className="text-[#E8EDF5]">{formatDur(entry.sleep.rem_sleep_duration)}</Text></Text>
+                <Text className="text-[#526380] text-[10px]">Efficiency: <Text className="text-[#E8EDF5]">{entry.sleep.sleep_efficiency}%</Text></Text>
+              </View>
+            )}
+            {/* Heart */}
+            {entry.readiness && (
+              <View style={{ minWidth: '40%' }}>
+                <Text className="text-[10px] font-sansMedium mb-1" style={{ color: '#F87171' }}>Heart</Text>
+                <Text className="text-[#526380] text-[10px]">HRV: <Text className="text-[#E8EDF5]">{entry.readiness.hrv_balance} ms</Text></Text>
+                <Text className="text-[#526380] text-[10px]">Resting HR: <Text className="text-[#E8EDF5]">{entry.readiness.resting_heart_rate} bpm</Text></Text>
+                {native?.spo2 != null && <Text className="text-[#526380] text-[10px]">SpO₂: <Text className="text-[#E8EDF5]">{native.spo2.toFixed(1)}%</Text></Text>}
+                {native?.respiratory_rate != null && <Text className="text-[#526380] text-[10px]">Resp: <Text className="text-[#E8EDF5]">{native.respiratory_rate.toFixed(1)}/min</Text></Text>}
+              </View>
+            )}
+            {/* Activity */}
+            {entry.activity && (
+              <View style={{ minWidth: '40%' }}>
+                <Text className="text-[10px] font-sansMedium mb-1" style={{ color: '#6EE7B7' }}>Activity</Text>
+                <Text className="text-[#526380] text-[10px]">Steps: <Text className="text-[#E8EDF5]">{entry.activity.steps?.toLocaleString()}</Text></Text>
+                <Text className="text-[#526380] text-[10px]">Calories: <Text className="text-[#E8EDF5]">{native?.active_calories ?? entry.activity.active_calories} kcal</Text></Text>
+                {native?.workout_minutes != null && <Text className="text-[#526380] text-[10px]">Workouts: <Text className="text-[#E8EDF5]">{native.workout_minutes} min</Text></Text>}
+                {native?.vo2_max != null && <Text className="text-[#526380] text-[10px]">VO₂ Max: <Text className="text-[#E8EDF5]">{native.vo2_max.toFixed(1)}</Text></Text>}
+              </View>
+            )}
+          </View>
+        </View>
+      )}
+    </View>
   );
 }

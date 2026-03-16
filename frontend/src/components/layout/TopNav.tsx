@@ -42,7 +42,6 @@ const TABS: TabDef[] = [
     subRoutes: ['/timeline', '/trends', '/correlations', '/predictions', '/meta-analysis', '/doctor-prep', '/causal-graph', '/research', '/health-twin'],
     subItems: [
       { name: 'Timeline', href: '/timeline' },
-      { name: 'Trends', href: '/trends' },
       { name: 'Symptom Triggers', href: '/correlations' },
       { name: 'Health Forecast', href: '/predictions' },
       { name: 'Root Causes', href: '/causal-graph' },

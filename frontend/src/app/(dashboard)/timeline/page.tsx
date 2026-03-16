@@ -1,11 +1,5 @@
-import { TimelineView } from '@/components/timeline/TimelineView';
-import { HealthScoreCard } from '@/components/dashboard/HealthScoreCard';
+import { UnifiedTimeline } from '@/components/timeline/UnifiedTimeline';
 
 export default function TimelinePage() {
-  return (
-    <>
-      <HealthScoreCard />
-      <TimelineView />
-    </>
-  );
+  return <UnifiedTimeline />;
 }
