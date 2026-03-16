@@ -18,6 +18,10 @@ import * as Device from 'expo-device';
 import { api } from '@/services/api';
 import { getSyncTimestamp, setSyncTimestamp } from '@/utils/syncTimestamp';
 
+// Static import required for react-native-health (CommonJS module — dynamic .default fails)
+// Safe to import on iOS only; Android never calls syncHealthKit
+import AppleHealthKit from 'react-native-health';
+
 // ─── Simulator mock data ───────────────────────────────────────────────────────
 
 function buildMockHealthPoints() {
@@ -105,7 +109,6 @@ async function syncHealthKit(onProgress: (msg: string) => void) {
     return { ...result, latestValues: latest };
   }
 
-  const AppleHealthKit = (await import('react-native-health')).default;
   const P = AppleHealthKit.Constants.Permissions;
 
   onProgress('Requesting permissions…');
