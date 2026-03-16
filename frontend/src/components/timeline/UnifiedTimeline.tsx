@@ -112,7 +112,7 @@ function MiniChart({
   unit?: string;
   title: string;
 }) {
-  const hasData = data.some((d) => (d as Record<string, unknown>)[dataKey] != null);
+  const hasData = data.some((d) => (d as unknown as Record<string, unknown>)[dataKey] != null);
   if (!hasData) return null;
 
   return (
