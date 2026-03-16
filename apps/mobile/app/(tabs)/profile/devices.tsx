@@ -511,24 +511,96 @@ async function syncHealthConnect(onProgress: (msg: string) => void) {
   return { ...result, latestValues };
 }
 
+// ─── Types for summaries ──────────────────────────────────────────────────────
+
+interface MetricSummary {
+  latest_value: number | null;
+  latest_date: string | null;
+  avg_7d: number | null;
+  avg_30d: number | null;
+  avg_90d: number | null;
+  trend_7d: 'up' | 'down' | 'stable' | null;
+  trend_30d: 'up' | 'down' | 'stable' | null;
+  data_points_total: number;
+  is_anomalous: boolean;
+  anomaly_severity: 'low' | 'medium' | 'high' | null;
+  anomaly_detail: string | null;
+}
+
+type Summaries = Record<string, MetricSummary>;
+
+const TREND_ICON: Record<string, { icon: React.ComponentProps<typeof Ionicons>['name']; color: string }> = {
+  up:     { icon: 'trending-up',    color: '#6EE7B7' },
+  down:   { icon: 'trending-down',  color: '#F87171' },
+  stable: { icon: 'remove-outline', color: '#526380' },
+};
+
 // ─── Metric Row ───────────────────────────────────────────────────────────────
 
-function MetricRow({ metric, value }: { metric: SyncMetric; value: number | null }) {
+function MetricRow({
+  metric, value, summary,
+}: {
+  metric: SyncMetric;
+  value: number | null;
+  summary?: MetricSummary;
+}) {
+  const displayValue = value ?? summary?.latest_value;
+  const trend = summary?.trend_7d;
+  const trendInfo = trend ? TREND_ICON[trend] : null;
+  const avg7 = summary?.avg_7d;
+  const avg30 = summary?.avg_30d;
+
   return (
-    <View className="flex-row items-center py-2.5 border-b border-surface-border last:border-0">
-      <View
-        className="w-8 h-8 rounded-lg items-center justify-center mr-3"
-        style={{ backgroundColor: `${metric.color}18` }}
-      >
-        <Ionicons name={metric.icon} size={16} color={metric.color} />
+    <View className="py-2.5 border-b border-surface-border last:border-0">
+      <View className="flex-row items-center">
+        <View
+          className="w-8 h-8 rounded-lg items-center justify-center mr-3"
+          style={{ backgroundColor: `${metric.color}18` }}
+        >
+          <Ionicons name={metric.icon} size={16} color={metric.color} />
+        </View>
+        <Text className="text-[#E8EDF5] text-sm flex-1">{metric.label}</Text>
+        {trendInfo && (
+          <Ionicons name={trendInfo.icon} size={14} color={trendInfo.color} style={{ marginRight: 6 }} />
+        )}
+        {displayValue != null ? (
+          <Text className="text-sm font-sansMedium" style={{ color: metric.color }}>
+            {metric.format(displayValue)}
+          </Text>
+        ) : (
+          <Text className="text-[#3A4A5C] text-xs">—</Text>
+        )}
       </View>
-      <Text className="text-[#E8EDF5] text-sm flex-1">{metric.label}</Text>
-      {value != null ? (
-        <Text className="text-sm font-sansMedium" style={{ color: metric.color }}>
-          {metric.format(value)}
-        </Text>
-      ) : (
-        <Text className="text-[#3A4A5C] text-xs">—</Text>
+      {/* Averages row */}
+      {(avg7 != null || avg30 != null) && (
+        <View className="flex-row ml-11 mt-1 gap-4">
+          {avg7 != null && (
+            <Text className="text-[#526380] text-[10px]">
+              7d avg: {metric.format(avg7)}
+            </Text>
+          )}
+          {avg30 != null && (
+            <Text className="text-[#526380] text-[10px]">
+              30d avg: {metric.format(avg30)}
+            </Text>
+          )}
+        </View>
+      )}
+      {/* Anomaly badge */}
+      {summary?.is_anomalous && (
+        <View className="flex-row items-center ml-11 mt-1">
+          <Ionicons
+            name="warning"
+            size={10}
+            color={summary.anomaly_severity === 'high' ? '#F87171' : '#F59E0B'}
+          />
+          <Text
+            className="text-[10px] ml-1"
+            style={{ color: summary.anomaly_severity === 'high' ? '#F87171' : '#F59E0B' }}
+          >
+            {summary.anomaly_detail}
+          </Text>
+        </View>
       )}
     </View>
   );
@@ -629,6 +701,20 @@ export default function DevicesScreen() {
 
   const ouraConnected = !!ouraStatus?.is_active;
 
+  // Fetch pre-computed summaries (rolling averages, trends, anomalies)
+  const { data: summaries, refetch: refetchSummaries } = useQuery({
+    queryKey: ['health-summaries'],
+    queryFn: async () => {
+      try {
+        const { data } = await api.get('/api/v1/health-data/summaries');
+        return data as Summaries;
+      } catch {
+        return null;
+      }
+    },
+    staleTime: 60_000,
+  });
+
   const handleSync = useCallback(async () => {
     setSyncing(true);
     setProgress('Starting…');
@@ -642,6 +728,9 @@ export default function DevicesScreen() {
       queryClient.invalidateQueries({ queryKey: ['sync-timestamp'] });
       queryClient.invalidateQueries({ queryKey: ['batch'] });
       refetchNativeStatus();
+      // Summaries are recomputed in background on the server;
+      // refetch after a short delay to pick up the new values
+      setTimeout(() => refetchSummaries(), 3000);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Sync failed';
       Alert.alert('Sync failed', msg);
@@ -649,7 +738,7 @@ export default function DevicesScreen() {
       setSyncing(false);
       setProgress('');
     }
-  }, [queryClient, refetchNativeStatus]);
+  }, [queryClient, refetchNativeStatus, refetchSummaries]);
 
   const handleHealthDisconnect = useCallback(() => {
     const sourceName = Platform.OS === 'ios' ? 'Apple Health' : 'Health Connect';
@@ -750,7 +839,7 @@ export default function DevicesScreen() {
 
   const platformName = Platform.OS === 'ios' ? 'Apple Health' : 'Google Health Connect';
 
-  const hasValues = Object.keys(latestValues).length > 0;
+  const hasValues = Object.keys(latestValues).length > 0 || (summaries && Object.keys(summaries).length > 0);
 
   return (
     <ScrollView className="flex-1 bg-obsidian-900" contentContainerStyle={{ paddingBottom: 48 }}>
@@ -864,6 +953,7 @@ export default function DevicesScreen() {
                   key={m.metricType}
                   metric={m}
                   value={latestValues[m.metricType] ?? null}
+                  summary={summaries?.[m.metricType]}
                 />
               ))}
             </View>
