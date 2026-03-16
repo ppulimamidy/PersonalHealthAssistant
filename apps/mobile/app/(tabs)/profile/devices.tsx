@@ -123,75 +123,86 @@ async function syncHealthKit(onProgress: (msg: string) => void) {
   const lastSync = await getSyncTimestamp('healthkit');
   const since = lastSync ? new Date(lastSync) : subDays(new Date(), 7);
   const now = new Date();
-  const dateFilter = { date: { startDate: since, endDate: now } };
-  const qOpts = { limit: -1, filter: dateFilter } as any;
+
+  // Anchor at midnight so daily buckets align to calendar days (not arbitrary times)
+  const anchor = new Date(since);
+  anchor.setHours(0, 0, 0, 0);
+
+  const dateRange = { filter: { date: { startDate: anchor, endDate: now } } };
+  const catOpts = { limit: -1, filter: { date: { startDate: anchor, endDate: now } } } as any;
+
+  // Helper: query deduplicated daily statistics (merges iPhone + Apple Watch sources)
+  // Uses the same deduplication algorithm as the Apple Health summary screen
+  async function dailyStats(
+    identifier: string,
+    stat: 'cumulativeSum' | 'discreteAverage' | 'discreteMin' | 'discreteMax' | 'mostRecent',
+    unit?: string,
+  ) {
+    const opts = unit ? { ...dateRange, unit } : dateRange;
+    const results = await HealthKit.queryStatisticsCollectionForQuantity(
+      identifier as any,
+      [stat],
+      anchor,         // anchorDate: midnight-aligned
+      { day: 1 },     // interval: 1 calendar day
+      opts as any,
+    );
+    return results;
+  }
 
   const dataPoints: Array<{ metric_type: string; date: string; value_json: object }> = [];
 
   onProgress('Querying steps…');
   try {
-    const samples = await HealthKit.queryQuantitySamples(
-      'HKQuantityTypeIdentifierStepCount', qOpts,
-    );
-    console.log('[HK] steps samples:', samples.length);
-    for (const s of samples) {
-      const date = format(s.startDate, 'yyyy-MM-dd');
-      dataPoints.push({ metric_type: 'steps', date, value_json: { steps: Math.round(s.quantity) } });
+    const stats = await dailyStats('HKQuantityTypeIdentifierStepCount', 'cumulativeSum', 'count');
+    console.log('[HK] steps days:', stats.length);
+    for (const s of stats) {
+      if (s.sumQuantity && s.startDate) {
+        const date = format(s.startDate, 'yyyy-MM-dd');
+        dataPoints.push({ metric_type: 'steps', date, value_json: { steps: Math.round(s.sumQuantity.quantity) } });
+      }
     }
   } catch (e) { console.warn('[HK] steps error:', e); }
 
   onProgress('Querying heart rate…');
   try {
-    const samples = await HealthKit.queryQuantitySamples(
-      'HKQuantityTypeIdentifierHeartRate', qOpts,
-    );
-    const byDay: Record<string, number[]> = {};
-    for (const s of samples) {
-      const day = format(s.startDate, 'yyyy-MM-dd');
-      (byDay[day] ??= []).push(s.quantity);
-    }
-    for (const [date, vals] of Object.entries(byDay)) {
-      const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
-      dataPoints.push({ metric_type: 'resting_heart_rate', date, value_json: { bpm: Math.round(avg) } });
+    const stats = await dailyStats('HKQuantityTypeIdentifierHeartRate', 'discreteAverage', 'count/min');
+    for (const s of stats) {
+      if (s.averageQuantity && s.startDate) {
+        const date = format(s.startDate, 'yyyy-MM-dd');
+        dataPoints.push({ metric_type: 'resting_heart_rate', date, value_json: { bpm: Math.round(s.averageQuantity.quantity) } });
+      }
     }
   } catch (e) { console.warn('[HK] heartRate error:', e); }
 
   onProgress('Querying HRV…');
   try {
-    const samples = await HealthKit.queryQuantitySamples(
-      'HKQuantityTypeIdentifierHeartRateVariabilitySDNN', qOpts,
-    );
-    const byDay: Record<string, number[]> = {};
-    for (const s of samples) {
-      const day = format(s.startDate, 'yyyy-MM-dd');
-      (byDay[day] ??= []).push(s.quantity * 1000); // s → ms
-    }
-    for (const [date, vals] of Object.entries(byDay)) {
-      const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
-      dataPoints.push({ metric_type: 'hrv_sdnn', date, value_json: { ms: Math.round(avg * 10) / 10 } });
+    const stats = await dailyStats('HKQuantityTypeIdentifierHeartRateVariabilitySDNN', 'discreteAverage', 'ms');
+    for (const s of stats) {
+      if (s.averageQuantity && s.startDate) {
+        const date = format(s.startDate, 'yyyy-MM-dd');
+        // Requested in 'ms' unit — no conversion needed
+        dataPoints.push({ metric_type: 'hrv_sdnn', date, value_json: { ms: Math.round(s.averageQuantity.quantity * 10) / 10 } });
+      }
     }
   } catch (e) { console.warn('[HK] HRV error:', e); }
 
   onProgress('Querying SpO₂…');
   try {
-    const samples = await HealthKit.queryQuantitySamples(
-      'HKQuantityTypeIdentifierOxygenSaturation', qOpts,
-    );
-    const byDay: Record<string, number[]> = {};
-    for (const s of samples) {
-      const day = format(s.startDate, 'yyyy-MM-dd');
-      (byDay[day] ??= []).push(s.quantity * 100); // fraction → percent
-    }
-    for (const [date, vals] of Object.entries(byDay)) {
-      const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
-      dataPoints.push({ metric_type: 'spo2', date, value_json: { pct: Math.round(avg * 10) / 10 } });
+    const stats = await dailyStats('HKQuantityTypeIdentifierOxygenSaturation', 'discreteAverage', '%');
+    for (const s of stats) {
+      if (s.averageQuantity && s.startDate) {
+        const date = format(s.startDate, 'yyyy-MM-dd');
+        // Requested in '%' unit (0-100) — no conversion needed
+        dataPoints.push({ metric_type: 'spo2', date, value_json: { pct: Math.round(s.averageQuantity.quantity * 10) / 10 } });
+      }
     }
   } catch (e) { console.warn('[HK] SpO2 error:', e); }
 
   onProgress('Querying sleep…');
   try {
+    // Sleep uses category samples — no statistics API available. Filter to avoid double counting.
     const samples = await HealthKit.queryCategorySamples(
-      'HKCategoryTypeIdentifierSleepAnalysis', qOpts,
+      'HKCategoryTypeIdentifierSleepAnalysis', catOpts,
     );
     const byDay: Record<string, number> = {};
     for (const s of samples) {
@@ -207,43 +218,34 @@ async function syncHealthKit(onProgress: (msg: string) => void) {
 
   onProgress('Querying respiratory rate…');
   try {
-    const samples = await HealthKit.queryQuantitySamples(
-      'HKQuantityTypeIdentifierRespiratoryRate', qOpts,
-    );
-    const byDay: Record<string, number[]> = {};
-    for (const s of samples) {
-      const day = format(s.startDate, 'yyyy-MM-dd');
-      (byDay[day] ??= []).push(s.quantity);
-    }
-    for (const [date, vals] of Object.entries(byDay)) {
-      const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
-      dataPoints.push({ metric_type: 'respiratory_rate', date, value_json: { rate: Math.round(avg * 10) / 10 } });
+    const stats = await dailyStats('HKQuantityTypeIdentifierRespiratoryRate', 'discreteAverage', 'count/min');
+    for (const s of stats) {
+      if (s.averageQuantity && s.startDate) {
+        const date = format(s.startDate, 'yyyy-MM-dd');
+        dataPoints.push({ metric_type: 'respiratory_rate', date, value_json: { rate: Math.round(s.averageQuantity.quantity * 10) / 10 } });
+      }
     }
   } catch (e) { console.warn('[HK] respiratoryRate error:', e); }
 
   onProgress('Querying active calories…');
   try {
-    const samples = await HealthKit.queryQuantitySamples(
-      'HKQuantityTypeIdentifierActiveEnergyBurned', qOpts,
-    );
-    const byDay: Record<string, number> = {};
-    for (const s of samples) {
-      const day = format(s.startDate, 'yyyy-MM-dd');
-      byDay[day] = (byDay[day] ?? 0) + s.quantity;
-    }
-    for (const [date, total] of Object.entries(byDay)) {
-      dataPoints.push({ metric_type: 'active_calories', date, value_json: { kcal: Math.round(total) } });
+    const stats = await dailyStats('HKQuantityTypeIdentifierActiveEnergyBurned', 'cumulativeSum', 'kcal');
+    for (const s of stats) {
+      if (s.sumQuantity && s.startDate) {
+        const date = format(s.startDate, 'yyyy-MM-dd');
+        dataPoints.push({ metric_type: 'active_calories', date, value_json: { kcal: Math.round(s.sumQuantity.quantity) } });
+      }
     }
   } catch (e) { console.warn('[HK] activeCals error:', e); }
 
   onProgress('Querying VO₂ max…');
   try {
-    const samples = await HealthKit.queryQuantitySamples(
-      'HKQuantityTypeIdentifierVO2Max', qOpts,
-    );
-    for (const s of samples) {
-      const date = format(s.startDate, 'yyyy-MM-dd');
-      dataPoints.push({ metric_type: 'vo2_max', date, value_json: { ml_kg_min: Math.round(s.quantity * 10) / 10 } });
+    const stats = await dailyStats('HKQuantityTypeIdentifierVO2Max', 'mostRecent', 'ml/(kg*min)');
+    for (const s of stats) {
+      if (s.mostRecentQuantity && s.startDate) {
+        const date = format(s.startDate, 'yyyy-MM-dd');
+        dataPoints.push({ metric_type: 'vo2_max', date, value_json: { ml_kg_min: Math.round(s.mostRecentQuantity.quantity * 10) / 10 } });
+      }
     }
   } catch (e) { console.warn('[HK] vo2max error:', e); }
 
