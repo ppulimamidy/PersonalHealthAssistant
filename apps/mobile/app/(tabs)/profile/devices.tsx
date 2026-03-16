@@ -133,11 +133,12 @@ async function syncHealthKit(onProgress: (msg: string) => void) {
     const samples = await HealthKit.queryQuantitySamples(
       'HKQuantityTypeIdentifierStepCount', qOpts,
     );
+    console.log('[HK] steps samples:', samples.length);
     for (const s of samples) {
       const date = format(s.startDate, 'yyyy-MM-dd');
       dataPoints.push({ metric_type: 'steps', date, value_json: { steps: Math.round(s.quantity) } });
     }
-  } catch { /* no data */ }
+  } catch (e) { console.warn('[HK] steps error:', e); }
 
   onProgress('Querying heart rate…');
   try {
@@ -153,7 +154,7 @@ async function syncHealthKit(onProgress: (msg: string) => void) {
       const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
       dataPoints.push({ metric_type: 'resting_heart_rate', date, value_json: { bpm: Math.round(avg) } });
     }
-  } catch { /* no data */ }
+  } catch (e) { console.warn('[HK] heartRate error:', e); }
 
   onProgress('Querying HRV…');
   try {
@@ -169,7 +170,7 @@ async function syncHealthKit(onProgress: (msg: string) => void) {
       const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
       dataPoints.push({ metric_type: 'hrv_sdnn', date, value_json: { ms: Math.round(avg * 10) / 10 } });
     }
-  } catch { /* no data */ }
+  } catch (e) { console.warn('[HK] HRV error:', e); }
 
   onProgress('Querying SpO₂…');
   try {
@@ -185,7 +186,7 @@ async function syncHealthKit(onProgress: (msg: string) => void) {
       const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
       dataPoints.push({ metric_type: 'spo2', date, value_json: { pct: Math.round(avg * 10) / 10 } });
     }
-  } catch { /* no data */ }
+  } catch (e) { console.warn('[HK] SpO2 error:', e); }
 
   onProgress('Querying sleep…');
   try {
@@ -202,7 +203,7 @@ async function syncHealthKit(onProgress: (msg: string) => void) {
     for (const [date, hrs] of Object.entries(byDay)) {
       dataPoints.push({ metric_type: 'sleep', date, value_json: { hours: Math.round(hrs * 10) / 10 } });
     }
-  } catch { /* no data */ }
+  } catch (e) { console.warn('[HK] sleep error:', e); }
 
   onProgress('Querying respiratory rate…');
   try {
@@ -218,7 +219,7 @@ async function syncHealthKit(onProgress: (msg: string) => void) {
       const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
       dataPoints.push({ metric_type: 'respiratory_rate', date, value_json: { rate: Math.round(avg * 10) / 10 } });
     }
-  } catch { /* no data */ }
+  } catch (e) { console.warn('[HK] respiratoryRate error:', e); }
 
   onProgress('Querying active calories…');
   try {
@@ -233,7 +234,7 @@ async function syncHealthKit(onProgress: (msg: string) => void) {
     for (const [date, total] of Object.entries(byDay)) {
       dataPoints.push({ metric_type: 'active_calories', date, value_json: { kcal: Math.round(total) } });
     }
-  } catch { /* no data */ }
+  } catch (e) { console.warn('[HK] activeCals error:', e); }
 
   onProgress('Querying VO₂ max…');
   try {
@@ -244,7 +245,7 @@ async function syncHealthKit(onProgress: (msg: string) => void) {
       const date = format(s.startDate, 'yyyy-MM-dd');
       dataPoints.push({ metric_type: 'vo2_max', date, value_json: { ml_kg_min: Math.round(s.quantity * 10) / 10 } });
     }
-  } catch { /* no data */ }
+  } catch (e) { console.warn('[HK] vo2max error:', e); }
 
   onProgress('Querying workouts…');
   try {
@@ -270,7 +271,9 @@ async function syncHealthKit(onProgress: (msg: string) => void) {
     for (const [date, agg] of Object.entries(byDay)) {
       dataPoints.push({ metric_type: 'workout', date, value_json: { minutes: Math.round(agg.minutes), sessions: agg.sessions, active_calories: Math.round(agg.active_calories), types: agg.types } });
     }
-  } catch { /* no data */ }
+  } catch (e) { console.warn('[HK] workouts error:', e); }
+
+  console.log('[HK] Total data points collected:', dataPoints.length);
 
   if (dataPoints.length === 0) {
     return { accepted: 0, skipped: 0, message: 'No new data since last sync.' };
@@ -283,7 +286,14 @@ async function syncHealthKit(onProgress: (msg: string) => void) {
     sync_timestamp: now.toISOString(),
   });
   await setSyncTimestamp('healthkit', now.toISOString());
-  return result;
+
+  // Build latestValues so metric rows populate in the UI
+  const latestValues: Record<string, number> = {};
+  for (const dp of dataPoints) {
+    const val = Object.values(dp.value_json as Record<string, number>)[0];
+    if (val != null) latestValues[dp.metric_type] = val;
+  }
+  return { ...result, latestValues };
 }
 
 // ─── Android Health Connect ────────────────────────────────────────────────────
