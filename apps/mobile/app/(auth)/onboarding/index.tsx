@@ -67,6 +67,7 @@ interface OnboardingData {
   role: UserRole;
   weightKg: string;
   heightCm: string;
+  gender: string;
   selectedConditions: string[];
   noneConditions: boolean;
   selectedGoals: string[];
@@ -79,6 +80,7 @@ async function submitOnboarding(data: OnboardingData): Promise<void> {
   await api.patch('/api/v1/profile/checkin', {
     weight_kg: data.weightKg ? Number.parseFloat(data.weightKg) : undefined,
     height_cm: data.heightCm ? Number.parseFloat(data.heightCm) : undefined,
+    gender: data.gender || undefined,
     new_conditions: conditions.length > 0 ? conditions : undefined,
   }).catch(() => {});
 
@@ -165,15 +167,37 @@ function StepRole({ role, setRole }: Readonly<{ role: UserRole; setRole: (r: Use
   );
 }
 
-function StepPersonalDetails({ weightKg, setWeightKg, heightCm, setHeightCm }: Readonly<{
+const GENDER_OPTIONS = ['Male', 'Female', 'Non-binary', 'Prefer not to say'];
+
+function StepPersonalDetails({ weightKg, setWeightKg, heightCm, setHeightCm, gender, setGender }: Readonly<{
   weightKg: string; setWeightKg: (v: string) => void;
   heightCm: string; setHeightCm: (v: string) => void;
+  gender: string; setGender: (v: string) => void;
 }>) {
   return (
     <View>
       <Text className="text-2xl font-display text-[#E8EDF5] mb-2">Personal Details</Text>
       <Text className="text-[#526380] mb-8">Help us personalise your health insights</Text>
       <View className="gap-4">
+        <View>
+          <Text className="text-sm text-[#526380] mb-2">Gender — optional</Text>
+          <View className="flex-row flex-wrap gap-2">
+            {GENDER_OPTIONS.map((g) => (
+              <TouchableOpacity
+                key={g}
+                onPress={() => setGender(gender === g ? '' : g)}
+                className="rounded-xl px-4 py-2.5"
+                style={{
+                  backgroundColor: gender === g ? '#00D4AA20' : 'rgba(255,255,255,0.03)',
+                  borderWidth: 1,
+                  borderColor: gender === g ? '#00D4AA' : 'rgba(255,255,255,0.08)',
+                }}
+              >
+                <Text style={{ color: gender === g ? '#00D4AA' : '#526380', fontSize: 13, fontWeight: '500' }}>{g}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
         <View>
           <Text className="text-sm text-[#526380] mb-2">Weight (kg) — optional</Text>
           <TextInput
@@ -285,6 +309,7 @@ export default function OnboardingScreen() {
   const [role, setRole]                           = useState<UserRole>('patient');
   const [weightKg, setWeightKg]                   = useState('');
   const [heightCm, setHeightCm]                   = useState('');
+  const [gender, setGender]                       = useState('');
   const [selectedConditions, setSelectedConditions] = useState<string[]>([]);
   const [noneConditions, setNoneConditions]       = useState(false);
   const [selectedGoals, setSelectedGoals]         = useState<string[]>([]);
@@ -315,7 +340,7 @@ export default function OnboardingScreen() {
   async function handleFinish() {
     setLoading(true);
     try {
-      await submitOnboarding({ role, weightKg, heightCm, selectedConditions, noneConditions, selectedGoals });
+      await submitOnboarding({ role, weightKg, heightCm, gender, selectedConditions, noneConditions, selectedGoals });
     } catch { /* non-blocking */ } finally {
       setLoading(false);
       router.replace('/(tabs)/home');
@@ -331,7 +356,7 @@ export default function OnboardingScreen() {
   const stepContent = [
     <StepValueProp key="value-prop" />,
     <StepRole key="role" role={role} setRole={setRole} />,
-    <StepPersonalDetails key="personal" weightKg={weightKg} setWeightKg={setWeightKg} heightCm={heightCm} setHeightCm={setHeightCm} />,
+    <StepPersonalDetails key="personal" weightKg={weightKg} setWeightKg={setWeightKg} heightCm={heightCm} setHeightCm={setHeightCm} gender={gender} setGender={setGender} />,
     <StepConditions key="conditions" selectedConditions={selectedConditions} noneConditions={noneConditions} onToggle={toggleCondition} onToggleNone={toggleNoneConditions} />,
     <StepGoalsAndHealth key="goals" selectedGoals={selectedGoals} onToggleGoal={toggleGoal} hkStatus={hkStatus} onConnectHK={handleConnectHealthKit} />,
   ];

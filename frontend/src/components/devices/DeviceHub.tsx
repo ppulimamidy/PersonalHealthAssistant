@@ -171,9 +171,9 @@ interface MetricSummary {
 type Summaries = Record<string, MetricSummary>;
 
 const TREND_ARROW: Record<string, { icon: string; color: string }> = {
-  up:     { icon: '↑', color: '#6EE7B7' },
-  down:   { icon: '↓', color: '#F87171' },
-  stable: { icon: '→', color: '#526380' },
+  up:     { icon: '▲', color: '#6EE7B7' },
+  down:   { icon: '▼', color: '#F87171' },
+  stable: { icon: '◆', color: '#818CF8' },
 };
 
 function NativeMetricsGrid({

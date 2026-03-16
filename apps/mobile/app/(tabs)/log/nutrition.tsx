@@ -195,6 +195,7 @@ function PhotoScanModal({
           name: f.name.trim(),
           portion_g: Number(f.portion_g) || 100,
         })),
+        logged_at: new Date().toISOString(),
       });
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       reset();
@@ -409,6 +410,7 @@ function LogMealModal({
         meal_name: mealName.trim() || undefined,
         food_items: validFoods.map((f) => ({ name: f.name.trim(), portion_g: Number(f.portion_g) || 100 })),
         user_notes: notes.trim() || undefined,
+        logged_at: new Date().toISOString(),
       });
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       reset();

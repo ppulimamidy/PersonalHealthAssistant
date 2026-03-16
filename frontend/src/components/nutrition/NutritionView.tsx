@@ -86,7 +86,10 @@ export function NutritionView() {
   }, [mealPhoto]);
 
   const logMealMutation = useMutation({
-    mutationFn: (payload: LogMealRequest) => nutritionService.logMeal(payload),
+    mutationFn: (payload: LogMealRequest) => nutritionService.logMeal({
+      ...payload,
+      logged_at: payload.logged_at ?? new Date().toISOString(),
+    }),
     onSuccess: async () => {
       setLogError(null);
       setLogSuccess('Meal logged');
@@ -917,4 +920,3 @@ export function NutritionView() {
     </div>
   );
 }
-

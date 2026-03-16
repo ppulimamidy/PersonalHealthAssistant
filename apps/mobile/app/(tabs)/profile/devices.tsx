@@ -531,10 +531,10 @@ interface MetricSummary {
 
 type Summaries = Record<string, MetricSummary>;
 
-const TREND_ICON: Record<string, { icon: React.ComponentProps<typeof Ionicons>['name']; color: string }> = {
-  up:     { icon: 'trending-up',    color: '#6EE7B7' },
-  down:   { icon: 'trending-down',  color: '#F87171' },
-  stable: { icon: 'remove-outline', color: '#526380' },
+const TREND_ICON: Record<string, { icon: React.ComponentProps<typeof Ionicons>['name']; color: string; label: string }> = {
+  up:     { icon: 'arrow-up',   color: '#6EE7B7', label: 'up' },
+  down:   { icon: 'arrow-down', color: '#F87171', label: 'down' },
+  stable: { icon: 'swap-horizontal', color: '#818CF8', label: 'stable' },
 };
 
 // ─── Metric Row ───────────────────────────────────────────────────────────────

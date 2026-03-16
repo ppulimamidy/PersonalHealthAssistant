@@ -43,7 +43,8 @@ def _looks_like_missing_table(exc: Exception) -> bool:
     return (
         "UndefinedTableError" in msg
         or "does not exist" in msg
-        or "relation" in msg and "does not exist" in msg
+        or "relation" in msg
+        and "does not exist" in msg
     )
 
 
@@ -51,18 +52,21 @@ class NutritionService:
     """
     Service for nutrition analysis, meal logging, and nutrition data management.
     """
+
     def __init__(self):
         self.food_recognition_service = FoodRecognitionService()
         self.recommendations_service = RecommendationsService()
         self.user_profile_client = UserProfileClient()
-        
+
         # API Keys
         self.nutritionix_api_key = os.getenv("NUTRITIONIX_API_KEY")
         self.nutritionix_app_id = os.getenv("NUTRITIONIX_APP_ID")
         self.usda_api_key = os.getenv("USDA_API_KEY")
-        
+
         # Service availability flags
-        self.nutritionix_available = bool(self.nutritionix_api_key and self.nutritionix_app_id)
+        self.nutritionix_available = bool(
+            self.nutritionix_api_key and self.nutritionix_app_id
+        )
         self.usda_available = bool(self.usda_api_key)
         self.openfoodfacts_available = True
 
@@ -85,7 +89,9 @@ class NutritionService:
         async with async_session_factory() as session:
             yield NutritionRepository(session)
 
-    async def analyze_meal(self, user_id: str, meal_data: Dict[str, Any], token: Optional[str] = None) -> Any:
+    async def analyze_meal(
+        self, user_id: str, meal_data: Dict[str, Any], token: Optional[str] = None
+    ) -> Any:
         """
         Analyze a meal and return nutritional breakdown and recommendations.
         Steps:
@@ -98,46 +104,54 @@ class NutritionService:
         user_preferences = None
         if token:
             try:
-                user_preferences = await self.user_profile_client.get_nutrition_preferences(user_id, token)
+                user_preferences = (
+                    await self.user_profile_client.get_nutrition_preferences(
+                        user_id, token
+                    )
+                )
             except Exception as e:
                 logger.warning(f"Failed to get user preferences: {e}")
-        
+
         # 1. Food recognition (if image provided)
         food_items = meal_data.get("food_items", [])
         if "image" in meal_data:
             image_bytes = meal_data["image"]  # Should be bytes
             # Recognize foods in image
-            recognized = await self.food_recognition_service.recognize_foods_in_image(image_bytes, user_id)
+            recognized = await self.food_recognition_service.recognize_foods_in_image(
+                image_bytes, user_id
+            )
             # Estimate portion sizes
-            food_items = await self.food_recognition_service.estimate_portion_size(image_bytes, recognized)
+            food_items = await self.food_recognition_service.estimate_portion_size(
+                image_bytes, recognized
+            )
             # Optionally merge with user-provided food_items
-        
+
         # 2. Fetch nutrition data for each food item
         nutrition_results = []
         for item in food_items:
             # Lookup nutrition info from local DB or external API
             nutrition_info = await self._fetch_nutrition_data(item)
             nutrition_results.append({**item, **nutrition_info})
-        
+
         # 3. Aggregate nutrients
         aggregated = self._aggregate_nutrition(nutrition_results)
-        
+
         # 4. Generate recommendations with user preferences
         recommendations = await self.recommendations_service.get_recommendations(
-            user_id, 
-            aggregated,
-            user_preferences=user_preferences
+            user_id, aggregated, user_preferences=user_preferences
         )
-        
+
         # Compose response
         return {
             "food_items": nutrition_results,
             "totals": aggregated,
             "recommendations": recommendations,
-            "user_preferences_used": user_preferences is not None
+            "user_preferences_used": user_preferences is not None,
         }
 
-    async def log_meal(self, user_id: str, meal_data: Dict[str, Any], token: Optional[str] = None) -> Any:
+    async def log_meal(
+        self, user_id: str, meal_data: Dict[str, Any], token: Optional[str] = None
+    ) -> Any:
         """
         Log a meal for the user and return the logged meal analysis.
         Steps:
@@ -149,43 +163,57 @@ class NutritionService:
         try:
             # 1. Analyze meal
             analysis = await self.analyze_meal(user_id, meal_data, token)
-            
+
             # 2. Store meal log in DB
             async with self._repository() as repository:
                 if repository is None:
                     logger.warning("Skipping meal log persistence (no DB available)")
                     analysis["meal_log_id"] = None
                     return analysis
-            
+
+                # Use client-provided timestamp if available (preserves user's local time),
+                # otherwise fall back to server UTC time
+                from datetime import datetime as _dt
+
+                client_ts = meal_data.get("logged_at")
+                timestamp = None
+                if client_ts:
+                    try:
+                        timestamp = _dt.fromisoformat(client_ts.replace("Z", "+00:00"))
+                    except (ValueError, TypeError, AttributeError):
+                        pass
+
                 meal_log_data = {
-                "user_id": user_id,
-                "recognition_result_id": meal_data.get("recognition_result_id"),
-                "meal_type": meal_data.get("meal_type", "unknown"),
-                "meal_name": meal_data.get("meal_name"),
-                "meal_description": meal_data.get("meal_description"),
-                "food_items": analysis["food_items"],
-                "total_calories": analysis["totals"]["calories"],
-                "total_protein_g": analysis["totals"]["protein_g"],
-                "total_carbs_g": analysis["totals"]["carbs_g"],
-                "total_fat_g": analysis["totals"]["fat_g"],
-                "total_fiber_g": analysis["totals"]["fiber_g"],
-                "total_sodium_mg": analysis["totals"]["sodium_mg"],
-                "total_sugar_g": analysis["totals"]["sugar_g"],
-                "micronutrients": analysis["totals"]["micronutrients"],
-                "user_notes": meal_data.get("user_notes"),
-                "mood_before": meal_data.get("mood_before"),
-                "mood_after": meal_data.get("mood_after")
+                    "user_id": user_id,
+                    "recognition_result_id": meal_data.get("recognition_result_id"),
+                    "meal_type": meal_data.get("meal_type", "unknown"),
+                    "meal_name": meal_data.get("meal_name"),
+                    "meal_description": meal_data.get("meal_description"),
+                    "food_items": analysis["food_items"],
+                    "total_calories": analysis["totals"]["calories"],
+                    "total_protein_g": analysis["totals"]["protein_g"],
+                    "total_carbs_g": analysis["totals"]["carbs_g"],
+                    "total_fat_g": analysis["totals"]["fat_g"],
+                    "total_fiber_g": analysis["totals"]["fiber_g"],
+                    "total_sodium_mg": analysis["totals"]["sodium_mg"],
+                    "total_sugar_g": analysis["totals"]["sugar_g"],
+                    "micronutrients": analysis["totals"]["micronutrients"],
+                    "user_notes": meal_data.get("user_notes"),
+                    "mood_before": meal_data.get("mood_before"),
+                    "mood_after": meal_data.get("mood_after"),
                 }
-            
+                if timestamp:
+                    meal_log_data["timestamp"] = timestamp
+
                 meal_log = await repository.create_meal_log(meal_log_data)
-            
+
             # 3. Log nutrition to health tracking service (TODO)
             # TODO: POST nutrition data to health tracking microservice
-            
+
             # 4. Return analysis with meal log ID
             analysis["meal_log_id"] = str(meal_log.id)
             return analysis
-            
+
         except Exception as e:
             logger.error(f"Failed to log meal: {e}")
             raise
@@ -198,48 +226,54 @@ class NutritionService:
         """
         try:
             # Get user preferences
-            user_preferences = await self.user_profile_client.get_nutrition_preferences(user_id, token)
-            
+            user_preferences = await self.user_profile_client.get_nutrition_preferences(
+                user_id, token
+            )
+
             # If no nutrition data provided, get recent nutrition data
             if not nutrition_data:
                 nutrition_data = await self.get_daily_nutrition(user_id, date.today())
-            
+
             # Generate recommendations
             recommendations = await self.recommendations_service.get_recommendations(
-                user_id,
-                nutrition_data,
-                user_preferences=user_preferences
+                user_id, nutrition_data, user_preferences=user_preferences
             )
-            
+
             return {
                 "recommendations": recommendations,
                 "user_preferences": user_preferences,
-                "nutrition_data": nutrition_data
+                "nutrition_data": nutrition_data,
             }
-            
+
         except Exception as e:
             logger.error(f"Failed to get personalized recommendations: {e}")
             raise
 
-    async def get_user_nutrition_summary(self, user_id: str, token: str, days: int = 7) -> Dict[str, Any]:
+    async def get_user_nutrition_summary(
+        self, user_id: str, token: str, days: int = 7
+    ) -> Dict[str, Any]:
         """
         Get comprehensive nutrition summary for a user including preferences and recent data.
         """
         try:
             # Get user preferences
-            user_preferences = await self.user_profile_client.get_nutrition_preferences(user_id, token)
-            
+            user_preferences = await self.user_profile_client.get_nutrition_preferences(
+                user_id, token
+            )
+
             # Get recent nutrition data
             end_date = date.today()
             start_date = end_date - timedelta(days=days)
-            
+
             nutrition_history: List[Dict[str, Any]] = []
             try:
-                nutrition_history = await self.get_nutrition_history(user_id, start_date, end_date)
+                nutrition_history = await self.get_nutrition_history(
+                    user_id, start_date, end_date
+                )
             except Exception as e:
                 logger.warning(f"Nutrition history unavailable (returning empty): {e}")
                 nutrition_history = []
-            
+
             # The repository currently returns meal logs, not daily aggregates.
             # For the MVP UI we want:
             # - per-day totals (for averages)
@@ -263,10 +297,18 @@ class NutritionService:
                         "total_fat_g": 0.0,
                     }
 
-                daily_totals[day_key]["total_calories"] += float(meal.get("total_calories", 0) or 0)
-                daily_totals[day_key]["total_protein_g"] += float(meal.get("total_protein_g", 0) or 0)
-                daily_totals[day_key]["total_carbs_g"] += float(meal.get("total_carbs_g", 0) or 0)
-                daily_totals[day_key]["total_fat_g"] += float(meal.get("total_fat_g", 0) or 0)
+                daily_totals[day_key]["total_calories"] += float(
+                    meal.get("total_calories", 0) or 0
+                )
+                daily_totals[day_key]["total_protein_g"] += float(
+                    meal.get("total_protein_g", 0) or 0
+                )
+                daily_totals[day_key]["total_carbs_g"] += float(
+                    meal.get("total_carbs_g", 0) or 0
+                )
+                daily_totals[day_key]["total_fat_g"] += float(
+                    meal.get("total_fat_g", 0) or 0
+                )
 
                 if day_key not in daily_by_meal_type:
                     daily_by_meal_type[day_key] = {}
@@ -281,10 +323,18 @@ class NutritionService:
                     }
                     daily_meal_type_counts[day_key][meal_type] = 0
 
-                daily_by_meal_type[day_key][meal_type]["total_calories"] += float(meal.get("total_calories", 0) or 0)
-                daily_by_meal_type[day_key][meal_type]["total_protein_g"] += float(meal.get("total_protein_g", 0) or 0)
-                daily_by_meal_type[day_key][meal_type]["total_carbs_g"] += float(meal.get("total_carbs_g", 0) or 0)
-                daily_by_meal_type[day_key][meal_type]["total_fat_g"] += float(meal.get("total_fat_g", 0) or 0)
+                daily_by_meal_type[day_key][meal_type]["total_calories"] += float(
+                    meal.get("total_calories", 0) or 0
+                )
+                daily_by_meal_type[day_key][meal_type]["total_protein_g"] += float(
+                    meal.get("total_protein_g", 0) or 0
+                )
+                daily_by_meal_type[day_key][meal_type]["total_carbs_g"] += float(
+                    meal.get("total_carbs_g", 0) or 0
+                )
+                daily_by_meal_type[day_key][meal_type]["total_fat_g"] += float(
+                    meal.get("total_fat_g", 0) or 0
+                )
                 daily_meal_type_counts[day_key][meal_type] += 1
 
             daily_rows = [
@@ -308,7 +358,9 @@ class NutritionService:
                     meal_type_rows.append(
                         {
                             "meal_type": mt,
-                            "meal_count": int((daily_meal_type_counts.get(day) or {}).get(mt, 0)),
+                            "meal_count": int(
+                                (daily_meal_type_counts.get(day) or {}).get(mt, 0)
+                            ),
                             "total_calories": mt_totals["total_calories"],
                             "total_protein_g": mt_totals["total_protein_g"],
                             "total_carbs_g": mt_totals["total_carbs_g"],
@@ -332,9 +384,15 @@ class NutritionService:
 
             days_with_data = len(daily_rows)
             if days_with_data:
-                total_calories = sum(float(d.get("total_calories", 0) or 0) for d in daily_rows)
-                total_protein = sum(float(d.get("total_protein_g", 0) or 0) for d in daily_rows)
-                total_carbs = sum(float(d.get("total_carbs_g", 0) or 0) for d in daily_rows)
+                total_calories = sum(
+                    float(d.get("total_calories", 0) or 0) for d in daily_rows
+                )
+                total_protein = sum(
+                    float(d.get("total_protein_g", 0) or 0) for d in daily_rows
+                )
+                total_carbs = sum(
+                    float(d.get("total_carbs_g", 0) or 0) for d in daily_rows
+                )
                 total_fat = sum(float(d.get("total_fat_g", 0) or 0) for d in daily_rows)
 
                 avg_calories = total_calories / days_with_data
@@ -343,7 +401,7 @@ class NutritionService:
                 avg_fat = total_fat / days_with_data
             else:
                 avg_calories = avg_protein = avg_carbs = avg_fat = 0
-            
+
             return {
                 "user_preferences": user_preferences,
                 "nutrition_summary": {
@@ -364,10 +422,10 @@ class NutritionService:
                         "carbs_g": avg_carbs,
                         "fat_g": avg_fat,
                     },
-                    user_preferences=user_preferences
-                )
+                    user_preferences=user_preferences,
+                ),
             }
-            
+
         except Exception as e:
             logger.error(f"Failed to get nutrition summary: {e}")
             return {
@@ -389,16 +447,16 @@ class NutritionService:
         """
         Fetch nutrition data for a food item from local cache, Nutritionix, or USDA.
         """
-        food_name = food_item.get('name', '')
-        portion_g = food_item.get('portion_g', 100)
-        
+        food_name = food_item.get("name", "")
+        portion_g = food_item.get("portion_g", 100)
+
         try:
             # First, check local database cache
             cached_food = None
             async with self._repository() as repository:
                 if repository is not None:
                     cached_food = await repository.get_food_from_database(food_name)
-            
+
             if cached_food:
                 # Use cached data
                 multiplier = portion_g / 100
@@ -413,26 +471,32 @@ class NutritionService:
                     "micronutrients": cached_food.micronutrients or {},
                     "nutrition_source": cached_food.source,
                 }
-            
+
             # Try Nutritionix first
             if self.nutritionix_available:
                 try:
-                    nutrition_data = await self._fetch_from_nutritionix(food_name, portion_g)
+                    nutrition_data = await self._fetch_from_nutritionix(
+                        food_name, portion_g
+                    )
                     if nutrition_data:
                         # Cache the data
-                        await self._cache_nutrition_data(food_name, nutrition_data, "nutritionix")
+                        await self._cache_nutrition_data(
+                            food_name, nutrition_data, "nutritionix"
+                        )
                         nutrition_data["nutrition_source"] = "nutritionix"
                         return nutrition_data
                 except Exception as e:
                     logger.warning(f"Nutritionix API failed for {food_name}: {e}")
-            
+
             # Fallback to USDA
             if self.usda_available:
                 try:
                     nutrition_data = await self._fetch_from_usda(food_name, portion_g)
                     if nutrition_data:
                         # Cache the data
-                        await self._cache_nutrition_data(food_name, nutrition_data, "usda")
+                        await self._cache_nutrition_data(
+                            food_name, nutrition_data, "usda"
+                        )
                         nutrition_data["nutrition_source"] = "usda"
                         return nutrition_data
                 except Exception as e:
@@ -441,16 +505,22 @@ class NutritionService:
             # Fallback to OpenFoodFacts (no API key required)
             if self.openfoodfacts_available:
                 try:
-                    nutrition_data = await self._fetch_from_openfoodfacts(food_name, portion_g)
+                    nutrition_data = await self._fetch_from_openfoodfacts(
+                        food_name, portion_g
+                    )
                     if nutrition_data:
-                        await self._cache_nutrition_data(food_name, nutrition_data, "openfoodfacts")
+                        await self._cache_nutrition_data(
+                            food_name, nutrition_data, "openfoodfacts"
+                        )
                         nutrition_data["nutrition_source"] = "openfoodfacts"
                         return nutrition_data
                 except Exception as e:
                     logger.warning(f"OpenFoodFacts lookup failed for {food_name}: {e}")
-            
+
             # Fallback to a small built-in table for common foods (better than a generic 100 kcal/100g)
-            builtin = self._get_builtin_nutrition_data(food_name=food_name, portion_g=portion_g)
+            builtin = self._get_builtin_nutrition_data(
+                food_name=food_name, portion_g=portion_g
+            )
             if builtin:
                 builtin["nutrition_source"] = "builtin"
                 return builtin
@@ -460,14 +530,16 @@ class NutritionService:
             mock = self._get_mock_nutrition_data(portion_g)
             mock["nutrition_source"] = "mock"
             return mock
-            
+
         except Exception as e:
             logger.error(f"Failed to fetch nutrition data for {food_name}: {e}")
             mock = self._get_mock_nutrition_data(portion_g)
             mock["nutrition_source"] = "mock"
             return mock
 
-    async def _cache_nutrition_data(self, food_name: str, nutrition_data: Dict[str, Any], source: str):
+    async def _cache_nutrition_data(
+        self, food_name: str, nutrition_data: Dict[str, Any], source: str
+    ):
         """Cache nutrition data in local database."""
         try:
             async with self._repository() as repository:
@@ -483,22 +555,26 @@ class NutritionService:
                     "food_category": nutrition_data.get("category", "other"),
                     "source": source,
                     "calories_per_100g": nutrition_data.get("calories", 0) * multiplier,
-                    "protein_g_per_100g": nutrition_data.get("protein_g", 0) * multiplier,
+                    "protein_g_per_100g": nutrition_data.get("protein_g", 0)
+                    * multiplier,
                     "carbs_g_per_100g": nutrition_data.get("carbs_g", 0) * multiplier,
                     "fat_g_per_100g": nutrition_data.get("fat_g", 0) * multiplier,
                     "fiber_g_per_100g": nutrition_data.get("fiber_g", 0) * multiplier,
-                    "sodium_mg_per_100g": nutrition_data.get("sodium_mg", 0) * multiplier,
+                    "sodium_mg_per_100g": nutrition_data.get("sodium_mg", 0)
+                    * multiplier,
                     "sugar_g_per_100g": nutrition_data.get("sugar_g", 0) * multiplier,
                     "micronutrients": nutrition_data.get("micronutrients", {}),
                 }
 
                 await repository.cache_food_data(cache_data)
             logger.info(f"Cached nutrition data for {food_name} from {source}")
-            
+
         except Exception as e:
             logger.error(f"Failed to cache nutrition data for {food_name}: {e}")
 
-    async def _fetch_from_nutritionix(self, food_name: str, portion_g: int) -> Optional[Dict[str, Any]]:
+    async def _fetch_from_nutritionix(
+        self, food_name: str, portion_g: int
+    ) -> Optional[Dict[str, Any]]:
         """Fetch nutrition data from Nutritionix API."""
         try:
             url = "https://trackapi.nutritionix.com/v2/natural/nutrients"
@@ -506,37 +582,34 @@ class NutritionService:
                 "x-app-id": self.nutritionix_app_id,
                 "x-app-key": self.nutritionix_api_key,
                 "x-remote-user-id": "0",
-                "Content-Type": "application/json"
+                "Content-Type": "application/json",
             }
-            data = {
-                "query": food_name,
-                "timezone": "US/Eastern"
-            }
-            
+            data = {"query": food_name, "timezone": "US/Eastern"}
+
             ssl_ctx = _certifi_ssl_context()
             async with aiohttp.ClientSession() as session:
-                async with session.post(url, headers=headers, json=data, ssl=ssl_ctx) as response:
+                async with session.post(
+                    url, headers=headers, json=data, ssl=ssl_ctx
+                ) as response:
                     if response.status == 200:
                         result = await response.json()
                         return self._parse_nutritionix_response(result, portion_g)
                     else:
                         logger.warning(f"Nutritionix API returned {response.status}")
                         return None
-                        
+
         except Exception as e:
             logger.error(f"Nutritionix API error: {e}")
             return None
 
-    async def _fetch_from_usda(self, food_name: str, portion_g: int) -> Optional[Dict[str, Any]]:
+    async def _fetch_from_usda(
+        self, food_name: str, portion_g: int
+    ) -> Optional[Dict[str, Any]]:
         """Fetch nutrition data from USDA API."""
         try:
             url = f"https://api.nal.usda.gov/fdc/v1/foods/search"
-            params = {
-                "api_key": self.usda_api_key,
-                "query": food_name,
-                "pageSize": 1
-            }
-            
+            params = {"api_key": self.usda_api_key, "query": food_name, "pageSize": 1}
+
             ssl_ctx = _certifi_ssl_context()
             async with aiohttp.ClientSession() as session:
                 async with session.get(url, params=params, ssl=ssl_ctx) as response:
@@ -546,12 +619,14 @@ class NutritionService:
                     else:
                         logger.warning(f"USDA API returned {response.status}")
                         return None
-                        
+
         except Exception as e:
             logger.error(f"USDA API error: {e}")
             return None
 
-    def _parse_nutritionix_response(self, data: Dict[str, Any], portion_g: int) -> Dict[str, Any]:
+    def _parse_nutritionix_response(
+        self, data: Dict[str, Any], portion_g: int
+    ) -> Dict[str, Any]:
         """Parse Nutritionix API response."""
         try:
             if "foods" in data and data["foods"]:
@@ -567,26 +642,34 @@ class NutritionService:
                     serving_unit = (food.get("serving_unit") or "g").lower()
                     base_g = float(serving_qty) if serving_unit == "g" else 100.0
 
-                multiplier = (float(portion_g) / base_g) if base_g > 0 else (float(portion_g) / 100.0)
+                multiplier = (
+                    (float(portion_g) / base_g)
+                    if base_g > 0
+                    else (float(portion_g) / 100.0)
+                )
 
                 return {
                     "calories": int(food.get("nf_calories", 0) * multiplier),
                     "protein_g": round(food.get("nf_protein", 0) * multiplier, 1),
-                    "carbs_g": round(food.get("nf_total_carbohydrate", 0) * multiplier, 1),
+                    "carbs_g": round(
+                        food.get("nf_total_carbohydrate", 0) * multiplier, 1
+                    ),
                     "fat_g": round(food.get("nf_total_fat", 0) * multiplier, 1),
                     "fiber_g": round(food.get("nf_dietary_fiber", 0) * multiplier, 1),
                     "sodium_mg": int(food.get("nf_sodium", 0) * multiplier),
                     "sugar_g": round(food.get("nf_sugars", 0) * multiplier, 1),
                     "category": food.get("food_category", "other"),
                     "portion_g": portion_g,
-                    "micronutrients": {}
+                    "micronutrients": {},
                 }
             return {}
         except Exception as e:
             logger.error(f"Error parsing Nutritionix response: {e}")
             return {}
 
-    def _get_builtin_nutrition_data(self, food_name: str, portion_g: int) -> Optional[Dict[str, Any]]:
+    def _get_builtin_nutrition_data(
+        self, food_name: str, portion_g: int
+    ) -> Optional[Dict[str, Any]]:
         """Best-effort nutrition values for common foods (per 100g), scaled to portion."""
         name = (food_name or "").strip().lower()
         if not name:
@@ -634,7 +717,9 @@ class NutritionService:
             "micronutrients": {},
         }
 
-    async def _fetch_from_openfoodfacts(self, food_name: str, portion_g: int) -> Optional[Dict[str, Any]]:
+    async def _fetch_from_openfoodfacts(
+        self, food_name: str, portion_g: int
+    ) -> Optional[Dict[str, Any]]:
         """Fetch nutrition data from OpenFoodFacts (no API key)."""
         try:
             url = "https://world.openfoodfacts.org/cgi/search.pl"
@@ -669,10 +754,16 @@ class NutritionService:
 
                     def _kcal_per_100g() -> float:
                         # OFF may provide kcal directly or energy in kJ.
-                        kcal = _num(nutr.get("energy-kcal_100g") or nutr.get("energy-kcal"))
+                        kcal = _num(
+                            nutr.get("energy-kcal_100g") or nutr.get("energy-kcal")
+                        )
                         if kcal > 0:
                             return kcal
-                        kj = _num(nutr.get("energy-kj_100g") or nutr.get("energy_100g") or nutr.get("energy"))
+                        kj = _num(
+                            nutr.get("energy-kj_100g")
+                            or nutr.get("energy_100g")
+                            or nutr.get("energy")
+                        )
                         if kj > 0:
                             return kj / 4.184
                         return 0.0
@@ -690,7 +781,9 @@ class NutritionService:
                     sodium_g_100g = _num(nutr.get("sodium_100g"))
                     sodium_mg_100g = sodium_g_100g * 1000.0
 
-                    category = (prod.get("categories") or "other").split(",")[0].strip() or "other"
+                    category = (prod.get("categories") or "other").split(",")[
+                        0
+                    ].strip() or "other"
 
                     if kcal_100g <= 0:
                         return None
@@ -712,7 +805,9 @@ class NutritionService:
             logger.error(f"OpenFoodFacts error: {e}")
             return None
 
-    def _parse_usda_response(self, data: Dict[str, Any], portion_g: int) -> Dict[str, Any]:
+    def _parse_usda_response(
+        self, data: Dict[str, Any], portion_g: int
+    ) -> Dict[str, Any]:
         """Parse USDA API response."""
         try:
             if "foods" in data and data["foods"]:
@@ -738,7 +833,11 @@ class NutritionService:
                     val = 0.0
                     for n in food_nutrients:
                         if (n.get("nutrientName") or "") == nutrient_name:
-                            unit = (n.get("unitName") or "").lower() if isinstance(n.get("unitName"), str) else None
+                            unit = (
+                                (n.get("unitName") or "").lower()
+                                if isinstance(n.get("unitName"), str)
+                                else None
+                            )
                             try:
                                 val = float(n.get("value") or 0)
                             except Exception:
@@ -753,13 +852,14 @@ class NutritionService:
                     if unit == "g":
                         return val * 1000.0
                     return val
-                
+
                 # Calculate multiplier based on portion
                 multiplier = portion_g / 100
 
                 # Best-effort micronutrients (stored in mg unless noted)
                 micronutrients = {
-                    "vitamin_c_mg": _micro_to_mg("Vitamin C, total ascorbic acid") * multiplier,
+                    "vitamin_c_mg": _micro_to_mg("Vitamin C, total ascorbic acid")
+                    * multiplier,
                     "vitamin_d_mcg": (_value("Vitamin D (D2 + D3)") * multiplier),
                     "vitamin_a_mcg_rae": (_value("Vitamin A, RAE") * multiplier),
                     "calcium_mg": _micro_to_mg("Calcium, Ca") * multiplier,
@@ -771,19 +871,25 @@ class NutritionService:
                 }
 
                 # Drop zeros to keep payload tidy
-                micronutrients = {k: round(v, 3) for k, v in micronutrients.items() if v and v > 0}
-                
+                micronutrients = {
+                    k: round(v, 3) for k, v in micronutrients.items() if v and v > 0
+                }
+
                 return {
                     "calories": int(_value("Energy") * multiplier),
                     "protein_g": round(_value("Protein") * multiplier, 1),
-                    "carbs_g": round(_value("Carbohydrate, by difference") * multiplier, 1),
+                    "carbs_g": round(
+                        _value("Carbohydrate, by difference") * multiplier, 1
+                    ),
                     "fat_g": round(_value("Total lipid (fat)") * multiplier, 1),
                     "fiber_g": round(_value("Fiber, total dietary") * multiplier, 1),
                     "sodium_mg": int(_value("Sodium, Na") * multiplier),
-                    "sugar_g": round(_value("Sugars, total including NLEA") * multiplier, 1),
+                    "sugar_g": round(
+                        _value("Sugars, total including NLEA") * multiplier, 1
+                    ),
                     "category": food.get("foodCategory", "other"),
                     "portion_g": portion_g,
-                    "micronutrients": micronutrients
+                    "micronutrients": micronutrients,
                 }
             return {}
         except Exception as e:
@@ -806,11 +912,13 @@ class NutritionService:
             "micronutrients": {
                 "vitamin_c_mg": 10.0 * multiplier,
                 "iron_mg": 1.0 * multiplier,
-                "calcium_mg": 50.0 * multiplier
-            }
+                "calcium_mg": 50.0 * multiplier,
+            },
         }
 
-    def _aggregate_nutrition(self, nutrition_results: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def _aggregate_nutrition(
+        self, nutrition_results: List[Dict[str, Any]]
+    ) -> Dict[str, Any]:
         """Aggregate nutrition data from multiple food items."""
         total_calories = sum(item.get("calories", 0) for item in nutrition_results)
         total_protein = sum(item.get("protein_g", 0) for item in nutrition_results)
@@ -819,14 +927,14 @@ class NutritionService:
         total_fiber = sum(item.get("fiber_g", 0) for item in nutrition_results)
         total_sodium = sum(item.get("sodium_mg", 0) for item in nutrition_results)
         total_sugar = sum(item.get("sugar_g", 0) for item in nutrition_results)
-        
+
         # Aggregate micronutrients
         micronutrients: Dict[str, float] = {}
         for item in nutrition_results:
             item_micronutrients = item.get("micronutrients", {})
             for nutrient, value in item_micronutrients.items():
                 micronutrients[nutrient] = micronutrients.get(nutrient, 0) + value
-        
+
         return {
             "calories": total_calories,
             "protein_g": round(total_protein, 1),
@@ -835,7 +943,7 @@ class NutritionService:
             "fiber_g": round(total_fiber, 1),
             "sodium_mg": total_sodium,
             "sugar_g": round(total_sugar, 1),
-            "micronutrients": micronutrients
+            "micronutrients": micronutrients,
         }
 
     async def get_daily_nutrition(self, user_id: str, target_date: date) -> Any:
@@ -856,10 +964,14 @@ class NutritionService:
                     "meal_count": 0,
                 }
             try:
-                return await repository.get_daily_nutrition_summary(user_id, target_date)
+                return await repository.get_daily_nutrition_summary(
+                    user_id, target_date
+                )
             except (ProgrammingError, OperationalError) as e:
                 if _looks_like_missing_table(e):
-                    logger.warning("Nutrition tables not found yet; returning empty daily nutrition")
+                    logger.warning(
+                        "Nutrition tables not found yet; returning empty daily nutrition"
+                    )
                     return {
                         "date": target_date.isoformat(),
                         "total_calories": 0,
@@ -875,13 +987,17 @@ class NutritionService:
                     }
                 raise
 
-    async def get_nutrition_history(self, user_id: str, start_date: date, end_date: date) -> List[Any]:
+    async def get_nutrition_history(
+        self, user_id: str, start_date: date, end_date: date
+    ) -> List[Any]:
         """Get nutrition history for a user over a date range."""
         async with self._repository() as repository:
             if repository is None:
                 return []
             try:
-                return await repository.get_user_meal_logs(user_id, start_date, end_date)
+                return await repository.get_user_meal_logs(
+                    user_id, start_date, end_date
+                )
             except (ProgrammingError, OperationalError) as e:
                 logger.warning(f"Nutrition history DB error (returning empty): {e}")
                 return []
@@ -907,9 +1023,13 @@ class NutritionService:
         async with self._repository() as repository:
             if repository is None:
                 return []
-            return await repository.list_food_cache(query=query, source=source, limit=limit)
+            return await repository.list_food_cache(
+                query=query, source=source, limit=limit
+            )
 
-    async def search_foods(self, query: str, category: Optional[str], limit: int) -> List[Any]:
+    async def search_foods(
+        self, query: str, category: Optional[str], limit: int
+    ) -> List[Any]:
         """Search for foods in the database."""
         async with self._repository() as repository:
             if repository is None:
@@ -923,13 +1043,15 @@ class NutritionService:
         for item in food_items:
             nutrition_info = await self._fetch_nutrition_data(item)
             nutrition_results.append({**item, **nutrition_info})
-        
+
         return {
             "food_items": nutrition_results,
-            "totals": self._aggregate_nutrition(nutrition_results)
+            "totals": self._aggregate_nutrition(nutrition_results),
         }
 
-    async def get_nutritional_trends(self, user_id: str, nutrient: str, period: str) -> Any:
+    async def get_nutritional_trends(
+        self, user_id: str, nutrient: str, period: str
+    ) -> Any:
         """Get nutritional trends for a user."""
         try:
             end_date = date.today()
@@ -941,9 +1063,11 @@ class NutritionService:
                 start_date = end_date - timedelta(days=90)
             else:
                 start_date = end_date - timedelta(days=7)
-            
-            nutrition_history = await self.get_nutrition_history(user_id, start_date, end_date)
-            
+
+            nutrition_history = await self.get_nutrition_history(
+                user_id, start_date, end_date
+            )
+
             # Calculate trends
             nutrient_key_map = {
                 "calories": "total_calories",
@@ -951,30 +1075,38 @@ class NutritionService:
                 "carbs": "total_carbs_g",
                 "fat": "total_fat_g",
             }
-            value_key = nutrient_key_map.get((nutrient or "").lower(), f"total_{nutrient}")
+            value_key = nutrient_key_map.get(
+                (nutrient or "").lower(), f"total_{nutrient}"
+            )
 
             trends = []
             for day_data in nutrition_history:
                 ts = day_data.get("timestamp")
                 day_str = (ts or "")[:10] if isinstance(ts, str) else None
-                trends.append({
-                    "date": day_str,
-                    "value": day_data.get(value_key, 0),
-                })
-            
+                trends.append(
+                    {
+                        "date": day_str,
+                        "value": day_data.get(value_key, 0),
+                    }
+                )
+
             return {
                 "user_id": user_id,
                 "nutrient": nutrient,
                 "period": period,
-                "trends": trends
+                "trends": trends,
             }
-            
+
         except Exception as e:
             logger.error(f"Failed to get nutritional trends: {e}")
             raise
 
     async def update_meal(
-        self, user_id: str, meal_id: str, meal_data: Dict[str, Any], token: Optional[str] = None
+        self,
+        user_id: str,
+        meal_id: str,
+        meal_data: Dict[str, Any],
+        token: Optional[str] = None,
     ) -> Any:
         """
         Update an existing meal log for a user and return the updated meal analysis.
@@ -1008,7 +1140,9 @@ class NutritionService:
                 "mood_after": meal_data.get("mood_after"),
             }
 
-            updated = await repository.update_meal_log(meal_id=meal_id, user_id=user_id, updates=updates)
+            updated = await repository.update_meal_log(
+                meal_id=meal_id, user_id=user_id, updates=updates
+            )
 
         analysis["meal_log_id"] = updated.get("id")
         return analysis
@@ -1033,21 +1167,29 @@ class NutritionService:
                 start_date = end_date - timedelta(days=30)
             else:
                 start_date = end_date - timedelta(days=7)
-            
-            nutrition_history = await self.get_nutrition_history(user_id, start_date, end_date)
-            
+
+            nutrition_history = await self.get_nutrition_history(
+                user_id, start_date, end_date
+            )
+
             # Calculate insights
             if nutrition_history:
-                total_calories = sum(day.get("total_calories", 0) for day in nutrition_history)
-                total_protein = sum(day.get("total_protein_g", 0) for day in nutrition_history)
-                total_carbs = sum(day.get("total_carbs_g", 0) for day in nutrition_history)
+                total_calories = sum(
+                    day.get("total_calories", 0) for day in nutrition_history
+                )
+                total_protein = sum(
+                    day.get("total_protein_g", 0) for day in nutrition_history
+                )
+                total_carbs = sum(
+                    day.get("total_carbs_g", 0) for day in nutrition_history
+                )
                 total_fat = sum(day.get("total_fat_g", 0) for day in nutrition_history)
-                
+
                 avg_calories = total_calories / len(nutrition_history)
                 avg_protein = total_protein / len(nutrition_history)
                 avg_carbs = total_carbs / len(nutrition_history)
                 avg_fat = total_fat / len(nutrition_history)
-                
+
                 insights = {
                     "timeframe": timeframe,
                     "average_daily_calories": avg_calories,
@@ -1055,24 +1197,30 @@ class NutritionService:
                     "average_daily_carbs_g": avg_carbs,
                     "average_daily_fat_g": avg_fat,
                     "days_analyzed": len(nutrition_history),
-                    "recommendations": []
+                    "recommendations": [],
                 }
-                
+
                 # Generate insights based on averages
                 if avg_calories > 2500:
-                    insights["recommendations"].append("Consider reducing daily calorie intake")
+                    insights["recommendations"].append(
+                        "Consider reducing daily calorie intake"
+                    )
                 if avg_protein < 50:
-                    insights["recommendations"].append("Increase protein intake for better muscle health")
+                    insights["recommendations"].append(
+                        "Increase protein intake for better muscle health"
+                    )
                 if avg_carbs > 300:
-                    insights["recommendations"].append("Consider reducing carbohydrate intake")
-                
+                    insights["recommendations"].append(
+                        "Consider reducing carbohydrate intake"
+                    )
+
                 return insights
             else:
                 return {
                     "timeframe": timeframe,
-                    "message": "No nutrition data available for this timeframe"
+                    "message": "No nutrition data available for this timeframe",
                 }
-                
+
         except Exception as e:
             logger.error(f"Failed to get nutritional insights: {e}")
-            raise 
+            raise
