@@ -564,6 +564,7 @@ function WearableTile({
 export default function DevicesScreen() {
   const queryClient = useQueryClient();
   const [syncing, setSyncing] = useState(false);
+  const [ouraSyncing, setOuraSyncing] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [isDisconnecting, setIsDisconnecting] = useState(false);
   const [progress, setProgress] = useState('');
@@ -665,7 +666,7 @@ export default function DevicesScreen() {
   }, [queryClient]);
 
   const handleOuraSync = useCallback(async () => {
-    setSyncing(true);
+    setOuraSyncing(true);
     try {
       const { data } = await api.post('/api/v1/oura/sync');
       setLastResult({ accepted: data?.synced_records ?? 0, skipped: 0 });
@@ -673,7 +674,7 @@ export default function DevicesScreen() {
     } catch {
       Alert.alert('Sync failed', 'Could not sync Oura data');
     } finally {
-      setSyncing(false);
+      setOuraSyncing(false);
     }
   }, [queryClient]);
 
@@ -877,11 +878,14 @@ export default function DevicesScreen() {
             <View className="flex-row gap-2">
               <TouchableOpacity
                 onPress={handleOuraSync}
-                disabled={syncing}
+                disabled={ouraSyncing}
                 className="flex-1 bg-primary-500/10 border border-primary-500/30 rounded-xl py-3 items-center"
                 activeOpacity={0.8}
               >
-                <Text className="text-primary-500 font-sansMedium text-sm">Sync Now</Text>
+                {ouraSyncing
+                  ? <ActivityIndicator size="small" color="#818CF8" />
+                  : <Text className="text-primary-500 font-sansMedium text-sm">Sync Now</Text>
+                }
               </TouchableOpacity>
               <TouchableOpacity
                 onPress={handleOuraDisconnect}
