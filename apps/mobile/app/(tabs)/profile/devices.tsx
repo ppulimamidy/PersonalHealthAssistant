@@ -297,7 +297,7 @@ async function syncHealthKit(onProgress: (msg: string) => void) {
       52: 'walking', 57: 'yoga', 64: 'hiit', 72: 'mindfulness', 84: 'pilates',
     };
     const workouts = await HealthKit.queryWorkoutSamples({
-      limit: -1, filter: dateFilter,
+      limit: -1, filter: dateRange.filter,
     } as any);
     const byDay: Record<string, { minutes: number; sessions: number; active_calories: number; types: string[] }> = {};
     for (const w of workouts) {
@@ -911,47 +911,47 @@ export default function DevicesScreen() {
           )}
 
           {nativeConnected ? (
-            /* Connected — show Sync Now + Disconnect */
-            <View className="flex-row gap-2">
+            <>
+              <View className="flex-row gap-2">
+                <TouchableOpacity
+                  onPress={handleSync}
+                  disabled={syncing || isDisconnecting}
+                  className="flex-1 bg-primary-500 rounded-xl py-3 items-center"
+                  activeOpacity={0.8}
+                >
+                  {syncing ? (
+                    <View className="flex-row items-center gap-2">
+                      <ActivityIndicator size="small" color="#080B10" />
+                      <Text className="text-obsidian-900 font-sansMedium text-sm">{progress}</Text>
+                    </View>
+                  ) : (
+                    <Text className="text-obsidian-900 font-sansMedium text-sm">Sync Now</Text>
+                  )}
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={handleHealthDisconnect}
+                  disabled={syncing || isDisconnecting}
+                  className="px-4 rounded-xl py-3 items-center"
+                  style={{ backgroundColor: 'rgba(255,255,255,0.04)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)' }}
+                  activeOpacity={0.8}
+                >
+                  {isDisconnecting
+                    ? <ActivityIndicator size="small" color="#526380" />
+                    : <Text className="text-[#526380] font-sansMedium text-sm">Disconnect</Text>
+                  }
+                </TouchableOpacity>
+              </View>
               <TouchableOpacity
-                onPress={handleSync}
-                disabled={syncing || isDisconnecting}
-                className="flex-1 bg-primary-500 rounded-xl py-3 items-center"
-                activeOpacity={0.8}
+                onPress={handleFullSync}
+                disabled={syncing}
+                className="mt-2 items-center"
+                activeOpacity={0.7}
               >
-                {syncing ? (
-                  <View className="flex-row items-center gap-2">
-                    <ActivityIndicator size="small" color="#080B10" />
-                    <Text className="text-obsidian-900 font-sansMedium text-sm">{progress}</Text>
-                  </View>
-                ) : (
-                  <Text className="text-obsidian-900 font-sansMedium text-sm">Sync Now</Text>
-                )}
+                <Text className="text-[#526380] text-xs underline">
+                  {Platform.OS === 'ios' ? 'Sync full history (up to 3 years)' : 'Sync full history (up to 30 days)'}
+                </Text>
               </TouchableOpacity>
-              <TouchableOpacity
-                onPress={handleHealthDisconnect}
-                disabled={syncing || isDisconnecting}
-                className="px-4 rounded-xl py-3 items-center"
-                style={{ backgroundColor: 'rgba(255,255,255,0.04)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)' }}
-                activeOpacity={0.8}
-              >
-                {isDisconnecting
-                  ? <ActivityIndicator size="small" color="#526380" />
-                  : <Text className="text-[#526380] font-sansMedium text-sm">Disconnect</Text>
-                }
-              </TouchableOpacity>
-            </View>
-            {/* Full history sync link */}
-            <TouchableOpacity
-              onPress={handleFullSync}
-              disabled={syncing}
-              className="mt-2 items-center"
-              activeOpacity={0.7}
-            >
-              <Text className="text-[#526380] text-xs underline">
-                {Platform.OS === 'ios' ? 'Sync full history (up to 3 years)' : 'Sync full history (up to 30 days)'}
-              </Text>
-            </TouchableOpacity>
+            </>
           ) : (
             /* Not connected — show Connect & Sync */
             <TouchableOpacity
