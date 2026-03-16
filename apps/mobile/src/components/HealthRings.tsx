@@ -9,7 +9,8 @@
  * Center shows overall health score (0–100).
  */
 
-import { View, Text } from 'react-native';
+import { useState } from 'react';
+import { View, Text, TouchableOpacity, Modal, Pressable } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -29,6 +30,7 @@ interface RingConfig {
   trackColor: string;
   unit: string;
   formatValue: (v: number) => string;
+  helpTip: string;
 }
 
 const RINGS: RingConfig[] = [
@@ -39,6 +41,7 @@ const RINGS: RingConfig[] = [
     trackColor: '#818CF815',
     unit: 'h',
     formatValue: (v) => v.toFixed(1),
+    helpTip: 'Total sleep duration last night. Goal is 7-9 hours for most adults. Good sleep improves recovery, focus, and immune function.',
   },
   {
     key: 'heart',
@@ -47,6 +50,7 @@ const RINGS: RingConfig[] = [
     trackColor: '#F8717115',
     unit: 'ms',
     formatValue: (v) => Math.round(v).toString(),
+    helpTip: 'Heart Rate Variability (HRV) in milliseconds. Higher is generally better — it indicates your nervous system is adaptable and resilient to stress.',
   },
   {
     key: 'activity',
@@ -55,6 +59,7 @@ const RINGS: RingConfig[] = [
     trackColor: '#6EE7B715',
     unit: '',
     formatValue: (v) => v >= 1000 ? `${(v / 1000).toFixed(1)}k` : Math.round(v).toString(),
+    helpTip: 'Daily step count from your phone or wearable. 8,000+ steps/day is associated with lower risk of heart disease and improved mood.',
   },
   {
     key: 'recovery',
@@ -63,6 +68,7 @@ const RINGS: RingConfig[] = [
     trackColor: '#F59E0B15',
     unit: '',
     formatValue: (v) => Math.round(v).toString(),
+    helpTip: 'How ready your body is to perform today (0-100). Based on sleep quality, HRV, and resting heart rate. Higher means you\'re well-recovered.',
   },
 ];
 
@@ -81,6 +87,7 @@ export function HealthRings({
   data: RingData;
   size?: number;
 }>) {
+  const [helpTip, setHelpTip] = useState<{ label: string; text: string; color: string } | null>(null);
   const cx = size / 2;
   const cy = size / 2;
   const strokeWidth = 10;
@@ -140,21 +147,42 @@ export function HealthRings({
         </View>
       </View>
 
-      {/* Legend */}
+      {/* Legend — tap for help */}
       <View className="flex-row flex-wrap justify-center gap-x-4 gap-y-1 mt-3">
         {RINGS.map((ring) => {
           const rd = data[ring.key];
           const pct = Math.round(clamp01(rd.value / (rd.goal || 1)) * 100);
           return (
-            <View key={ring.key} className="flex-row items-center gap-1">
+            <TouchableOpacity
+              key={ring.key}
+              className="flex-row items-center gap-1"
+              onPress={() => setHelpTip({ label: ring.label, text: ring.helpTip, color: ring.color })}
+              activeOpacity={0.7}
+            >
               <View className="w-2 h-2 rounded-full" style={{ backgroundColor: ring.color }} />
               <Text className="text-[10px] text-[#526380]">
                 {ring.label} {ring.formatValue(rd.value)}{ring.unit} ({pct}%)
               </Text>
-            </View>
+            </TouchableOpacity>
           );
         })}
       </View>
+
+      {/* Help tip modal */}
+      <Modal visible={!!helpTip} transparent animationType="fade" onRequestClose={() => setHelpTip(null)}>
+        <Pressable className="flex-1 items-center justify-center bg-black/60" onPress={() => setHelpTip(null)}>
+          <View className="bg-[#0F1720] border border-surface-border rounded-2xl mx-8 p-5 max-w-sm">
+            <View className="flex-row items-center gap-2 mb-2">
+              <View className="w-3 h-3 rounded-full" style={{ backgroundColor: helpTip?.color }} />
+              <Text className="text-[#E8EDF5] font-sansMedium text-base">{helpTip?.label}</Text>
+            </View>
+            <Text className="text-[#8B97A8] text-sm leading-5">{helpTip?.text}</Text>
+            <TouchableOpacity onPress={() => setHelpTip(null)} className="mt-4 self-end">
+              <Text className="text-primary-500 font-sansMedium text-sm">Got it</Text>
+            </TouchableOpacity>
+          </View>
+        </Pressable>
+      </Modal>
     </View>
   );
 }

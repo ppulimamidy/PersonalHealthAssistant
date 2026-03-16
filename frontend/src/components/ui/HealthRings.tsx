@@ -26,6 +26,7 @@ interface RingConfig {
   trackColor: string;
   unit: string;
   formatValue: (v: number) => string;
+  helpTip: string;
 }
 
 const RINGS: RingConfig[] = [
@@ -36,6 +37,7 @@ const RINGS: RingConfig[] = [
     trackColor: 'rgba(129,140,248,0.08)',
     unit: 'h',
     formatValue: (v) => v.toFixed(1),
+    helpTip: 'Total sleep duration last night. Goal is 7-9 hours for most adults. Good sleep improves recovery, focus, and immune function.',
   },
   {
     key: 'heart',
@@ -44,6 +46,7 @@ const RINGS: RingConfig[] = [
     trackColor: 'rgba(248,113,113,0.08)',
     unit: 'ms',
     formatValue: (v) => Math.round(v).toString(),
+    helpTip: 'Heart Rate Variability (HRV) in milliseconds. Higher is generally better — it indicates your nervous system is adaptable and resilient to stress.',
   },
   {
     key: 'activity',
@@ -52,6 +55,7 @@ const RINGS: RingConfig[] = [
     trackColor: 'rgba(110,231,183,0.08)',
     unit: '',
     formatValue: (v) => v >= 1000 ? `${(v / 1000).toFixed(1)}k` : Math.round(v).toString(),
+    helpTip: 'Daily step count from your phone or wearable. 8,000+ steps/day is associated with lower risk of heart disease and improved mood.',
   },
   {
     key: 'recovery',
@@ -60,6 +64,7 @@ const RINGS: RingConfig[] = [
     trackColor: 'rgba(245,158,11,0.08)',
     unit: '',
     formatValue: (v) => Math.round(v).toString(),
+    helpTip: 'How ready your body is to perform today (0-100). Based on sleep quality, HRV, and resting heart rate. Higher means you\'re well-recovered.',
   },
 ];
 
@@ -132,17 +137,26 @@ export function HealthRings({
         </div>
       </div>
 
-      {/* Legend */}
+      {/* Legend — hover for help */}
       <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 mt-3">
         {RINGS.map((ring) => {
           const rd = data[ring.key];
           const pct = Math.round(clamp01(rd.value / (rd.goal || 1)) * 100);
           return (
-            <div key={ring.key} className="flex items-center gap-1">
+            <div key={ring.key} className="relative group flex items-center gap-1 cursor-help">
               <div className="w-2 h-2 rounded-full" style={{ backgroundColor: ring.color }} />
               <span className="text-[10px] text-[#526380]">
                 {ring.label} {ring.formatValue(rd.value)}{ring.unit} ({pct}%)
               </span>
+              {/* Tooltip on hover */}
+              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-56 px-3 py-2 rounded-lg bg-[#0F1720] border border-[#1E2A3B] text-xs text-[#8B97A8] leading-relaxed opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 pointer-events-none z-50 shadow-lg">
+                <div className="flex items-center gap-1.5 mb-1">
+                  <div className="w-2 h-2 rounded-full" style={{ backgroundColor: ring.color }} />
+                  <span className="text-[#E8EDF5] font-medium">{ring.label}</span>
+                </div>
+                {ring.helpTip}
+                <div className="absolute top-full left-1/2 -translate-x-1/2 w-2 h-2 bg-[#0F1720] border-r border-b border-[#1E2A3B] rotate-45 -mt-1" />
+              </div>
             </div>
           );
         })}
