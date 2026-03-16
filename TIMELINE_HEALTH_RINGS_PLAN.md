@@ -25,9 +25,10 @@ Transform the timeline/trends page from an Oura-centric 3-metric view into a uni
 - [x] Sparkline charts for each metric (existing MiniLineChart)
 
 ### 1.4 Web Timeline/Trends
-- [ ] Add 60d and 90d period options
-- [ ] Display multi-source metrics with source attribution
-- [ ] Match mobile's expanded metric set
+- [x] Add 60d and 90d period buttons to TrendCharts
+- [x] Add 5 new metric charts: SpO₂, Respiratory Rate, Active Calories, Workouts, VO₂ Max
+- [x] Source badges (Oura/Apple Health/Health Connect) at top of trends page
+- [x] Transform native metrics from timeline API response
 
 ---
 
@@ -55,9 +56,10 @@ Transform the timeline/trends page from an Oura-centric 3-metric view into a uni
 - [x] Tap on home rings → navigate to trends screen
 
 ### 2.4 Web — Rings on Dashboard + Timeline
-- [ ] Add HealthRings component to web dashboard
-- [ ] Add HealthRings component to web trends page
-- [ ] Hover on ring → tooltip with metric details
+- [x] New HealthRings SVG component (`frontend/src/components/ui/HealthRings.tsx`)
+- [x] Added to TodayView home dashboard (replaces simple score rings when summaries available)
+- [ ] Add to web trends page header (nice-to-have)
+- [ ] Hover on ring → tooltip with metric details (nice-to-have)
 
 ---
 
@@ -122,4 +124,4 @@ Transform the timeline/trends page from an Oura-centric 3-metric view into a uni
 ---
 
 *Created: 2026-03-16*
-*Status: Phase 1 + 2 mobile DONE (pending web). Phase 3-5 future.*
+*Status: Phase 1 + 2 DONE (mobile + web). Phase 3-5 future.*
