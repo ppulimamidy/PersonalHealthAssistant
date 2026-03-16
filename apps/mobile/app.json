@@ -25,6 +25,8 @@
         "NSHealthUpdateUsageDescription": "Vitalix may write workout sessions you log in the app back to Apple Health.",
         "UIBackgroundModes": [
           "fetch",
+          "remote-notification",
+          "fetch",
           "remote-notification"
         ],
         "NSAppTransportSecurity": {
@@ -50,6 +52,14 @@
         "backgroundColor": "#080B10"
       },
       "permissions": [
+        "android.permission.health.READ_STEPS",
+        "android.permission.health.READ_SLEEP",
+        "android.permission.health.READ_HEART_RATE",
+        "android.permission.health.READ_HEART_RATE_VARIABILITY",
+        "android.permission.health.READ_OXYGEN_SATURATION",
+        "android.permission.health.READ_EXERCISE",
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        "android.permission.WAKE_LOCK",
         "android.permission.health.READ_STEPS",
         "android.permission.health.READ_SLEEP",
         "android.permission.health.READ_HEART_RATE",
@@ -89,6 +99,10 @@
         "projectId": "b3d2c24a-e3dc-4bf9-8d97-30cb5c77fd2f"
       }
     },
-    "owner": "ppulimamidy"
+    "owner": "ppulimamidy",
+    "runtimeVersion": "1.0.0",
+    "updates": {
+      "url": "https://u.expo.dev/b3d2c24a-e3dc-4bf9-8d97-30cb5c77fd2f"
+    }
   }
 }

@@ -100,10 +100,31 @@ async function syncHealthKit(onProgress: (msg: string) => void) {
     return { ...result, latestValues: latest };
   }
 
-  const { requireNativeModule } = await import('expo-modules-core');
-  const HK = requireNativeModule('VitalixHealthKit');
+  // VitalixHealthKit native module — falls back to mock data if not available
+  let HK: { requestAuthorization: () => Promise<void>; queryQuantitySamples: (type: string, from: number, to: number) => Promise<Array<{ startDate: number; quantity: number }>>; queryCategorySamples: (type: string, from: number, to: number) => Promise<Array<{ startDate: number; endDate: number; value: number }>> } | null = null;
+  try {
+    const { requireNativeModule } = await import('expo-modules-core');
+    HK = requireNativeModule('VitalixHealthKit');
+  } catch {
+    onProgress('Apple Health native module not available — using sample data…');
+    const dataPoints = buildMockHealthPoints();
+    const now = new Date();
+    onProgress(`Uploading ${dataPoints.length} sample data points…`);
+    const { data: result } = await api.post('/api/v1/health-data/ingest', {
+      source: 'healthkit',
+      data_points: dataPoints,
+      sync_timestamp: now.toISOString(),
+    });
+    await setSyncTimestamp('healthkit', now.toISOString());
+    const latest: Record<string, number> = {};
+    for (const dp of dataPoints) {
+      const val = Object.values(dp.value_json as Record<string, number>)[0];
+      if (val != null) latest[dp.metric_type] = val;
+    }
+    return { ...result, latestValues: latest };
+  }
 
-  await HK.requestAuthorization();
+  await HK!.requestAuthorization();
 
   onProgress('Permissions granted, reading data…');
   const lastSync = await getSyncTimestamp('healthkit');
@@ -117,7 +138,7 @@ async function syncHealthKit(onProgress: (msg: string) => void) {
   onProgress('Querying steps…');
   try {
     const steps: Array<{ startDate: number; quantity: number }> =
-      await HK.queryQuantitySamples('HKQuantityTypeIdentifierStepCount', fromMs, toMs);
+      await HK!.queryQuantitySamples('HKQuantityTypeIdentifierStepCount', fromMs, toMs);
     const byDay: Record<string, number> = {};
     for (const s of steps) {
       const day = format(new Date(s.startDate), 'yyyy-MM-dd');
@@ -130,7 +151,7 @@ async function syncHealthKit(onProgress: (msg: string) => void) {
 
   try {
     const hr: Array<{ startDate: number; quantity: number }> =
-      await HK.queryQuantitySamples('HKQuantityTypeIdentifierHeartRate', fromMs, toMs);
+      await HK!.queryQuantitySamples('HKQuantityTypeIdentifierHeartRate', fromMs, toMs);
     const byDay: Record<string, number[]> = {};
     for (const s of hr) {
       const day = format(new Date(s.startDate), 'yyyy-MM-dd');
@@ -144,7 +165,7 @@ async function syncHealthKit(onProgress: (msg: string) => void) {
 
   try {
     const hrv: Array<{ startDate: number; quantity: number }> =
-      await HK.queryQuantitySamples('HKQuantityTypeIdentifierHeartRateVariabilitySDNN', fromMs, toMs);
+      await HK!.queryQuantitySamples('HKQuantityTypeIdentifierHeartRateVariabilitySDNN', fromMs, toMs);
     const byDay: Record<string, number[]> = {};
     for (const s of hrv) {
       const day = format(new Date(s.startDate), 'yyyy-MM-dd');
@@ -158,7 +179,7 @@ async function syncHealthKit(onProgress: (msg: string) => void) {
 
   try {
     const spo2: Array<{ startDate: number; quantity: number }> =
-      await HK.queryQuantitySamples('HKQuantityTypeIdentifierOxygenSaturation', fromMs, toMs);
+      await HK!.queryQuantitySamples('HKQuantityTypeIdentifierOxygenSaturation', fromMs, toMs);
     const byDay: Record<string, number[]> = {};
     for (const s of spo2) {
       const day = format(new Date(s.startDate), 'yyyy-MM-dd');
@@ -172,7 +193,7 @@ async function syncHealthKit(onProgress: (msg: string) => void) {
 
   try {
     const sleep: Array<{ startDate: number; endDate: number; value: number }> =
-      await HK.queryCategorySamples('HKCategoryTypeIdentifierSleepAnalysis', fromMs, toMs);
+      await HK!.queryCategorySamples('HKCategoryTypeIdentifierSleepAnalysis', fromMs, toMs);
     const byDay: Record<string, number> = {};
     for (const s of sleep) {
       if (s.value === 0 || s.value === 2) continue;
@@ -188,7 +209,7 @@ async function syncHealthKit(onProgress: (msg: string) => void) {
   onProgress('Querying respiratory rate…');
   try {
     const rr: Array<{ startDate: number; quantity: number }> =
-      await HK.queryQuantitySamples('HKQuantityTypeIdentifierRespiratoryRate', fromMs, toMs);
+      await HK!.queryQuantitySamples('HKQuantityTypeIdentifierRespiratoryRate', fromMs, toMs);
     const byDay: Record<string, number[]> = {};
     for (const s of rr) {
       const day = format(new Date(s.startDate), 'yyyy-MM-dd');
@@ -203,7 +224,7 @@ async function syncHealthKit(onProgress: (msg: string) => void) {
   onProgress('Querying active calories…');
   try {
     const energy: Array<{ startDate: number; quantity: number }> =
-      await HK.queryQuantitySamples('HKQuantityTypeIdentifierActiveEnergyBurned', fromMs, toMs);
+      await HK!.queryQuantitySamples('HKQuantityTypeIdentifierActiveEnergyBurned', fromMs, toMs);
     const byDay: Record<string, number> = {};
     for (const s of energy) {
       const day = format(new Date(s.startDate), 'yyyy-MM-dd');
@@ -217,7 +238,7 @@ async function syncHealthKit(onProgress: (msg: string) => void) {
   onProgress('Querying VO₂ max…');
   try {
     const vo2: Array<{ startDate: number; quantity: number }> =
-      await HK.queryQuantitySamples('HKQuantityTypeIdentifierVO2Max', fromMs, toMs);
+      await HK!.queryQuantitySamples('HKQuantityTypeIdentifierVO2Max', fromMs, toMs);
     const byDay: Record<string, number[]> = {};
     for (const s of vo2) {
       const day = format(new Date(s.startDate), 'yyyy-MM-dd');
@@ -237,7 +258,7 @@ async function syncHealthKit(onProgress: (msg: string) => void) {
       66: 'hiit', 46: 'swimming', 51: 'tennis', 3: 'boxing',
     };
     const workouts: Array<{ startDate: number; endDate: number; activityType: number; totalEnergyBurned?: number }> =
-      await HK.queryWorkoutSamples(fromMs, toMs);
+      await HK!.queryWorkoutSamples(fromMs, toMs);
     const byDay: Record<string, { minutes: number; sessions: number; active_calories: number; types: string[] }> = {};
     for (const w of workouts) {
       const day = format(new Date(w.startDate), 'yyyy-MM-dd');
