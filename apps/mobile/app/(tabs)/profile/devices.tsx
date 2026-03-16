@@ -695,20 +695,22 @@ export default function DevicesScreen() {
   const handleOuraConnect = useCallback(async () => {
     setIsConnecting(true);
     try {
-      const { data } = await api.get('/api/v1/oura/auth-url');
+      const mobileRedirectUri = 'vitalix://oura-callback';
+      const { data } = await api.get('/api/v1/oura/auth-url', {
+        params: { redirect_uri: mobileRedirectUri },
+      });
       if (data?.sandbox_mode) {
         queryClient.setQueryData(['oura-connection'], { is_active: true, is_sandbox: true });
       } else if (data?.auth_url) {
         // Production OAuth — use in-app browser that captures the deep link callback
         const { openAuthSessionAsync } = await import('expo-web-browser');
-        const redirectUrl = 'vitalix://oura-callback';
-        const result = await openAuthSessionAsync(data.auth_url, redirectUrl);
+        const result = await openAuthSessionAsync(data.auth_url, mobileRedirectUri);
         if (result.type === 'success' && result.url) {
           // Parse the code from the redirect URL
           const url = new URL(result.url);
           const code = url.searchParams.get('code');
           if (code) {
-            await api.post('/api/v1/oura/callback', { code });
+            await api.post('/api/v1/oura/callback', { code, redirect_uri: mobileRedirectUri });
             queryClient.invalidateQueries({ queryKey: ['oura-connection'] });
           } else {
             Alert.alert('Connection failed', 'Authorization code not received.');

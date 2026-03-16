@@ -182,6 +182,7 @@ class OuraConnectionResponse(BaseModel):
 
 class OuraCallbackRequest(BaseModel):
     code: str
+    redirect_uri: Optional[str] = None
 
 
 class SyncResponse(BaseModel):
@@ -205,10 +206,14 @@ async def get_status():
 
 
 @router.get("/auth-url")
-async def get_auth_url(current_user: dict = Depends(get_user_optional)):
+async def get_auth_url(
+    redirect_uri: Optional[str] = None,
+    current_user: dict = Depends(get_user_optional),
+):
     """
     Get Oura OAuth authorization URL.
     In sandbox mode, returns a mock URL that auto-connects.
+    Accepts optional redirect_uri to support mobile deep links (vitalix://oura-callback).
     """
     if USE_SANDBOX:
         # Reconnecting — clear any prior disconnect
@@ -225,10 +230,12 @@ async def get_auth_url(current_user: dict = Depends(get_user_optional)):
             detail="Oura OAuth not configured. Set OURA_CLIENT_ID or enable sandbox mode.",
         )
 
+    effective_redirect = redirect_uri or OURA_REDIRECT_URI
+
     auth_url = (
         f"{OURA_AUTH_URL}"
         f"?client_id={OURA_CLIENT_ID}"
-        f"&redirect_uri={OURA_REDIRECT_URI}"
+        f"&redirect_uri={effective_redirect}"
         f"&response_type=code"
         f"&scope=daily+personal+heartrate+workout+session+spo2"
         f"&state={current_user['id']}"
@@ -267,7 +274,7 @@ async def handle_callback(
                 "code": request.code,
                 "client_id": OURA_CLIENT_ID,
                 "client_secret": OURA_CLIENT_SECRET,
-                "redirect_uri": OURA_REDIRECT_URI,
+                "redirect_uri": request.redirect_uri or OURA_REDIRECT_URI,
             },
         ) as response:
             if response.status != 200:
