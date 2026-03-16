@@ -106,7 +106,7 @@ async function syncHealthKit(onProgress: (msg: string) => void) {
   }
 
   const AppleHealthKit = (await import('react-native-health')).default;
-  const { Permissions } = await import('react-native-health');
+  const P = AppleHealthKit.Constants.Permissions;
 
   onProgress('Requesting permissions…');
 
@@ -115,17 +115,17 @@ async function syncHealthKit(onProgress: (msg: string) => void) {
       {
         permissions: {
           read: [
-            Permissions.Steps,
-            Permissions.HeartRate,
-            Permissions.HeartRateVariability,
-            Permissions.OxygenSaturation,
-            Permissions.SleepAnalysis,
-            Permissions.RespiratoryRate,
-            Permissions.ActiveEnergyBurned,
-            Permissions.Vo2Max,
-            Permissions.Workout,
+            P.Steps,
+            P.HeartRate,
+            P.HeartRateVariability,
+            P.OxygenSaturation,
+            P.SleepAnalysis,
+            P.RespiratoryRate,
+            P.ActiveEnergyBurned,
+            P.Vo2Max,
+            P.Workout,
           ],
-          write: [Permissions.Workout],
+          write: [P.Workout],
         },
       },
       (err: string) => {
