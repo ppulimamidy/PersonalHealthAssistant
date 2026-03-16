@@ -16,7 +16,7 @@ import { format, subDays } from 'date-fns';
 import Constants from 'expo-constants';
 import * as Device from 'expo-device';
 import { api } from '@/services/api';
-import { getSyncTimestamp, setSyncTimestamp } from '@/utils/syncTimestamp';
+import { getSyncTimestamp, setSyncTimestamp, clearSyncTimestamp } from '@/utils/syncTimestamp';
 
 // NitroModules-based library — safe to import statically on all platforms.
 // isHealthDataAvailable() returns false on Android so iOS-only code is never reached.
@@ -740,6 +740,25 @@ export default function DevicesScreen() {
     }
   }, [queryClient, refetchNativeStatus, refetchSummaries]);
 
+  const handleFullSync = useCallback(() => {
+    const period = Platform.OS === 'ios' ? 'up to 3 years' : 'up to 30 days';
+    Alert.alert(
+      'Full History Sync',
+      `This will re-download ${period} of health data to establish accurate baselines and averages. This may take a minute.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Sync History',
+          onPress: async () => {
+            await clearSyncTimestamp(syncKey);
+            queryClient.invalidateQueries({ queryKey: ['sync-timestamp'] });
+            handleSync();
+          },
+        },
+      ]
+    );
+  }, [syncKey, queryClient, handleSync]);
+
   const handleHealthDisconnect = useCallback(() => {
     const sourceName = Platform.OS === 'ios' ? 'Apple Health' : 'Health Connect';
     const sourceKey = Platform.OS === 'ios' ? 'healthkit' : 'health_connect';
@@ -922,6 +941,17 @@ export default function DevicesScreen() {
                 }
               </TouchableOpacity>
             </View>
+            {/* Full history sync link */}
+            <TouchableOpacity
+              onPress={handleFullSync}
+              disabled={syncing}
+              className="mt-2 items-center"
+              activeOpacity={0.7}
+            >
+              <Text className="text-[#526380] text-xs underline">
+                {Platform.OS === 'ios' ? 'Sync full history (up to 3 years)' : 'Sync full history (up to 30 days)'}
+              </Text>
+            </TouchableOpacity>
           ) : (
             /* Not connected — show Connect & Sync */
             <TouchableOpacity
