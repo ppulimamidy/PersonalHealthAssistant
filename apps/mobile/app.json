@@ -25,8 +25,6 @@
         "NSHealthUpdateUsageDescription": "Vitalix may write workout sessions you log in the app back to Apple Health.",
         "UIBackgroundModes": [
           "fetch",
-          "remote-notification",
-          "fetch",
           "remote-notification"
         ],
         "NSAppTransportSecurity": {
@@ -59,14 +57,6 @@
         "android.permission.health.READ_OXYGEN_SATURATION",
         "android.permission.health.READ_EXERCISE",
         "android.permission.RECEIVE_BOOT_COMPLETED",
-        "android.permission.WAKE_LOCK",
-        "android.permission.health.READ_STEPS",
-        "android.permission.health.READ_SLEEP",
-        "android.permission.health.READ_HEART_RATE",
-        "android.permission.health.READ_HEART_RATE_VARIABILITY",
-        "android.permission.health.READ_OXYGEN_SATURATION",
-        "android.permission.health.READ_EXERCISE",
-        "android.permission.RECEIVE_BOOT_COMPLETED",
         "android.permission.WAKE_LOCK"
       ]
     },
@@ -76,6 +66,13 @@
       "expo-notifications",
       "expo-background-fetch",
       "expo-task-manager",
+      [
+        "react-native-health",
+        {
+          "healthSharePermission": "Vitalix reads your steps, sleep, heart rate, HRV, SpO₂, and workout data to generate personalized health insights.",
+          "healthUpdatePermission": "Vitalix may write workout sessions you log in the app back to Apple Health."
+        }
+      ],
       [
         "react-native-health-connect",
         {
