@@ -552,16 +552,19 @@ export function TodayView() {
               ))}
             </div>
           ) : summariesData && Object.keys(summariesData).length > 0 ? (
-            <HealthRings
-              data={{
-                sleep: { value: summariesData.sleep?.latest_value ?? 0, goal: 8 },
-                heart: { value: summariesData.hrv_sdnn?.latest_value ?? 0, goal: Math.max((summariesData.hrv_sdnn?.avg_30d ?? 50) * 1.1, 50) },
-                activity: { value: summariesData.steps?.latest_value ?? 0, goal: 8000 },
-                recovery: { value: healthScore?.score ?? (readinessScore ?? 0), goal: 100 },
-                overallScore: healthScore?.score ?? null,
-              }}
-              size={200}
-            />
+            <Link href="/trends" className="block cursor-pointer hover:opacity-90 transition-opacity">
+              <HealthRings
+                data={{
+                  sleep: { value: summariesData.sleep?.latest_value ?? 0, goal: 8 },
+                  heart: { value: summariesData.hrv_sdnn?.latest_value ?? 0, goal: Math.max((summariesData.hrv_sdnn?.avg_30d ?? 50) * 1.1, 50) },
+                  activity: { value: summariesData.steps?.latest_value ?? 0, goal: 8000 },
+                  recovery: { value: healthScore?.score ?? (readinessScore ?? 0), goal: 100 },
+                  overallScore: healthScore?.score ?? null,
+                }}
+                size={200}
+              />
+              <p className="text-center text-[10px] text-[#526380] mt-2">Click to see trends</p>
+            </Link>
           ) : (
             <div className="flex gap-6 flex-wrap justify-center">
               {healthScore?.score != null && (
