@@ -551,6 +551,7 @@ function MetricRow({
   const trendInfo = trend ? TREND_ICON[trend] : null;
   const avg7 = summary?.avg_7d;
   const avg30 = summary?.avg_30d;
+  const avg90 = summary?.avg_90d;
 
   return (
     <View className="py-2.5 border-b border-surface-border last:border-0">
@@ -574,16 +575,21 @@ function MetricRow({
         )}
       </View>
       {/* Averages row */}
-      {(avg7 != null || avg30 != null) && (
-        <View className="flex-row ml-11 mt-1 gap-4">
+      {(avg7 != null || avg30 != null || avg90 != null) && (
+        <View className="flex-row ml-11 mt-1 gap-3">
           {avg7 != null && (
             <Text className="text-[#526380] text-[10px]">
-              7d avg: {metric.format(avg7)}
+              7d: {metric.format(avg7)}
             </Text>
           )}
           {avg30 != null && (
             <Text className="text-[#526380] text-[10px]">
-              30d avg: {metric.format(avg30)}
+              30d: {metric.format(avg30)}
+            </Text>
+          )}
+          {avg90 != null && (
+            <Text className="text-[#526380] text-[10px]">
+              90d: {metric.format(avg90)}
             </Text>
           )}
         </View>

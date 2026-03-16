@@ -161,6 +161,7 @@ interface MetricSummary {
   latest_value: number | null;
   avg_7d: number | null;
   avg_30d: number | null;
+  avg_90d: number | null;
   trend_7d: 'up' | 'down' | 'stable' | null;
   is_anomalous: boolean;
   anomaly_severity: 'low' | 'medium' | 'high' | null;
@@ -212,13 +213,16 @@ function NativeMetricsGrid({
             <p className="text-sm font-semibold text-[#E8EDF5]">
               {value != null ? m.format(value) : '—'}
             </p>
-            {(summary?.avg_7d != null || summary?.avg_30d != null) && (
+            {(summary?.avg_7d != null || summary?.avg_30d != null || summary?.avg_90d != null) && (
               <div className="flex gap-2 mt-0.5">
                 {summary?.avg_7d != null && (
                   <p className="text-[9px] text-[#526380]">7d: {m.format(summary.avg_7d)}</p>
                 )}
                 {summary?.avg_30d != null && (
                   <p className="text-[9px] text-[#526380]">30d: {m.format(summary.avg_30d)}</p>
+                )}
+                {summary?.avg_90d != null && (
+                  <p className="text-[9px] text-[#526380]">90d: {m.format(summary.avg_90d)}</p>
                 )}
               </div>
             )}
