@@ -581,8 +581,8 @@ export default function NutritionScreen() {
   const { data: meals, isLoading } = useQuery<MealLog[]>({
     queryKey: ['meals'],
     queryFn: async () => {
-      const { data } = await api.get('/api/v1/nutrition/meals?days=7');
-      return (data?.meals ?? data ?? []) as MealLog[];
+      const { data } = await api.get('/api/v1/nutrition/meals?days=14');
+      return (data?.items ?? data?.meals ?? data ?? []) as MealLog[];
     },
   });
 

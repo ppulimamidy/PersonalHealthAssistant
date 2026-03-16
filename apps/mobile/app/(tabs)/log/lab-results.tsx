@@ -171,7 +171,7 @@ function ScanLabModal({
     setSaving(true);
     setError(null);
     try {
-      await api.post('/api/v1/lab-results', {
+      await api.post('/api/v1/lab-results/lab-results', {
         test_date: testDate || format(new Date(), 'yyyy-MM-dd'),
         test_type: testType.trim(),
         lab_name: labName.trim() || undefined,
@@ -437,7 +437,7 @@ function AddLabResultModal({
     setSaving(true);
     setError(null);
     try {
-      await api.post('/api/v1/lab-results', {
+      await api.post('/api/v1/lab-results/lab-results', {
         test_date: testDate,
         test_type: testType.trim(),
         lab_name: labName.trim() || undefined,
@@ -686,13 +686,13 @@ export default function LabResultsScreen() {
   const { data: results, isLoading } = useQuery<LabResult[]>({
     queryKey: ['lab-results'],
     queryFn: async () => {
-      const { data } = await api.get('/api/v1/lab-results');
-      return (data?.results ?? data ?? []) as LabResult[];
+      const { data } = await api.get('/api/v1/lab-results/lab-results');
+      return (data?.lab_results ?? data?.results ?? data ?? []) as LabResult[];
     },
   });
 
   const deleteMutation = useMutation({
-    mutationFn: (id: string) => api.delete(`/api/v1/lab-results/${id}`),
+    mutationFn: (id: string) => api.delete(`/api/v1/lab-results/lab-results/${id}`),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['lab-results'] }),
     onError: () => Alert.alert('Error', 'Could not delete lab result'),
   });
