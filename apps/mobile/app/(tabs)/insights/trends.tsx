@@ -13,6 +13,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import { api } from '@/services/api';
 import { MiniLineChart } from '@/components/MiniLineChart';
+import { HealthRings, type RingData } from '@/components/HealthRings';
 import {
   loadDataSourcePrefs,
   toApiPriority,
@@ -27,6 +28,14 @@ interface TimelineEntry {
   sleep?: { sleep_score?: number; total_sleep_duration?: number };
   readiness?: { readiness_score?: number; hrv_balance?: number; resting_heart_rate?: number };
   activity?: { steps?: number; activity_score?: number; active_calories?: number };
+  sources?: string[];
+  native?: {
+    respiratory_rate?: number;
+    spo2?: number;
+    active_calories?: number;
+    workout_minutes?: number;
+    vo2_max?: number;
+  };
 }
 
 interface MetricConfig {
@@ -38,7 +47,14 @@ interface MetricConfig {
   higherIsBetter: boolean;
 }
 
+const SOURCE_BADGE: Record<string, { label: string; color: string }> = {
+  oura: { label: '⊙', color: '#818CF8' },
+  healthkit: { label: '🍎', color: '#F87171' },
+  health_connect: { label: '💚', color: '#34D399' },
+};
+
 const METRICS: MetricConfig[] = [
+  // ── Core (from Oura or computed) ──
   {
     label: 'Sleep Score',
     key: (e) => e.sleep?.sleep_score,
@@ -63,6 +79,7 @@ const METRICS: MetricConfig[] = [
     icon: 'walk-outline',
     higherIsBetter: true,
   },
+  // ── Heart & Vitals ──
   {
     label: 'Resting HR',
     key: (e) => e.readiness?.resting_heart_rate,
@@ -72,24 +89,65 @@ const METRICS: MetricConfig[] = [
     higherIsBetter: false,
   },
   {
-    label: 'HRV Balance',
+    label: 'HRV',
     key: (e) => e.readiness?.hrv_balance,
-    unit: '',
+    unit: 'ms',
     color: '#00D4AA',
     icon: 'pulse-outline',
     higherIsBetter: true,
   },
   {
+    label: 'SpO₂',
+    key: (e) => e.native?.spo2,
+    unit: '%',
+    color: '#60A5FA',
+    icon: 'water-outline',
+    higherIsBetter: true,
+  },
+  {
+    label: 'Respiratory Rate',
+    key: (e) => e.native?.respiratory_rate,
+    unit: '/min',
+    color: '#A78BFA',
+    icon: 'cellular-outline',
+    higherIsBetter: false,
+  },
+  // ── Activity ──
+  {
     label: 'Daily Steps',
     key: (e) => e.activity?.steps,
     unit: 'steps',
-    color: '#60A5FA',
+    color: '#34D399',
     icon: 'footsteps-outline',
+    higherIsBetter: true,
+  },
+  {
+    label: 'Active Calories',
+    key: (e) => e.native?.active_calories ?? e.activity?.active_calories,
+    unit: 'kcal',
+    color: '#FB923C',
+    icon: 'flame-outline',
+    higherIsBetter: true,
+  },
+  {
+    label: 'Workouts',
+    key: (e) => e.native?.workout_minutes,
+    unit: 'min',
+    color: '#F59E0B',
+    icon: 'barbell-outline',
+    higherIsBetter: true,
+  },
+  {
+    label: 'VO₂ Max',
+    key: (e) => e.native?.vo2_max,
+    unit: 'mL/kg/min',
+    color: '#2DD4BF',
+    icon: 'speedometer-outline',
     higherIsBetter: true,
   },
 ];
 
-const DAY_OPTIONS = [7, 14, 30] as const;
+const DAY_OPTIONS = [7, 14, 30, 60, 90] as const;
 
 // ─── Metric Chart Card ────────────────────────────────────────────────────────
 
@@ -159,12 +217,24 @@ function MetricCard({ metric, entries }: Readonly<{ metric: MetricConfig; entrie
 
       <MiniLineChart data={data} color={metric.color} height={64} showLastValue={false} />
 
-      <View className="flex-row justify-between mt-2">
+      <View className="flex-row justify-between items-center mt-2">
         <Text className="text-[#526380] text-xs">
           Avg: {metric.label === 'Daily Steps' ? avg.toLocaleString(undefined, { maximumFractionDigits: 0 }) : avg.toFixed(1)}{' '}
           {metric.unit}
         </Text>
-        <Text className="text-[#526380] text-xs">{data.length} days</Text>
+        <View className="flex-row items-center gap-2">
+          {/* Source badges */}
+          {(() => {
+            const allSources = new Set(entries.flatMap((e) => e.sources ?? []));
+            return Array.from(allSources).map((s) => {
+              const badge = SOURCE_BADGE[s];
+              return badge ? (
+                <Text key={s} style={{ color: badge.color, fontSize: 10 }}>{badge.label}</Text>
+              ) : null;
+            });
+          })()}
+          <Text className="text-[#526380] text-xs">{data.length}d</Text>
+        </View>
       </View>
     </View>
   );
@@ -173,7 +243,7 @@ function MetricCard({ metric, entries }: Readonly<{ metric: MetricConfig; entrie
 // ─── Screen ────────────────────────────────────────────────────────────────────
 
 export default function TrendsScreen() {
-  const [days, setDays] = useState<7 | 14 | 30>(30);
+  const [days, setDays] = useState<7 | 14 | 30 | 60 | 90>(30);
   const [sourcePriority, setSourcePriority] = useState<SourceOption>('auto');
 
   useEffect(() => {
@@ -232,6 +302,35 @@ export default function TrendsScreen() {
             </Text>
           </View>
         )}
+        {/* Health Rings — today's snapshot */}
+        {!isLoading && entries.length > 0 && (() => {
+          const today = entries[entries.length - 1]; // most recent
+          const sleepHrs = today?.sleep?.total_sleep_duration
+            ? today.sleep.total_sleep_duration / 3600
+            : 0;
+          const hrv = today?.readiness?.hrv_balance ?? 0;
+          const steps = today?.activity?.steps ?? 0;
+          const readiness = today?.readiness?.readiness_score ?? 0;
+          const sleepScore = today?.sleep?.sleep_score;
+          const activityScore = today?.activity?.activity_score;
+          const overallScore = sleepScore && readiness && activityScore
+            ? Math.round((sleepScore * 0.4 + readiness * 0.35 + activityScore * 0.25))
+            : null;
+
+          const ringData: RingData = {
+            sleep:    { value: sleepHrs, goal: 8 },
+            heart:    { value: hrv, goal: hrv > 0 ? Math.max(hrv * 1.1, 50) : 50 },
+            activity: { value: steps, goal: 8000 },
+            recovery: { value: readiness, goal: 100 },
+            overallScore,
+          };
+
+          return (
+            <View className="bg-surface-raised border border-surface-border rounded-2xl p-5 mb-4 items-center">
+              <HealthRings data={ringData} size={180} />
+            </View>
+          );
+        })()}
         {!isLoading && entries.length > 0 && METRICS.map((m) => (
           <MetricCard key={m.label} metric={m} entries={entries} />
         ))}

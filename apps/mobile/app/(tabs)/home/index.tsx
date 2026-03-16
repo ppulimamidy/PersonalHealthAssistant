@@ -9,6 +9,7 @@ import { useAuthStore } from '@/stores/authStore';
 import type { AIInsight } from '@/types';
 import DailyCheckinModal, { shouldShowDailyCheckin } from '@/components/DailyCheckinModal';
 import GettingStartedCard from '@/components/GettingStartedCard';
+import { HealthRings, type RingData } from '@/components/HealthRings';
 
 function scoreColor(score: number): string {
   if (score >= 80) return '#00D4AA';
@@ -301,6 +302,19 @@ export default function HomeScreen() {
     },
   });
 
+  const { data: summaries } = useQuery({
+    queryKey: ['health-summaries'],
+    queryFn: async () => {
+      try {
+        const { data: resp } = await api.get('/api/v1/health-data/summaries');
+        return resp as Record<string, { latest_value: number | null; avg_30d: number | null }>;
+      } catch {
+        return null;
+      }
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+
   const healthScore = data?.health_score?.score ?? null;
   const healthTrend = data?.health_score?.trend;
   const insights: AIInsight[] = Array.isArray(data?.insights)
@@ -333,10 +347,28 @@ export default function HomeScreen() {
       {/* Getting started checklist — shown to new users until all 5 steps done */}
       <GettingStartedCard />
 
-      {/* Health Score */}
-      {healthScore !== null && (
+      {/* Health Rings + Score */}
+      {summaries && Object.keys(summaries).length > 0 ? (
+        <TouchableOpacity
+          onPress={() => router.push('/(tabs)/insights/trends')}
+          activeOpacity={0.85}
+          className="bg-surface-raised rounded-2xl p-5 mb-4 border border-surface-border items-center"
+        >
+          <HealthRings
+            data={{
+              sleep:    { value: summaries.sleep?.latest_value ?? 0, goal: 8 },
+              heart:    { value: summaries.hrv_sdnn?.latest_value ?? 0, goal: Math.max((summaries.hrv_sdnn?.avg_30d ?? 50) * 1.1, 50) },
+              activity: { value: summaries.steps?.latest_value ?? 0, goal: 8000 },
+              recovery: { value: healthScore ?? 0, goal: 100 },
+              overallScore: healthScore,
+            }}
+            size={180}
+          />
+          <Text className="text-[#526380] text-[10px] mt-2">Tap to see trends</Text>
+        </TouchableOpacity>
+      ) : healthScore !== null ? (
         <HealthScoreRing score={healthScore} trend={healthTrend} />
-      )}
+      ) : null}
 
       {/* Empty state for brand-new users */}
       {!isLoading && !hasAnyData && <EmptyDashboard />}
