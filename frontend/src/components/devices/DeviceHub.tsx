@@ -157,22 +157,82 @@ const NATIVE_METRICS = [
   { key: 'vo2_max',            label: 'VO₂ Max',      format: (v: number) => `${v.toFixed(1)} mL/kg/min` },
 ];
 
-function NativeMetricsGrid({ recentData }: { recentData: Record<string, number> }) {
-  const available = NATIVE_METRICS.filter((m) => recentData[m.key] != null);
+interface MetricSummary {
+  latest_value: number | null;
+  avg_7d: number | null;
+  avg_30d: number | null;
+  trend_7d: 'up' | 'down' | 'stable' | null;
+  is_anomalous: boolean;
+  anomaly_severity: 'low' | 'medium' | 'high' | null;
+  anomaly_detail: string | null;
+}
+
+type Summaries = Record<string, MetricSummary>;
+
+const TREND_ARROW: Record<string, { icon: string; color: string }> = {
+  up:     { icon: '↑', color: '#6EE7B7' },
+  down:   { icon: '↓', color: '#F87171' },
+  stable: { icon: '→', color: '#526380' },
+};
+
+function NativeMetricsGrid({
+  recentData,
+  summaries,
+}: {
+  recentData: Record<string, number>;
+  summaries?: Summaries | null;
+}) {
+  const available = NATIVE_METRICS.filter(
+    (m) => recentData[m.key] != null || summaries?.[m.key]?.latest_value != null
+  );
   if (available.length === 0) return null;
 
   return (
     <div className="grid grid-cols-3 gap-2 pt-1">
-      {available.map((m) => (
-        <div
-          key={m.key}
-          className="rounded-xl px-3 py-2.5 flex flex-col gap-0.5"
-          style={{ backgroundColor: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}
-        >
-          <p className="text-[10px] text-[#526380]">{m.label}</p>
-          <p className="text-sm font-semibold text-[#E8EDF5]">{m.format(recentData[m.key])}</p>
-        </div>
-      ))}
+      {available.map((m) => {
+        const value = recentData[m.key] ?? summaries?.[m.key]?.latest_value;
+        const summary = summaries?.[m.key];
+        const trend = summary?.trend_7d;
+        const trendInfo = trend ? TREND_ARROW[trend] : null;
+
+        return (
+          <div
+            key={m.key}
+            className="rounded-xl px-3 py-2.5 flex flex-col gap-0.5"
+            style={{ backgroundColor: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}
+          >
+            <div className="flex items-center justify-between">
+              <p className="text-[10px] text-[#526380]">{m.label}</p>
+              {trendInfo && (
+                <span className="text-[10px] font-bold" style={{ color: trendInfo.color }}>
+                  {trendInfo.icon}
+                </span>
+              )}
+            </div>
+            <p className="text-sm font-semibold text-[#E8EDF5]">
+              {value != null ? m.format(value) : '—'}
+            </p>
+            {(summary?.avg_7d != null || summary?.avg_30d != null) && (
+              <div className="flex gap-2 mt-0.5">
+                {summary?.avg_7d != null && (
+                  <p className="text-[9px] text-[#526380]">7d: {m.format(summary.avg_7d)}</p>
+                )}
+                {summary?.avg_30d != null && (
+                  <p className="text-[9px] text-[#526380]">30d: {m.format(summary.avg_30d)}</p>
+                )}
+              </div>
+            )}
+            {summary?.is_anomalous && (
+              <p
+                className="text-[9px] mt-0.5"
+                style={{ color: summary.anomaly_severity === 'high' ? '#F87171' : '#F59E0B' }}
+              >
+                ⚠ {summary.anomaly_severity}
+              </p>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -182,12 +242,15 @@ function NativeMetricsGrid({ recentData }: { recentData: Record<string, number> 
 function SourceMetricsPanel({
   label,
   data,
+  summaries,
   isLoading,
 }: Readonly<{
   label: string;
   data: Record<string, number> | undefined;
+  summaries?: Summaries | null;
   isLoading: boolean;
 }>) {
+  const hasData = (data && Object.keys(data).length > 0) || (summaries && Object.keys(summaries).length > 0);
   return (
     <div
       className="rounded-2xl p-5"
@@ -195,8 +258,8 @@ function SourceMetricsPanel({
     >
       <p className="text-[11px] font-semibold uppercase tracking-widest text-[#526380] mb-3">{label}</p>
       {isLoading && <p className="text-xs text-[#526380]">Loading…</p>}
-      {!isLoading && data && Object.keys(data).length > 0 && <NativeMetricsGrid recentData={data} />}
-      {!isLoading && (!data || Object.keys(data).length === 0) && (
+      {!isLoading && hasData && <NativeMetricsGrid recentData={data ?? {}} summaries={summaries} />}
+      {!isLoading && !hasData && (
         <p className="text-xs text-[#526380]">No data yet — open the Vitalix mobile app and tap Sync.</p>
       )}
     </div>
@@ -373,6 +436,20 @@ export function DeviceHub() {
     staleTime: 0,
   });
 
+  const { data: summariesData } = useQuery({
+    queryKey: ['health-summaries'],
+    queryFn: async () => {
+      try {
+        const { data } = await api.get('/api/v1/health-data/summaries');
+        return data as Summaries;
+      } catch {
+        return null;
+      }
+    },
+    enabled: hkConnected || hcConnected,
+    staleTime: 60_000,
+  });
+
   return (
     <div>
       <div className="mb-8">
@@ -420,7 +497,7 @@ export function DeviceHub() {
               isDisconnecting={isDisconnectingHk}
             />
             {hkConnected && (
-              <SourceMetricsPanel label="Latest values from iPhone" data={hkRecentData} isLoading={isLoadingHk} />
+              <SourceMetricsPanel label="Health metrics from iPhone" data={hkRecentData} summaries={summariesData} isLoading={isLoadingHk} />
             )}
 
             {/* Health Connect (Android) */}
@@ -437,7 +514,7 @@ export function DeviceHub() {
               isDisconnecting={isDisconnectingHc}
             />
             {hcConnected && (
-              <SourceMetricsPanel label="Latest values from Android" data={hcRecentData} isLoading={isLoadingHc} />
+              <SourceMetricsPanel label="Health metrics from Android" data={hcRecentData} summaries={summariesData} isLoading={isLoadingHc} />
             )}
           </div>
         </section>
