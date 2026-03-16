@@ -105,9 +105,8 @@ async function syncHealthKit(onProgress: (msg: string) => void) {
 
   onProgress('Requesting permissions…');
 
-  await HealthKit.requestAuthorization(
-    [],
-    [
+  await HealthKit.requestAuthorization({
+    toRead: [
       'HKQuantityTypeIdentifierStepCount',
       'HKQuantityTypeIdentifierHeartRate',
       'HKQuantityTypeIdentifierHeartRateVariabilitySDNN',
@@ -117,21 +116,22 @@ async function syncHealthKit(onProgress: (msg: string) => void) {
       'HKQuantityTypeIdentifierVO2Max',
       'HKCategoryTypeIdentifierSleepAnalysis',
       'HKWorkoutTypeIdentifier',
-    ] as any[]
-  );
+    ],
+  } as any);
 
   onProgress('Permissions granted, reading data…');
   const lastSync = await getSyncTimestamp('healthkit');
   const since = lastSync ? new Date(lastSync) : subDays(new Date(), 7);
   const now = new Date();
+  const dateFilter = { date: { startDate: since, endDate: now } };
+  const qOpts = { limit: -1, filter: dateFilter } as any;
 
   const dataPoints: Array<{ metric_type: string; date: string; value_json: object }> = [];
 
   onProgress('Querying steps…');
   try {
     const samples = await HealthKit.queryQuantitySamples(
-      'HKQuantityTypeIdentifierStepCount',
-      { from: since, to: now }
+      'HKQuantityTypeIdentifierStepCount', qOpts,
     );
     for (const s of samples) {
       const date = format(s.startDate, 'yyyy-MM-dd');
@@ -142,8 +142,7 @@ async function syncHealthKit(onProgress: (msg: string) => void) {
   onProgress('Querying heart rate…');
   try {
     const samples = await HealthKit.queryQuantitySamples(
-      'HKQuantityTypeIdentifierHeartRate',
-      { from: since, to: now }
+      'HKQuantityTypeIdentifierHeartRate', qOpts,
     );
     const byDay: Record<string, number[]> = {};
     for (const s of samples) {
@@ -159,8 +158,7 @@ async function syncHealthKit(onProgress: (msg: string) => void) {
   onProgress('Querying HRV…');
   try {
     const samples = await HealthKit.queryQuantitySamples(
-      'HKQuantityTypeIdentifierHeartRateVariabilitySDNN',
-      { from: since, to: now }
+      'HKQuantityTypeIdentifierHeartRateVariabilitySDNN', qOpts,
     );
     const byDay: Record<string, number[]> = {};
     for (const s of samples) {
@@ -176,8 +174,7 @@ async function syncHealthKit(onProgress: (msg: string) => void) {
   onProgress('Querying SpO₂…');
   try {
     const samples = await HealthKit.queryQuantitySamples(
-      'HKQuantityTypeIdentifierOxygenSaturation',
-      { from: since, to: now }
+      'HKQuantityTypeIdentifierOxygenSaturation', qOpts,
     );
     const byDay: Record<string, number[]> = {};
     for (const s of samples) {
@@ -193,8 +190,7 @@ async function syncHealthKit(onProgress: (msg: string) => void) {
   onProgress('Querying sleep…');
   try {
     const samples = await HealthKit.queryCategorySamples(
-      'HKCategoryTypeIdentifierSleepAnalysis',
-      { from: since, to: now }
+      'HKCategoryTypeIdentifierSleepAnalysis', qOpts,
     );
     const byDay: Record<string, number> = {};
     for (const s of samples) {
@@ -211,8 +207,7 @@ async function syncHealthKit(onProgress: (msg: string) => void) {
   onProgress('Querying respiratory rate…');
   try {
     const samples = await HealthKit.queryQuantitySamples(
-      'HKQuantityTypeIdentifierRespiratoryRate',
-      { from: since, to: now }
+      'HKQuantityTypeIdentifierRespiratoryRate', qOpts,
     );
     const byDay: Record<string, number[]> = {};
     for (const s of samples) {
@@ -228,8 +223,7 @@ async function syncHealthKit(onProgress: (msg: string) => void) {
   onProgress('Querying active calories…');
   try {
     const samples = await HealthKit.queryQuantitySamples(
-      'HKQuantityTypeIdentifierActiveEnergyBurned',
-      { from: since, to: now }
+      'HKQuantityTypeIdentifierActiveEnergyBurned', qOpts,
     );
     const byDay: Record<string, number> = {};
     for (const s of samples) {
@@ -244,8 +238,7 @@ async function syncHealthKit(onProgress: (msg: string) => void) {
   onProgress('Querying VO₂ max…');
   try {
     const samples = await HealthKit.queryQuantitySamples(
-      'HKQuantityTypeIdentifierVO2Max',
-      { from: since, to: now }
+      'HKQuantityTypeIdentifierVO2Max', qOpts,
     );
     for (const s of samples) {
       const date = format(s.startDate, 'yyyy-MM-dd');
@@ -255,19 +248,19 @@ async function syncHealthKit(onProgress: (msg: string) => void) {
 
   onProgress('Querying workouts…');
   try {
-    // HKWorkoutActivityType numeric values: running=37, cycling=13, walking=52, yoga=57,
-    // strengthTraining=50, swimming=46, pilates=84, hiit=64, mindfulnessSession=72
     const workoutTypeMap: Record<number, string> = {
       13: 'cycling', 37: 'running', 46: 'swimming', 50: 'strength',
       52: 'walking', 57: 'yoga', 64: 'hiit', 72: 'mindfulness', 84: 'pilates',
     };
-    const workouts = await HealthKit.queryWorkoutSamples({ from: since, to: now });
+    const workouts = await HealthKit.queryWorkoutSamples({
+      limit: -1, filter: dateFilter,
+    } as any);
     const byDay: Record<string, { minutes: number; sessions: number; active_calories: number; types: string[] }> = {};
     for (const w of workouts) {
       const day = format(w.startDate, 'yyyy-MM-dd');
-      const durationMin = (w.endDate.getTime() - w.startDate.getTime()) / 60_000;
+      const durationMin = w.duration?.quantity ? w.duration.quantity / 60 : (w.endDate.getTime() - w.startDate.getTime()) / 60_000;
       const typeName = workoutTypeMap[w.workoutActivityType as number] ?? 'other';
-      const kcal = (w.totalEnergyBurned as any)?.quantity ?? 0;
+      const kcal = w.totalEnergyBurned?.quantity ?? 0;
       if (!byDay[day]) byDay[day] = { minutes: 0, sessions: 0, active_calories: 0, types: [] };
       byDay[day].minutes += durationMin;
       byDay[day].sessions += 1;
