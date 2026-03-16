@@ -152,6 +152,7 @@ export interface LogMealRequest {
   meal_description?: string;
   food_items: MealFoodItemInput[];
   user_notes?: string;
+  logged_at?: string;
 }
 
 export interface LogMealResponse {
