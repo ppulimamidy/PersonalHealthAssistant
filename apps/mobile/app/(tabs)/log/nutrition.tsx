@@ -43,7 +43,8 @@ interface MealLog {
   meal_name?: string;
   food_items: FoodItem[];
   user_notes?: string;
-  logged_at: string;
+  logged_at?: string;
+  timestamp?: string;
   total_calories?: number;
 }
 
@@ -64,8 +65,10 @@ function inferMealType(): MealType {
   return 'snack';
 }
 
-function formatMealDate(dateStr: string): string {
+function formatMealDate(dateStr?: string): string {
+  if (!dateStr) return 'Unknown';
   const d = new Date(dateStr);
+  if (Number.isNaN(d.getTime())) return 'Unknown';
   if (isToday(d)) return 'Today';
   if (isYesterday(d)) return 'Yesterday';
   return format(d, 'MMM d');
@@ -546,7 +549,7 @@ function MealCard({ meal, onDelete }: { meal: MealLog; onDelete: (id: string) =>
           <View className="flex-1">
             <Text className="text-[#E8EDF5] font-sansMedium text-sm">{meal.meal_name ?? cfg.label}</Text>
             <Text className="text-[#526380] text-xs mt-0.5">
-              {format(new Date(meal.logged_at), 'h:mm a')}
+              {format(new Date(meal.logged_at ?? meal.timestamp ?? ''), 'h:mm a')}
               {meal.total_calories ? ` · ~${meal.total_calories} kcal` : ''}
             </Text>
           </View>
@@ -600,7 +603,7 @@ export default function NutritionScreen() {
 
   const mealsList = Array.isArray(meals) ? meals : [];
   const grouped = mealsList.reduce<Record<string, MealLog[]>>((acc, meal) => {
-    const label = formatMealDate(meal.logged_at);
+    const label = formatMealDate(meal.logged_at ?? meal.timestamp ?? '');
     if (!acc[label]) acc[label] = [];
     acc[label].push(meal);
     return acc;
