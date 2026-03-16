@@ -109,6 +109,10 @@ async function syncHealthKit(onProgress: (msg: string) => void) {
     return { ...result, latestValues: latest };
   }
 
+  if (typeof AppleHealthKit?.initHealthKit !== 'function') {
+    throw new Error('Apple Health is not available on this device. Make sure you have a supported iPhone with iOS 13+.');
+  }
+
   onProgress('Requesting permissions…');
 
   await new Promise<void>((resolve, reject) => {
@@ -149,7 +153,7 @@ async function syncHealthKit(onProgress: (msg: string) => void) {
   try {
     type StepSample = { startDate: string; value: number };
     const steps = await hkQuery<StepSample[]>(
-      AppleHealthKit.getDailyStepCountSamples.bind(AppleHealthKit),
+      (o: object, cb: (e: string, r: any) => void) => AppleHealthKit.getDailyStepCountSamples(o as any, cb),
       { startDate, endDate, includeManuallyAdded: false }
     );
     for (const s of steps) {
@@ -162,7 +166,7 @@ async function syncHealthKit(onProgress: (msg: string) => void) {
   try {
     type HKSample = { startDate: string; value: number };
     const hr = await hkQuery<HKSample[]>(
-      AppleHealthKit.getHeartRateSamples.bind(AppleHealthKit),
+      (o: object, cb: (e: string, r: any) => void) => AppleHealthKit.getHeartRateSamples(o as any, cb),
       { startDate, endDate, ascending: false }
     );
     const byDay: Record<string, number[]> = {};
@@ -180,7 +184,7 @@ async function syncHealthKit(onProgress: (msg: string) => void) {
   try {
     type HKSample = { startDate: string; value: number };
     const hrv = await hkQuery<HKSample[]>(
-      AppleHealthKit.getHeartRateVariabilitySamples.bind(AppleHealthKit),
+      (o: object, cb: (e: string, r: any) => void) => AppleHealthKit.getHeartRateVariabilitySamples(o as any, cb),
       { startDate, endDate }
     );
     const byDay: Record<string, number[]> = {};
@@ -198,7 +202,7 @@ async function syncHealthKit(onProgress: (msg: string) => void) {
   try {
     type HKSample = { startDate: string; value: number };
     const spo2 = await hkQuery<HKSample[]>(
-      AppleHealthKit.getOxygenSaturationSamples.bind(AppleHealthKit),
+      (o: object, cb: (e: string, r: any) => void) => AppleHealthKit.getOxygenSaturationSamples(o as any, cb),
       { startDate, endDate }
     );
     const byDay: Record<string, number[]> = {};
@@ -216,7 +220,7 @@ async function syncHealthKit(onProgress: (msg: string) => void) {
   try {
     type SleepSample = { startDate: string; endDate: string; value: string };
     const sleep = await hkQuery<SleepSample[]>(
-      AppleHealthKit.getSleepSamples.bind(AppleHealthKit),
+      (o: object, cb: (e: string, r: any) => void) => AppleHealthKit.getSleepSamples(o as any, cb),
       { startDate, endDate }
     );
     const byDay: Record<string, number> = {};
@@ -235,7 +239,7 @@ async function syncHealthKit(onProgress: (msg: string) => void) {
   try {
     type HKSample = { startDate: string; value: number };
     const rr = await hkQuery<HKSample[]>(
-      AppleHealthKit.getRespiratoryRateSamples.bind(AppleHealthKit),
+      (o: object, cb: (e: string, r: any) => void) => AppleHealthKit.getRespiratoryRateSamples(o as any, cb),
       { startDate, endDate }
     );
     const byDay: Record<string, number[]> = {};
@@ -253,7 +257,7 @@ async function syncHealthKit(onProgress: (msg: string) => void) {
   try {
     type EnergySample = { startDate: string; value: number };
     const energy = await hkQuery<EnergySample[]>(
-      AppleHealthKit.getActiveEnergyBurned.bind(AppleHealthKit),
+      (o: object, cb: (e: string, r: any) => void) => AppleHealthKit.getActiveEnergyBurned(o as any, cb),
       { startDate, endDate }
     );
     const byDay: Record<string, number> = {};
@@ -270,7 +274,7 @@ async function syncHealthKit(onProgress: (msg: string) => void) {
   try {
     type HKSample = { startDate: string; value: number };
     const vo2 = await hkQuery<HKSample[]>(
-      AppleHealthKit.getVo2MaxSamples.bind(AppleHealthKit),
+      (o: object, cb: (e: string, r: any) => void) => AppleHealthKit.getVo2MaxSamples(o as any, cb),
       { startDate, endDate }
     );
     for (const s of vo2) {
@@ -290,7 +294,7 @@ async function syncHealthKit(onProgress: (msg: string) => void) {
     };
     type WorkoutSample = { startDate: string; endDate: string; activityName: string; calories: number };
     const workouts = await hkQuery<WorkoutSample[]>(
-      AppleHealthKit.getSamples.bind(AppleHealthKit),
+      (o: object, cb: (e: string, r: any) => void) => AppleHealthKit.getSamples(o as any, cb),
       { startDate, endDate, type: 'Workout' }
     );
     const byDay: Record<string, { minutes: number; sessions: number; active_calories: number; types: string[] }> = {};
