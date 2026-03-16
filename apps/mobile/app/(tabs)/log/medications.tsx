@@ -10,6 +10,17 @@ import * as Haptics from 'expo-haptics';
 import { api } from '@/services/api';
 import type { Medication } from '@/types';
 
+interface Supplement {
+  id: string;
+  supplement_name: string;
+  brand?: string;
+  dosage: string;
+  frequency: string;
+  form: string;
+  purpose?: string;
+  is_active: boolean;
+}
+
 const ROUTES = ['oral', 'topical', 'injection', 'inhaled'] as const;
 const FREQUENCIES = [
   'Once daily', 'Twice daily', 'Three times daily',
@@ -348,6 +359,19 @@ export default function MedicationsScreen() {
     },
   });
 
+  const { data: supplements, isLoading: supLoading } = useQuery({
+    queryKey: ['supplements'],
+    queryFn: async () => {
+      const { data: resp } = await api.get('/api/v1/supplements');
+      return (Array.isArray(resp) ? resp : (resp?.supplements ?? [])) as Supplement[];
+    },
+  });
+
+  const deleteSupMutation = useMutation({
+    mutationFn: (id: string) => api.delete(`/api/v1/supplements/${id}`),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['supplements'] }),
+  });
+
   const { data: streaks } = useQuery({
     queryKey: ['adherence', 'streaks'],
     queryFn: async () => {
@@ -474,6 +498,49 @@ export default function MedicationsScreen() {
               ))}
             </>
           )}
+
+          {/* ── Supplements ──────────────────────────────────────── */}
+          <View className="mt-6 pt-4 border-t border-surface-border">
+            <View className="flex-row items-center justify-between mb-3">
+              <Text className="text-[#526380] text-xs font-sansMedium uppercase tracking-wider">
+                Supplements {supplements?.length ? `(${supplements.length})` : ''}
+              </Text>
+            </View>
+            {supLoading && <ActivityIndicator color="#00D4AA" size="small" />}
+            {!supLoading && (!supplements || supplements.length === 0) && (
+              <Text className="text-[#3A4A5C] text-sm mb-2">No supplements added yet.</Text>
+            )}
+            {supplements?.map((sup) => (
+              <View
+                key={sup.id}
+                className="bg-surface-raised border border-surface-border rounded-xl p-3 mb-2 flex-row items-center"
+              >
+                <View className="w-9 h-9 rounded-lg items-center justify-center mr-3" style={{ backgroundColor: '#6EE7B718' }}>
+                  <Ionicons name="leaf-outline" size={18} color="#6EE7B7" />
+                </View>
+                <View className="flex-1">
+                  <Text className="text-[#E8EDF5] text-sm font-sansMedium">{sup.supplement_name}</Text>
+                  <Text className="text-[#526380] text-xs mt-0.5">
+                    {sup.dosage}{sup.frequency ? ` · ${sup.frequency}` : ''}{sup.brand ? ` · ${sup.brand}` : ''}
+                  </Text>
+                  {sup.purpose ? (
+                    <Text className="text-[#3A4A5C] text-[10px] mt-0.5">{sup.purpose}</Text>
+                  ) : null}
+                </View>
+                <TouchableOpacity
+                  onPress={() => {
+                    Alert.alert('Delete Supplement', `Remove "${sup.supplement_name}"?`, [
+                      { text: 'Cancel', style: 'cancel' },
+                      { text: 'Delete', style: 'destructive', onPress: () => deleteSupMutation.mutate(sup.id) },
+                    ]);
+                  }}
+                  className="p-2"
+                >
+                  <Ionicons name="trash-outline" size={16} color="#526380" />
+                </TouchableOpacity>
+              </View>
+            ))}
+          </View>
         </ScrollView>
       )}
 
