@@ -46,7 +46,8 @@ function transformData(entries: TimelineEntry[]): ChartDataPoint[] {
   return [...entries]
     .sort((a, b) => a.date.localeCompare(b.date))
     .map((entry) => {
-      const native = (entry as Record<string, unknown>).native as Record<string, number> | undefined;
+      const raw = entry as unknown as Record<string, unknown>;
+      const native = raw.native as Record<string, number> | undefined;
       return {
         date: entry.date,
         label: formatDate(entry.date),
@@ -64,7 +65,7 @@ function transformData(entries: TimelineEntry[]): ChartDataPoint[] {
         activeCals: native?.active_calories ?? entry.activity?.active_calories,
         workoutMin: native?.workout_minutes,
         vo2Max: native?.vo2_max,
-        sources: (entry as Record<string, unknown>).sources as string[] | undefined,
+        sources: raw.sources as string[] | undefined,
       };
     });
 }
