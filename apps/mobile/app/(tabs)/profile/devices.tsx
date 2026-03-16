@@ -76,6 +76,38 @@ const METRICS: SyncMetric[] = [
   { label: 'VO₂ Max',          icon: 'speedometer-outline', unit: 'mL/kg/min',  color: '#34D399', metricType: 'vo2_max',            valueKey: 'ml_kg_min',  format: (v) => v.toFixed(1) + ' mL/kg/min' },
 ];
 
+// ─── Batched upload helper ─────────────────────────────────────────────────────
+
+const BATCH_SIZE = 400; // stay well under the 500 API limit
+
+async function uploadInBatches(
+  source: 'healthkit' | 'health_connect',
+  dataPoints: Array<{ metric_type: string; date: string; value_json: object }>,
+  syncTimestamp: string,
+  onProgress: (msg: string) => void,
+): Promise<{ accepted: number; skipped: number }> {
+  let totalAccepted = 0;
+  let totalSkipped = 0;
+  for (let i = 0; i < dataPoints.length; i += BATCH_SIZE) {
+    const batch = dataPoints.slice(i, i + BATCH_SIZE);
+    const batchNum = Math.floor(i / BATCH_SIZE) + 1;
+    const totalBatches = Math.ceil(dataPoints.length / BATCH_SIZE);
+    if (totalBatches > 1) {
+      onProgress(`Uploading batch ${batchNum}/${totalBatches} (${batch.length} points)…`);
+    } else {
+      onProgress(`Uploading ${batch.length} data points…`);
+    }
+    const { data } = await api.post('/api/v1/health-data/ingest', {
+      source,
+      data_points: batch,
+      sync_timestamp: syncTimestamp,
+    });
+    totalAccepted += data?.accepted ?? 0;
+    totalSkipped += data?.skipped ?? 0;
+  }
+  return { accepted: totalAccepted, skipped: totalSkipped };
+}
+
 // ─── iOS HealthKit ─────────────────────────────────────────────────────────────
 
 async function syncHealthKit(onProgress: (msg: string) => void) {
@@ -119,10 +151,19 @@ async function syncHealthKit(onProgress: (msg: string) => void) {
     ],
   } as any);
 
-  onProgress('Permissions granted, reading data…');
   const lastSync = await getSyncTimestamp('healthkit');
-  const since = lastSync ? new Date(lastSync) : subDays(new Date(), 7);
+  const isFirstSync = !lastSync;
   const now = new Date();
+
+  // First connect: pull up to 3 years of historical data for baseline insights
+  // Subsequent syncs: pull only since last sync
+  const since = lastSync
+    ? new Date(lastSync)
+    : new Date(now.getFullYear() - 3, now.getMonth(), now.getDate());
+
+  onProgress(isFirstSync
+    ? 'First sync — loading historical data (this may take a moment)…'
+    : 'Reading data…');
 
   // Anchor at midnight so daily buckets align to calendar days (not arbitrary times)
   const anchor = new Date(since);
@@ -281,12 +322,7 @@ async function syncHealthKit(onProgress: (msg: string) => void) {
     return { accepted: 0, skipped: 0, message: 'No new data since last sync.' };
   }
 
-  onProgress(`Uploading ${dataPoints.length} data points…`);
-  const { data: result } = await api.post('/api/v1/health-data/ingest', {
-    source: 'healthkit',
-    data_points: dataPoints,
-    sync_timestamp: now.toISOString(),
-  });
+  const result = await uploadInBatches('healthkit', dataPoints, now.toISOString(), onProgress);
   await setSyncTimestamp('healthkit', now.toISOString());
 
   // Build latestValues so metric rows populate in the UI
@@ -342,15 +378,21 @@ async function syncHealthConnect(onProgress: (msg: string) => void) {
   ]);
 
   const lastSync = await getSyncTimestamp('health_connect');
-  const since = lastSync ? new Date(lastSync) : subDays(new Date(), 7);
+  const isFirstSync = !lastSync;
   const now = new Date();
+
+  // First connect: pull up to 30 days (Health Connect retention limit for third-party apps)
+  // Subsequent syncs: pull only since last sync
+  const since = lastSync ? new Date(lastSync) : subDays(now, 30);
   const timeRangeFilter = {
     operator: 'between' as const,
     startTime: since.toISOString(),
     endTime: now.toISOString(),
   };
 
-  onProgress('Reading health data…');
+  onProgress(isFirstSync
+    ? 'First sync — loading up to 30 days of history…'
+    : 'Reading health data…');
 
   const dataPoints: Array<{ metric_type: string; date: string; value_json: object }> = [];
 
@@ -457,16 +499,16 @@ async function syncHealthConnect(onProgress: (msg: string) => void) {
     return { accepted: 0, skipped: 0, message: 'No new data since last sync.' };
   }
 
-  onProgress(`Uploading ${dataPoints.length} data points…`);
-
-  const { data: result } = await api.post('/api/v1/health-data/ingest', {
-    source: 'health_connect',
-    data_points: dataPoints,
-    sync_timestamp: now.toISOString(),
-  });
-
+  const result = await uploadInBatches('health_connect', dataPoints, now.toISOString(), onProgress);
   await setSyncTimestamp('health_connect', now.toISOString());
-  return result;
+
+  // Build latestValues so metric rows populate in the UI
+  const latestValues: Record<string, number> = {};
+  for (const dp of dataPoints) {
+    const val = Object.values(dp.value_json as Record<string, number>)[0];
+    if (val != null) latestValues[dp.metric_type] = val;
+  }
+  return { ...result, latestValues };
 }
 
 // ─── Metric Row ───────────────────────────────────────────────────────────────
