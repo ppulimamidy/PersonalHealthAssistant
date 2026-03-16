@@ -13,7 +13,7 @@ import {
 } from 'recharts';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import { ouraService } from '@/services/oura';
+import { api } from '@/services/api';
 import { useSubscriptionStore } from '@/stores/subscriptionStore';
 import { TrendingUp, Lock } from 'lucide-react';
 import Link from 'next/link';
@@ -199,9 +199,12 @@ export function TrendCharts() {
 
   useEffect(() => {
     setLoading(true);
-    ouraService
-      .getTimeline(range)
-      .then((entries) => setData(transformData(entries)))
+    api
+      .get(`/api/v1/health/timeline?days=${range}&source_priority=auto`)
+      .then(({ data: resp }) => {
+        const entries = Array.isArray(resp) ? resp : (resp?.entries ?? []);
+        setData(transformData(entries));
+      })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [range]);
