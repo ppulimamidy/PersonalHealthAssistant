@@ -161,6 +161,8 @@ async function syncHealthKit(onProgress: (msg: string) => void) {
     ? new Date(lastSync)
     : new Date(now.getFullYear() - 3, now.getMonth(), now.getDate());
 
+  console.log('[HK] lastSync:', lastSync, 'isFirstSync:', isFirstSync, 'since:', since.toISOString());
+
   onProgress(isFirstSync
     ? 'First sync — loading historical data (this may take a moment)…'
     : 'Reading data…');
@@ -195,7 +197,7 @@ async function syncHealthKit(onProgress: (msg: string) => void) {
   onProgress('Querying steps…');
   try {
     const stats = await dailyStats('HKQuantityTypeIdentifierStepCount', 'cumulativeSum', 'count');
-    console.log('[HK] steps days:', stats.length);
+    console.log('[HK] steps days:', stats.length, 'first:', stats[stats.length - 1]?.startDate, 'last:', stats[0]?.startDate);
     for (const s of stats) {
       if (s.sumQuantity && s.startDate) {
         const date = format(s.startDate, 'yyyy-MM-dd');
