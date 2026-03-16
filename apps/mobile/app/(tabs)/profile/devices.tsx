@@ -18,8 +18,11 @@ import * as Device from 'expo-device';
 import { api } from '@/services/api';
 import { getSyncTimestamp, setSyncTimestamp } from '@/utils/syncTimestamp';
 
-// @kingstinct/react-native-healthkit is dynamically imported inside syncHealthKit
-// to prevent Android from trying to resolve the iOS-only native module.
+// NitroModules-based library — safe to import statically on all platforms.
+// isHealthDataAvailable() returns false on Android so iOS-only code is never reached.
+// v13: HKQuantityTypeIdentifier / HKCategoryTypeIdentifier are TypeScript types only,
+// not runtime objects. Pass the raw string literals directly to the API.
+import HealthKit from '@kingstinct/react-native-healthkit';
 
 // ─── Simulator mock data ───────────────────────────────────────────────────────
 
@@ -95,11 +98,6 @@ async function syncHealthKit(onProgress: (msg: string) => void) {
     return { ...result, latestValues: latest };
   }
 
-  // Dynamic import keeps Android bundler from resolving this iOS-only module
-  const HealthKit = (await import('@kingstinct/react-native-healthkit')).default;
-  const { HKQuantityTypeIdentifier, HKCategoryTypeIdentifier } =
-    await import('@kingstinct/react-native-healthkit');
-
   const available = await HealthKit.isHealthDataAvailable();
   if (!available) {
     throw new Error('Apple Health is not available on this device. Make sure you have a supported iPhone with iOS 13+.');
@@ -110,16 +108,16 @@ async function syncHealthKit(onProgress: (msg: string) => void) {
   await HealthKit.requestAuthorization(
     [],
     [
-      HKQuantityTypeIdentifier.stepCount,
-      HKQuantityTypeIdentifier.heartRate,
-      HKQuantityTypeIdentifier.heartRateVariabilitySDNN,
-      HKQuantityTypeIdentifier.oxygenSaturation,
-      HKQuantityTypeIdentifier.respiratoryRate,
-      HKQuantityTypeIdentifier.activeEnergyBurned,
-      HKQuantityTypeIdentifier.vo2Max,
-      HKCategoryTypeIdentifier.sleepAnalysis,
-      'HKWorkoutTypeIdentifier' as any,
-    ]
+      'HKQuantityTypeIdentifierStepCount',
+      'HKQuantityTypeIdentifierHeartRate',
+      'HKQuantityTypeIdentifierHeartRateVariabilitySDNN',
+      'HKQuantityTypeIdentifierOxygenSaturation',
+      'HKQuantityTypeIdentifierRespiratoryRate',
+      'HKQuantityTypeIdentifierActiveEnergyBurned',
+      'HKQuantityTypeIdentifierVO2Max',
+      'HKCategoryTypeIdentifierSleepAnalysis',
+      'HKWorkoutTypeIdentifier',
+    ] as any[]
   );
 
   onProgress('Permissions granted, reading data…');
@@ -132,7 +130,7 @@ async function syncHealthKit(onProgress: (msg: string) => void) {
   onProgress('Querying steps…');
   try {
     const samples = await HealthKit.queryQuantitySamples(
-      HKQuantityTypeIdentifier.stepCount,
+      'HKQuantityTypeIdentifierStepCount',
       { from: since, to: now }
     );
     for (const s of samples) {
@@ -144,7 +142,7 @@ async function syncHealthKit(onProgress: (msg: string) => void) {
   onProgress('Querying heart rate…');
   try {
     const samples = await HealthKit.queryQuantitySamples(
-      HKQuantityTypeIdentifier.heartRate,
+      'HKQuantityTypeIdentifierHeartRate',
       { from: since, to: now }
     );
     const byDay: Record<string, number[]> = {};
@@ -161,7 +159,7 @@ async function syncHealthKit(onProgress: (msg: string) => void) {
   onProgress('Querying HRV…');
   try {
     const samples = await HealthKit.queryQuantitySamples(
-      HKQuantityTypeIdentifier.heartRateVariabilitySDNN,
+      'HKQuantityTypeIdentifierHeartRateVariabilitySDNN',
       { from: since, to: now }
     );
     const byDay: Record<string, number[]> = {};
@@ -178,7 +176,7 @@ async function syncHealthKit(onProgress: (msg: string) => void) {
   onProgress('Querying SpO₂…');
   try {
     const samples = await HealthKit.queryQuantitySamples(
-      HKQuantityTypeIdentifier.oxygenSaturation,
+      'HKQuantityTypeIdentifierOxygenSaturation',
       { from: since, to: now }
     );
     const byDay: Record<string, number[]> = {};
@@ -195,7 +193,7 @@ async function syncHealthKit(onProgress: (msg: string) => void) {
   onProgress('Querying sleep…');
   try {
     const samples = await HealthKit.queryCategorySamples(
-      HKCategoryTypeIdentifier.sleepAnalysis,
+      'HKCategoryTypeIdentifierSleepAnalysis',
       { from: since, to: now }
     );
     const byDay: Record<string, number> = {};
@@ -213,7 +211,7 @@ async function syncHealthKit(onProgress: (msg: string) => void) {
   onProgress('Querying respiratory rate…');
   try {
     const samples = await HealthKit.queryQuantitySamples(
-      HKQuantityTypeIdentifier.respiratoryRate,
+      'HKQuantityTypeIdentifierRespiratoryRate',
       { from: since, to: now }
     );
     const byDay: Record<string, number[]> = {};
@@ -230,7 +228,7 @@ async function syncHealthKit(onProgress: (msg: string) => void) {
   onProgress('Querying active calories…');
   try {
     const samples = await HealthKit.queryQuantitySamples(
-      HKQuantityTypeIdentifier.activeEnergyBurned,
+      'HKQuantityTypeIdentifierActiveEnergyBurned',
       { from: since, to: now }
     );
     const byDay: Record<string, number> = {};
@@ -246,7 +244,7 @@ async function syncHealthKit(onProgress: (msg: string) => void) {
   onProgress('Querying VO₂ max…');
   try {
     const samples = await HealthKit.queryQuantitySamples(
-      HKQuantityTypeIdentifier.vo2Max,
+      'HKQuantityTypeIdentifierVO2Max',
       { from: since, to: now }
     );
     for (const s of samples) {
