@@ -109,8 +109,6 @@ async function syncHealthKit(onProgress: (msg: string) => void) {
     return { ...result, latestValues: latest };
   }
 
-  const P = AppleHealthKit.Constants.Permissions;
-
   onProgress('Requesting permissions…');
 
   await new Promise<void>((resolve, reject) => {
@@ -118,17 +116,17 @@ async function syncHealthKit(onProgress: (msg: string) => void) {
       {
         permissions: {
           read: [
-            P.Steps,
-            P.HeartRate,
-            P.HeartRateVariability,
-            P.OxygenSaturation,
-            P.SleepAnalysis,
-            P.RespiratoryRate,
-            P.ActiveEnergyBurned,
-            P.Vo2Max,
-            P.Workout,
-          ],
-          write: [P.Workout],
+            'Steps',
+            'HeartRate',
+            'HeartRateVariability',
+            'OxygenSaturation',
+            'SleepAnalysis',
+            'RespiratoryRate',
+            'ActiveEnergyBurned',
+            'Vo2Max',
+            'Workout',
+          ] as any[],
+          write: ['Workout'] as any[],
         },
       },
       (err: string) => {
@@ -569,6 +567,7 @@ export default function DevicesScreen() {
   const [isDisconnecting, setIsDisconnecting] = useState(false);
   const [progress, setProgress] = useState('');
   const [lastResult, setLastResult] = useState<{ accepted: number; skipped: number; message?: string } | null>(null);
+  const [ouraResult, setOuraResult] = useState<{ accepted: number } | null>(null);
   const [latestValues, setLatestValues] = useState<Record<string, number>>({});
 
   const syncKey = Platform.OS === 'ios' ? 'healthkit' : 'health_connect';
@@ -669,7 +668,7 @@ export default function DevicesScreen() {
     setOuraSyncing(true);
     try {
       const { data } = await api.post('/api/v1/oura/sync');
-      setLastResult({ accepted: data?.synced_records ?? 0, skipped: 0 });
+      setOuraResult({ accepted: data?.synced_records ?? 0 });
       queryClient.invalidateQueries({ queryKey: ['batch'] });
     } catch {
       Alert.alert('Sync failed', 'Could not sync Oura data');
@@ -873,6 +872,14 @@ export default function DevicesScreen() {
               </Text>
             </View>
           </View>
+
+          {ouraResult && (
+            <View className="bg-primary-500/10 border border-primary-500/30 rounded-xl px-3 py-2.5 mb-3">
+              <Text className="text-primary-500 text-sm font-sansMedium">
+                {`Synced ${ouraResult.accepted} data points`}
+              </Text>
+            </View>
+          )}
 
           {ouraConnected ? (
             <View className="flex-row gap-2">
