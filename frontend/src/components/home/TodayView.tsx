@@ -28,6 +28,7 @@ import { nutritionService } from '@/services/nutrition';
 import { medicationsService } from '@/services/medications';
 import { healthConditionsService } from '@/services/healthConditions';
 import { HealthScoreRing } from '@/components/ui/HealthScoreRing';
+import { HealthRings, type RingData } from '@/components/ui/HealthRings';
 import { ProgressSummaryCard } from './ProgressSummaryCard';
 import { GoalsPanel } from './GoalsPanel';
 import { CarePlanPanel } from './CarePlanPanel';
@@ -350,6 +351,19 @@ export function TodayView() {
     enabled: ouraActive,
   });
 
+  const { data: summariesData } = useQuery({
+    queryKey: ['health-summaries'],
+    queryFn: async () => {
+      try {
+        const { data: resp } = await api.get('/api/v1/health-data/summaries');
+        return resp as Record<string, { latest_value: number | null; avg_30d: number | null }>;
+      } catch {
+        return null;
+      }
+    },
+    staleTime: 5 * 60_000,
+  });
+
   const { data: timeline, isLoading: timelineLoading } = useQuery({
     queryKey: ['timeline', 1],
     queryFn: () => ouraService.getTimeline(14),
@@ -524,8 +538,8 @@ export function TodayView() {
         onDismiss={() => {/* state managed internally by MonthlyProgressCard */}}
       />
 
-      {/* Health snapshot (Oura-connected) */}
-      {ouraActive ? (
+      {/* Health snapshot — rings when summaries available, score rings otherwise */}
+      {(ouraActive || (summariesData && Object.keys(summariesData).length > 0)) ? (
         <Panel>
           <h2 className="text-sm font-semibold text-[#8B97A8] mb-4">Today&apos;s Health Snapshot</h2>
           {scoreLoading || timelineLoading ? (
@@ -537,6 +551,17 @@ export function TodayView() {
                 </div>
               ))}
             </div>
+          ) : summariesData && Object.keys(summariesData).length > 0 ? (
+            <HealthRings
+              data={{
+                sleep: { value: summariesData.sleep?.latest_value ?? 0, goal: 8 },
+                heart: { value: summariesData.hrv_sdnn?.latest_value ?? 0, goal: Math.max((summariesData.hrv_sdnn?.avg_30d ?? 50) * 1.1, 50) },
+                activity: { value: summariesData.steps?.latest_value ?? 0, goal: 8000 },
+                recovery: { value: healthScore?.score ?? (readinessScore ?? 0), goal: 100 },
+                overallScore: healthScore?.score ?? null,
+              }}
+              size={200}
+            />
           ) : (
             <div className="flex gap-6 flex-wrap justify-center">
               {healthScore?.score != null && (

@@ -29,6 +29,12 @@ interface ChartDataPoint {
   hrv?: number;
   steps?: number;
   sleepHours?: number;
+  spo2?: number;
+  respiratoryRate?: number;
+  activeCals?: number;
+  workoutMin?: number;
+  vo2Max?: number;
+  sources?: string[];
 }
 
 function formatDate(dateStr: string): string {
@@ -39,19 +45,28 @@ function formatDate(dateStr: string): string {
 function transformData(entries: TimelineEntry[]): ChartDataPoint[] {
   return [...entries]
     .sort((a, b) => a.date.localeCompare(b.date))
-    .map((entry) => ({
-      date: entry.date,
-      label: formatDate(entry.date),
-      sleep: entry.sleep?.sleep_score,
-      readiness: entry.readiness?.readiness_score,
-      activity: entry.activity?.activity_score,
-      rhr: entry.readiness?.resting_heart_rate,
-      hrv: entry.readiness?.hrv_balance,
-      steps: entry.activity?.steps,
-      sleepHours: entry.sleep
-        ? Math.round((entry.sleep.total_sleep_duration / 3600) * 10) / 10
-        : undefined,
-    }));
+    .map((entry) => {
+      const native = (entry as Record<string, unknown>).native as Record<string, number> | undefined;
+      return {
+        date: entry.date,
+        label: formatDate(entry.date),
+        sleep: entry.sleep?.sleep_score,
+        readiness: entry.readiness?.readiness_score,
+        activity: entry.activity?.activity_score,
+        rhr: entry.readiness?.resting_heart_rate,
+        hrv: entry.readiness?.hrv_balance,
+        steps: entry.activity?.steps,
+        sleepHours: entry.sleep
+          ? Math.round((entry.sleep.total_sleep_duration / 3600) * 10) / 10
+          : undefined,
+        spo2: native?.spo2,
+        respiratoryRate: native?.respiratory_rate,
+        activeCals: native?.active_calories ?? entry.activity?.active_calories,
+        workoutMin: native?.workout_minutes,
+        vo2Max: native?.vo2_max,
+        sources: (entry as Record<string, unknown>).sources as string[] | undefined,
+      };
+    });
 }
 
 function ScoreChart({ data, title }: { data: ChartDataPoint[]; title: string }) {
@@ -177,7 +192,7 @@ function MetricChart({
 export function TrendCharts() {
   const [data, setData] = useState<ChartDataPoint[]>([]);
   const [loading, setLoading] = useState(true);
-  const [range, setRange] = useState<14 | 30>(30);
+  const [range, setRange] = useState<14 | 30 | 60 | 90>(30);
   const tier = useSubscriptionStore((s) => s.getTier());
   const isPro = tier === 'pro' || tier === 'pro_plus';
 
@@ -233,54 +248,57 @@ export function TrendCharts() {
     <div className="space-y-6">
       {/* Range selector */}
       <div className="flex items-center gap-2">
-        <Button
-          variant={range === 14 ? 'primary' : 'outline'}
-          size="sm"
-          onClick={() => setRange(14)}
-        >
-          14 days
-        </Button>
-        <Button
-          variant={range === 30 ? 'primary' : 'outline'}
-          size="sm"
-          onClick={() => setRange(30)}
-        >
-          30 days
-        </Button>
+        {([14, 30, 60, 90] as const).map((d) => (
+          <Button
+            key={d}
+            variant={range === d ? 'primary' : 'outline'}
+            size="sm"
+            onClick={() => setRange(d)}
+          >
+            {d}d
+          </Button>
+        ))}
       </div>
+
+      {/* Source badges */}
+      {data.length > 0 && (() => {
+        const allSources = new Set(data.flatMap((d) => d.sources ?? []));
+        if (allSources.size === 0) return null;
+        const BADGES: Record<string, { label: string; color: string }> = {
+          oura: { label: '⊙ Oura', color: '#818CF8' },
+          healthkit: { label: '🍎 Apple Health', color: '#F87171' },
+          health_connect: { label: '💚 Health Connect', color: '#34D399' },
+        };
+        return (
+          <div className="flex items-center gap-3 text-xs">
+            <span className="text-[#526380]">Sources:</span>
+            {Array.from(allSources).map((s) => {
+              const b = BADGES[s];
+              return b ? <span key={s} style={{ color: b.color }}>{b.label}</span> : null;
+            })}
+          </div>
+        );
+      })()}
 
       {/* Main scores chart */}
       <ScoreChart data={data} title="Health Scores Overview" />
 
-      {/* Detail charts */}
+      {/* Core metrics */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <MetricChart
-          data={data}
-          title="Sleep Duration"
-          dataKey="sleepHours"
-          color="#6366f1"
-          unit="hrs"
-        />
-        <MetricChart
-          data={data}
-          title="Daily Steps"
-          dataKey="steps"
-          color="#f59e0b"
-          unit="steps"
-        />
-        <MetricChart
-          data={data}
-          title="Resting Heart Rate"
-          dataKey="rhr"
-          color="#ef4444"
-          unit="bpm"
-        />
-        <MetricChart
-          data={data}
-          title="HRV Balance"
-          dataKey="hrv"
-          color="#22c55e"
-        />
+        <MetricChart data={data} title="Sleep Duration" dataKey="sleepHours" color="#6366f1" unit="hrs" />
+        <MetricChart data={data} title="Daily Steps" dataKey="steps" color="#f59e0b" unit="steps" />
+        <MetricChart data={data} title="Resting Heart Rate" dataKey="rhr" color="#ef4444" unit="bpm" />
+        <MetricChart data={data} title="HRV Balance" dataKey="hrv" color="#22c55e" />
+      </div>
+
+      {/* Extended vitals & activity */}
+      <h3 className="text-sm font-semibold text-[#526380] uppercase tracking-wider mt-2">Vitals & Activity</h3>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <MetricChart data={data} title="SpO₂" dataKey="spo2" color="#60A5FA" unit="%" />
+        <MetricChart data={data} title="Respiratory Rate" dataKey="respiratoryRate" color="#A78BFA" unit="/min" />
+        <MetricChart data={data} title="Active Calories" dataKey="activeCals" color="#FB923C" unit="kcal" />
+        <MetricChart data={data} title="Workouts" dataKey="workoutMin" color="#F59E0B" unit="min" />
+        <MetricChart data={data} title="VO₂ Max" dataKey="vo2Max" color="#2DD4BF" unit="mL/kg/min" />
       </div>
     </div>
   );

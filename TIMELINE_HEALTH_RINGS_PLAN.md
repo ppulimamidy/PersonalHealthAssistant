@@ -8,22 +8,21 @@ Transform the timeline/trends page from an Oura-centric 3-metric view into a uni
 ## Phase 1: Timeline + Multi-Source Data
 
 ### 1.1 Timeline API — Merge All Sources
-- [ ] Update `/api/v1/timeline` to query `native_health_data` alongside Oura data
-- [ ] Add source attribution to each data point (`source: "healthkit" | "oura" | ...`)
-- [ ] Apply source priority: Tier 3 (medical) > Tier 2 (wearable) > Tier 1 (phone)
-- [ ] When overlapping data exists for same metric+date, pick highest-priority source
-- [ ] Add `days=60` and `days=90` support to timeline endpoint
+- [x] Update `/api/v1/timeline` to query `native_health_data` alongside Oura data *(already implemented)*
+- [x] Add source attribution to each data point *(already implemented — `sources` field)*
+- [x] Apply source priority with 3 modes: oura, healthkit, auto *(already implemented)*
+- [x] When overlapping data exists, pick by priority + store alt in `alt_metrics` *(already implemented)*
+- [x] API already supports `days=1-90` *(no change needed)*
 
 ### 1.2 Expanded Metrics in Timeline
-- [ ] Add to timeline response: steps, resting_heart_rate, hrv_sdnn, spo2, respiratory_rate, active_calories, vo2_max
-- [ ] Keep existing Oura metrics: sleep_score, readiness_score, activity_score
-- [ ] Normalize metric names across sources (e.g., Oura "sleep_score" vs HealthKit "sleep" hours)
+- [x] Timeline API already returns: steps, resting_heart_rate, hrv, spo2, respiratory_rate, active_calories, vo2_max via `native` field
+- [x] Oura metrics preserved: sleep_score, readiness_score, activity_score
 
 ### 1.3 Mobile Timeline Screen
-- [ ] Add 60d and 90d period tabs (currently: 7d, 14d, 30d)
-- [ ] Display expanded metrics with source badge per metric
-- [ ] Show source indicator icon: 🍎 Apple Health, ⊙ Oura, ❤ Health Connect
-- [ ] Sparkline charts for each metric over selected period
+- [x] Add 60d and 90d period tabs → `DAY_OPTIONS = [7, 14, 30, 60, 90]`
+- [x] Add 5 new metric cards: SpO₂, Respiratory Rate, Active Calories, Workouts, VO₂ Max
+- [x] Source badges (🍎 ⊙ 💚) shown on each metric card
+- [x] Sparkline charts for each metric (existing MiniLineChart)
 
 ### 1.4 Web Timeline/Trends
 - [ ] Add 60d and 90d period options
@@ -35,24 +34,25 @@ Transform the timeline/trends page from an Oura-centric 3-metric view into a uni
 ## Phase 2: Health Rings Visualization
 
 ### 2.1 Ring Component (shared design)
-- [ ] Build reusable SVG ring component (mobile: react-native-svg, web: SVG)
-- [ ] 4 concentric rings:
-  - Outer: **Sleep** (hours vs goal, color: #818CF8 indigo)
-  - Mid-outer: **Heart** (HRV vs baseline, color: #F87171 red)
-  - Mid-inner: **Activity** (steps vs goal, color: #6EE7B7 green)
-  - Inner: **Recovery** (readiness score vs 100, color: #F59E0B amber)
-- [ ] Center text: overall health score (0-100)
-- [ ] Ring fill = current value / goal (capped at 100%)
+- [x] Build reusable SVG ring component (`apps/mobile/src/components/HealthRings.tsx`)
+- [x] 4 concentric rings:
+  - Outer: **Sleep** (hours vs 8h goal, color: #818CF8 indigo)
+  - Mid-outer: **Heart** (HRV vs baseline×1.1, color: #F87171 red)
+  - Mid-inner: **Activity** (steps vs 8000 goal, color: #6EE7B7 green)
+  - Inner: **Recovery** (readiness/health score vs 100, color: #F59E0B amber)
+- [x] Center text: overall health score (0-100)
+- [x] Ring fill = current value / goal (capped at 100%)
+- [x] Legend below with value, unit, and percentage
 
 ### 2.2 Data for Rings
-- [ ] Fetch today's values from `/health-data/summaries` (latest_value per metric)
-- [ ] Use goals: user-set from onboarding OR auto-baseline from summaries
-- [ ] Default goals if no data: sleep=8h, steps=8000, HRV=baseline, readiness=85
+- [x] Fetch from `/health-data/summaries` (latest_value per metric)
+- [x] Default goals: sleep=8h, steps=8000, HRV=baseline×1.1 or 50, readiness=100
+- [ ] Use user-set goals from onboarding (Phase 4)
 
 ### 2.3 Mobile — Rings on Timeline + Home
-- [ ] Add HealthRings component to timeline screen (top section, above metric cards)
-- [ ] Add HealthRings component to home screen (above insights)
-- [ ] Tap on ring → navigate to that metric's detail view
+- [x] HealthRings on trends screen (top section, above metric cards)
+- [x] HealthRings on home screen (replaces simple HealthScoreRing when summaries available)
+- [x] Tap on home rings → navigate to trends screen
 
 ### 2.4 Web — Rings on Dashboard + Timeline
 - [ ] Add HealthRings component to web dashboard
@@ -122,4 +122,4 @@ Transform the timeline/trends page from an Oura-centric 3-metric view into a uni
 ---
 
 *Created: 2026-03-16*
-*Status: Phase 1 + 2 in progress*
+*Status: Phase 1 + 2 mobile DONE (pending web). Phase 3-5 future.*
