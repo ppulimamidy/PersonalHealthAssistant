@@ -135,22 +135,30 @@ export function HealthRings({
           })}
         </Svg>
 
-        {/* Center score — tap for explanation */}
-        <TouchableOpacity
+        {/* Center score — long-press for explanation, normal tap passes through to parent */}
+        <View
           className="absolute items-center justify-center"
           style={{ top: 0, left: 0, width: size, height: size }}
-          activeOpacity={0.7}
-          onPress={() => setHelpTip({
-            label: 'Health Score',
-            text: 'Your daily score (0–100) is a weighted average of four pillars:\n\n• Sleep (35%) — hours slept vs 8-hour goal\n• Heart (30%) — HRV vs your 30-day baseline\n• Activity (25%) — steps vs 8,000 target\n• Recovery (10%) — readiness from your wearable or estimated\n\nHigher is better. Updates each time you sync.',
-            color: '#00D4AA',
-          })}
+          pointerEvents="box-none"
         >
-          <Text className="text-3xl font-display text-[#E8EDF5]">
-            {data.overallScore != null ? Math.round(data.overallScore) : '—'}
-          </Text>
-          <Text className="text-[10px] text-[#526380] -mt-1">Health Score</Text>
-        </TouchableOpacity>
+          <TouchableOpacity
+            activeOpacity={0.7}
+            onLongPress={() => setHelpTip({
+              label: 'Health Score',
+              text: 'Your daily score (0–100) is a weighted average of four pillars:\n\n• Sleep (35%) — hours slept vs 8-hour goal\n• Heart (30%) — HRV vs your 30-day baseline\n• Activity (25%) — steps vs 8,000 target\n• Recovery (10%) — readiness from your wearable or estimated\n\nHigher is better. Updates each time you sync.',
+              color: '#00D4AA',
+            })}
+            delayLongPress={400}
+          >
+            <View className="items-center">
+              <Text className="text-3xl font-display text-[#E8EDF5]">
+                {data.overallScore != null ? Math.round(data.overallScore) : '—'}
+              </Text>
+              <Text className="text-[10px] text-[#526380] -mt-1">Health Score</Text>
+              <Text className="text-[8px] text-[#3A4A5C] mt-0.5">Hold for info</Text>
+            </View>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Legend — tap for help */}
