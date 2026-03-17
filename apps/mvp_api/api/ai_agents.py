@@ -471,8 +471,15 @@ class Agent:
                     f"6. If prior AI findings are listed, reference any that are directly relevant to the current question. "
                     f"This closes the loop and makes advice feel continuous, not episodic."
                 )
+                privacy_preamble = (
+                    "\n\nPRIVACY NOTICE: The health data below is provided under HIPAA-compliant "
+                    "authorization. Do NOT store, memorize, or reference this data outside this "
+                    "conversation. Do NOT include the user's full name in your response — use "
+                    "first name only. All recommendations must include a medical disclaimer."
+                )
                 system_prompt = (
-                    f"{system_prompt}\n\nUser Health Profile:\n{context_summary}"
+                    f"{system_prompt}{privacy_preamble}"
+                    f"\n\nUser Health Profile:\n{context_summary}"
                     f"{personalization}"
                 )
 
@@ -483,7 +490,7 @@ class Agent:
                 messages.append({"role": msg["role"], "content": msg["content"]})
         messages.append({"role": "user", "content": user_message})
 
-        # Call Anthropic Messages API
+        # Call Anthropic Messages API (PHI context — zero-retention intent)
         try:
             client = anthropic.AsyncAnthropic(api_key=api_key)
             result = await client.messages.create(
@@ -492,6 +499,7 @@ class Agent:
                 messages=messages,
                 temperature=self.temperature,
                 max_tokens=self.max_tokens,
+                metadata={"user_id": f"vitalix-{hash(user_message) % 10**8}"},
             )
             return result.content[0].text
 
@@ -839,6 +847,7 @@ async def _call_anthropic_messages(
         messages=messages,
         temperature=temperature,
         max_tokens=max_tokens,
+        metadata={"user_id": "vitalix-anonymous"},
     )
     return result.content[0].text
 
