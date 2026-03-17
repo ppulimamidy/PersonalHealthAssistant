@@ -126,14 +126,27 @@ export function HealthRings({
           })}
         </svg>
 
-        {/* Center score */}
+        {/* Center score with tooltip */}
         <div
-          className="absolute inset-0 flex flex-col items-center justify-center"
+          className="absolute inset-0 flex flex-col items-center justify-center group/score cursor-help"
         >
           <span className="text-3xl font-bold text-[#E8EDF5]">
             {data.overallScore != null ? Math.round(data.overallScore) : '—'}
           </span>
           <span className="text-[10px] text-[#526380] -mt-0.5">Health Score</span>
+          {/* Score tooltip */}
+          <div className="absolute top-full mt-2 w-64 px-3 py-2.5 rounded-lg bg-[#0F1720] border border-[#1E2A3B] text-xs text-[#8B97A8] leading-relaxed opacity-0 invisible group-hover/score:opacity-100 group-hover/score:visible transition-all duration-200 pointer-events-none z-50 shadow-lg">
+            <p className="text-[#E8EDF5] font-medium mb-1">How your Health Score is calculated</p>
+            <p>Your daily score (0–100) is a weighted average of four key health pillars:</p>
+            <ul className="mt-1.5 space-y-0.5 list-none">
+              <li><span style={{color: '#818CF8'}}>Sleep (35%)</span> — hours slept vs your 8-hour goal</li>
+              <li><span style={{color: '#F87171'}}>Heart (30%)</span> — HRV vs your 30-day personal baseline</li>
+              <li><span style={{color: '#6EE7B7'}}>Activity (25%)</span> — daily steps vs 8,000 target</li>
+              <li><span style={{color: '#F59E0B'}}>Recovery (10%)</span> — readiness score from your wearable or estimated from other metrics</li>
+            </ul>
+            <p className="mt-1.5 text-[10px] text-[#3A4A5C]">Higher is better. Score updates each time you sync your devices.</p>
+            <div className="absolute bottom-full left-1/2 -translate-x-1/2 w-2 h-2 bg-[#0F1720] border-l border-t border-[#1E2A3B] rotate-45 mb-[-5px]" />
+          </div>
         </div>
       </div>
 
