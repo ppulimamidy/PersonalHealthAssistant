@@ -959,6 +959,54 @@ export default function SettingsPage() {
           </CardContent>
         </Card>
 
+        {/* Two-Factor Authentication */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Shield className="w-5 h-5" />
+              Two-Factor Authentication
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="font-medium text-slate-900 dark:text-slate-100">Authenticator App (TOTP)</p>
+                <p className="text-sm text-slate-500 dark:text-slate-400">
+                  Add an extra layer of security with Google Authenticator or similar
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={async () => {
+                  try {
+                    const { data, error } = await supabase.auth.mfa.enroll({ factorType: 'totp', friendlyName: 'Vitalix Auth' });
+                    if (error) { toast.error(error.message); return; }
+                    if (data?.totp?.qr_code) {
+                      // Show QR code in a new window for scanning
+                      const win = window.open('', '_blank', 'width=400,height=500');
+                      if (win) {
+                        win.document.write(`
+                          <html><head><title>Set up 2FA</title><style>body{font-family:system-ui;text-align:center;padding:40px;background:#0F1720;color:#E8EDF5}img{margin:20px auto;border-radius:12px}code{background:#1E2A3B;padding:4px 8px;border-radius:4px;font-size:13px}</style></head>
+                          <body>
+                            <h2>Scan with Authenticator App</h2>
+                            <img src="${data.totp.qr_code}" width="200" height="200" />
+                            <p>Or enter manually:<br/><code>${data.totp.secret}</code></p>
+                            <p style="color:#526380;font-size:12px;margin-top:20px">After scanning, enter the 6-digit code in the app to verify.</p>
+                          </body></html>
+                        `);
+                      }
+                      toast.success('Scan the QR code with your authenticator app');
+                    }
+                  } catch { toast.error('Failed to set up 2FA'); }
+                }}
+              >
+                Set Up 2FA
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
         {/* Data & Export */}
         <Card>
           <CardHeader>
@@ -968,21 +1016,75 @@ export default function SettingsPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="font-medium text-slate-900 dark:text-slate-100">Export Health Data</p>
+                  <p className="text-sm text-slate-500 dark:text-slate-400">
+                    Download your full health history as a PDF
+                  </p>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleExportPdf}
+                  isLoading={exportingPdf}
+                >
+                  <Download className="w-4 h-4 mr-1.5" />
+                  Download PDF
+                </Button>
+              </div>
+              <div className="pt-3 border-t border-slate-200 dark:border-slate-700">
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  <strong>Data Retention Policy:</strong> Your health data is retained as long as your account is active.
+                  Inactive accounts (no login for 24 months) will receive email warnings before data is archived.
+                  You can export or delete your data at any time.
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Danger Zone — Delete Account */}
+        <Card className="border-red-500/30">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-red-400">
+              <Trash2 className="w-5 h-5" />
+              Danger Zone
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
             <div className="flex items-center justify-between">
               <div>
-                <p className="font-medium text-slate-900 dark:text-slate-100">Export Health Data</p>
+                <p className="font-medium text-red-400">Delete Account</p>
                 <p className="text-sm text-slate-500 dark:text-slate-400">
-                  Download your full health history as a PDF
+                  Permanently delete your account and all health data. This cannot be undone.
                 </p>
               </div>
               <Button
                 variant="outline"
                 size="sm"
-                onClick={handleExportPdf}
-                isLoading={exportingPdf}
+                className="border-red-500/50 text-red-400 hover:bg-red-500/10"
+                onClick={() => {
+                  if (window.confirm('Are you sure you want to permanently delete your account and ALL health data? This action cannot be undone.')) {
+                    if (window.confirm('This is your final confirmation. Type DELETE in the next prompt to proceed.')) {
+                      const input = window.prompt('Type DELETE to confirm account deletion:');
+                      if (input === 'DELETE') {
+                        api.delete('/api/v1/profile/account')
+                          .then(() => {
+                            toast.success('Account deleted. Redirecting...');
+                            setTimeout(() => { window.location.href = '/'; }, 2000);
+                          })
+                          .catch(() => toast.error('Failed to delete account. Please contact support.'));
+                      } else {
+                        toast('Account deletion cancelled');
+                      }
+                    }
+                  }
+                }}
               >
-                <Download className="w-4 h-4 mr-1.5" />
-                Download PDF
+                <Trash2 className="w-4 h-4 mr-1.5" />
+                Delete Account
               </Button>
             </div>
           </CardContent>

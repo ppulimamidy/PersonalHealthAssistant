@@ -286,6 +286,20 @@ export default function SettingsScreen() {
           />
         </View>
 
+        {/* ── Security ── */}
+        <SectionLabel>Security</SectionLabel>
+        <View className="bg-surface-raised border border-surface-border rounded-2xl overflow-hidden">
+          <SettingsRow
+            icon="key-outline"
+            label="Two-Factor Authentication"
+            value="Set Up"
+            onPress={() => Alert.alert(
+              'Two-Factor Authentication',
+              'To set up 2FA with an authenticator app, visit the web dashboard at app.vitalix.health → Settings → Two-Factor Authentication.\n\nThis adds an extra layer of security to protect your health data.',
+            )}
+          />
+        </View>
+
         {/* ── About ── */}
         <SectionLabel>About</SectionLabel>
         <View className="bg-surface-raised border border-surface-border rounded-2xl overflow-hidden">
@@ -302,6 +316,55 @@ export default function SettingsScreen() {
             onPress={() => Alert.alert('Privacy Policy', 'Visit vitalix.app/privacy')}
           />
         </View>
+
+        {/* ── Danger Zone ── */}
+        <SectionLabel>Danger Zone</SectionLabel>
+        <View className="bg-surface-raised border border-red-500/30 rounded-2xl overflow-hidden">
+          <SettingsRow
+            icon="trash-outline"
+            label="Delete Account"
+            onPress={() => {
+              Alert.alert(
+                'Delete Account',
+                'This will permanently delete your account and ALL health data (medications, labs, symptoms, meals, devices, insights). This cannot be undone.',
+                [
+                  { text: 'Cancel', style: 'cancel' },
+                  {
+                    text: 'Delete Everything',
+                    style: 'destructive',
+                    onPress: () => {
+                      Alert.alert(
+                        'Final Confirmation',
+                        'Are you absolutely sure? All your data will be permanently erased.',
+                        [
+                          { text: 'Cancel', style: 'cancel' },
+                          {
+                            text: 'Yes, Delete My Account',
+                            style: 'destructive',
+                            onPress: async () => {
+                              try {
+                                await api.delete('/api/v1/profile/account');
+                                Alert.alert('Account Deleted', 'Your account and all data have been permanently deleted.');
+                                const { signOut } = useAuthStore.getState();
+                                signOut();
+                              } catch {
+                                Alert.alert('Error', 'Failed to delete account. Please try again or contact support.');
+                              }
+                            },
+                          },
+                        ]
+                      );
+                    },
+                  },
+                ]
+              );
+            }}
+          />
+        </View>
+
+        <Text className="text-[#3A4A5C] text-[10px] text-center mt-4 mb-2 px-4">
+          Data Retention: Your data is kept while your account is active. Inactive accounts (no login for 24 months) receive warnings before archival. Export or delete anytime.
+        </Text>
 
       </ScrollView>
     </View>
