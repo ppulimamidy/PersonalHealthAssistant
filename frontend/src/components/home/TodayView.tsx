@@ -551,20 +551,35 @@ export function TodayView() {
                 </div>
               ))}
             </div>
-          ) : summariesData && Object.keys(summariesData).length > 0 ? (
-            <Link href="/trends" className="block cursor-pointer hover:opacity-90 transition-opacity">
+          ) : summariesData && Object.keys(summariesData).length > 0 ? (() => {
+            const sleepVal = summariesData.sleep?.latest_value ?? 0;
+            const hrvVal = summariesData.hrv_sdnn?.latest_value ?? 0;
+            const stepsVal = summariesData.steps?.latest_value ?? 0;
+            const hrvGoal = Math.max((summariesData.hrv_sdnn?.avg_30d ?? 50) * 1.1, 50);
+            // Compute score from ring fill percentages when no Oura score
+            const sleepPct = Math.min(sleepVal / 8, 1);
+            const hrvPct = Math.min(hrvVal / hrvGoal, 1);
+            const stepsPct = Math.min(stepsVal / 8000, 1);
+            const computedScore = Math.round((sleepPct * 35 + hrvPct * 30 + stepsPct * 25 + (readinessScore ? readinessScore / 100 * 10 : stepsPct * 10)) );
+            const finalScore = healthScore?.score ?? (computedScore > 0 ? computedScore : null);
+            const recoveryVal = healthScore?.score ?? readinessScore ?? computedScore ?? 0;
+
+            return (
+            <Link href="/timeline" className="block cursor-pointer hover:opacity-90 transition-opacity">
               <HealthRings
                 data={{
-                  sleep: { value: summariesData.sleep?.latest_value ?? 0, goal: 8 },
-                  heart: { value: summariesData.hrv_sdnn?.latest_value ?? 0, goal: Math.max((summariesData.hrv_sdnn?.avg_30d ?? 50) * 1.1, 50) },
-                  activity: { value: summariesData.steps?.latest_value ?? 0, goal: 8000 },
-                  recovery: { value: healthScore?.score ?? (readinessScore ?? 0), goal: 100 },
-                  overallScore: healthScore?.score ?? null,
+                  sleep: { value: sleepVal, goal: 8 },
+                  heart: { value: hrvVal, goal: hrvGoal },
+                  activity: { value: stepsVal, goal: 8000 },
+                  recovery: { value: recoveryVal, goal: 100 },
+                  overallScore: finalScore,
                 }}
                 size={200}
               />
               <p className="text-center text-[10px] text-[#526380] mt-2">Click to see trends</p>
             </Link>
+            );
+          })()
           ) : (
             <div className="flex gap-6 flex-wrap justify-center">
               {healthScore?.score != null && (
