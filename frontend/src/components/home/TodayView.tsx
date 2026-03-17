@@ -490,6 +490,19 @@ export function TodayView() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const currentStreak: number = (adherenceStats as any)?.current_streak ?? (todayAdherence as any)?.current_streak ?? 0;
 
+  // ── Computed health ring data ────────────────────────────────────────────────
+  const hasSummaries = summariesData && Object.keys(summariesData).length > 0;
+  const ringSleepVal = summariesData?.sleep?.latest_value ?? 0;
+  const ringHrvVal = summariesData?.hrv_sdnn?.latest_value ?? 0;
+  const ringStepsVal = summariesData?.steps?.latest_value ?? 0;
+  const ringHrvGoal = Math.max((summariesData?.hrv_sdnn?.avg_30d ?? 50) * 1.1, 50);
+  const ringSleepPct = Math.min(ringSleepVal / 8, 1);
+  const ringHrvPct = Math.min(ringHrvVal / ringHrvGoal, 1);
+  const ringStepsPct = Math.min(ringStepsVal / 8000, 1);
+  const computedScore = Math.round(ringSleepPct * 35 + ringHrvPct * 30 + ringStepsPct * 25 + (readinessScore ? readinessScore / 100 * 10 : ringStepsPct * 10));
+  const finalScore = healthScore?.score ?? (computedScore > 0 ? computedScore : null);
+  const ringRecoveryVal = healthScore?.score ?? readinessScore ?? computedScore ?? 0;
+
   // ── Render ────────────────────────────────────────────────────────────────────
 
   return (
@@ -554,28 +567,15 @@ export function TodayView() {
                 </div>
               ))}
             </div>
-          ) : summariesData && Object.keys(summariesData).length > 0 ? (() => {
-            const sleepVal = summariesData.sleep?.latest_value ?? 0;
-            const hrvVal = summariesData.hrv_sdnn?.latest_value ?? 0;
-            const stepsVal = summariesData.steps?.latest_value ?? 0;
-            const hrvGoal = Math.max((summariesData.hrv_sdnn?.avg_30d ?? 50) * 1.1, 50);
-            // Compute score from ring fill percentages when no Oura score
-            const sleepPct = Math.min(sleepVal / 8, 1);
-            const hrvPct = Math.min(hrvVal / hrvGoal, 1);
-            const stepsPct = Math.min(stepsVal / 8000, 1);
-            const computedScore = Math.round((sleepPct * 35 + hrvPct * 30 + stepsPct * 25 + (readinessScore ? readinessScore / 100 * 10 : stepsPct * 10)) );
-            const finalScore = healthScore?.score ?? (computedScore > 0 ? computedScore : null);
-            const recoveryVal = healthScore?.score ?? readinessScore ?? computedScore ?? 0;
-
-            return (
+          ) : hasSummaries ? (
             <>
               <Link href="/timeline" className="block cursor-pointer hover:opacity-90 transition-opacity">
                 <HealthRings
                   data={{
-                    sleep: { value: sleepVal, goal: 8 },
-                    heart: { value: hrvVal, goal: hrvGoal },
-                    activity: { value: stepsVal, goal: 8000 },
-                    recovery: { value: recoveryVal, goal: 100 },
+                    sleep: { value: ringSleepVal, goal: 8 },
+                    heart: { value: ringHrvVal, goal: ringHrvGoal },
+                    activity: { value: ringStepsVal, goal: 8000 },
+                    recovery: { value: ringRecoveryVal, goal: 100 },
                     overallScore: finalScore,
                   }}
                   size={200}
@@ -591,8 +591,6 @@ export function TodayView() {
                 <span className="text-xs font-medium text-[#00D4AA]">Ask AI about my health</span>
               </Link>
             </>
-            );
-          })()
           ) : (
             <div className="flex gap-6 flex-wrap justify-center">
               {healthScore?.score != null && (
