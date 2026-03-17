@@ -18,6 +18,7 @@ import {
   Link2,
   Pill,
   FlaskConical,
+  Heart,
 } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
 import type { InsightFollowUp } from '@/types';
@@ -270,29 +271,39 @@ function CaregiverHomeCards() {
 // ── Quick log strip ───────────────────────────────────────────────────────────
 
 function QuickLogStrip() {
-  const actions = [
+  const linkActions = [
     { label: 'Scan Meal', href: '/nutrition', icon: Utensils, color: 'text-orange-400' },
     { label: 'Log Symptom', href: '/symptoms', icon: ClipboardList, color: 'text-purple-400' },
     { label: 'Log Meds', href: '/medications', icon: Pill, color: 'text-blue-400' },
     { label: 'Add Labs', href: '/lab-results', icon: FlaskConical, color: 'text-teal-400' },
   ];
 
+  const tileStyle = {
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    border: '1px solid rgba(255,255,255,0.06)',
+  };
+
   return (
-    <div className="grid grid-cols-4 gap-3">
-      {actions.map(({ label, href, icon: Icon, color }) => (
+    <div className="grid grid-cols-5 gap-3">
+      {linkActions.map(({ label, href, icon: Icon, color }) => (
         <Link
           key={label}
           href={href}
           className="flex flex-col items-center gap-2 p-4 rounded-xl transition-all duration-150 hover:scale-[1.02]"
-          style={{
-            backgroundColor: 'rgba(255,255,255,0.03)',
-            border: '1px solid rgba(255,255,255,0.06)',
-          }}
+          style={tileStyle}
         >
           <Icon className={`w-5 h-5 ${color}`} />
           <span className="text-xs font-medium text-[#8B97A8]">{label}</span>
         </Link>
       ))}
+      <button
+        onClick={() => window.dispatchEvent(new Event('open-weekly-checkin'))}
+        className="flex flex-col items-center gap-2 p-4 rounded-xl transition-all duration-150 hover:scale-[1.02]"
+        style={tileStyle}
+      >
+        <Heart className="w-5 h-5 text-pink-400" />
+        <span className="text-xs font-medium text-[#8B97A8]">Check-in</span>
+      </button>
     </div>
   );
 }

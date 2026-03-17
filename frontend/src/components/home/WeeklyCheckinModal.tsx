@@ -91,6 +91,13 @@ export function WeeklyCheckinModal() {
     }
   }, [status]);
 
+  // Allow opening from anywhere via custom event
+  useEffect(() => {
+    const handler = () => setOpen(true);
+    window.addEventListener('open-weekly-checkin', handler);
+    return () => window.removeEventListener('open-weekly-checkin', handler);
+  }, []);
+
   const submitMutation = useMutation({
     mutationFn: () => checkinsService.createCheckin({ energy, mood, pain, notes: notes.trim() || undefined }),
     onSuccess: () => {
