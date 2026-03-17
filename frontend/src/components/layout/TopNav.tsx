@@ -26,7 +26,7 @@ const TABS: TabDef[] = [
     subRoutes: ['/home'],
   },
   {
-    name: 'Log',
+    name: 'Track',
     href: '/nutrition',
     subRoutes: ['/nutrition', '/medications', '/symptoms', '/lab-results'],
     subItems: [
