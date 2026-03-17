@@ -605,6 +605,64 @@ class Agent:
                 f"Avg weekly wellbeing (last 4 check-ins): {', '.join(wellbeing_parts)}"
             )
 
+        # --- Supplements ---
+        if context.get("supplements"):
+            sup_strs = [
+                f"{s['name']} {s.get('dosage', '')} {s.get('frequency', '')}".strip()
+                + (f" (for {s['purpose']})" if s.get("purpose") else "")
+                for s in context["supplements"][:8]
+            ]
+            parts.append(f"Current supplements: {'; '.join(sup_strs)}")
+
+        # --- Wearable health data (latest readings) ---
+        if context.get("wearable_health_data"):
+            whd = context["wearable_health_data"]
+            whd_strs = []
+            for mt, info in whd.items():
+                vj = info.get("value", {})
+                if isinstance(vj, dict):
+                    val_str = ", ".join(
+                        f"{k}={v}" for k, v in vj.items() if v is not None
+                    )
+                    whd_strs.append(
+                        f"{mt}: {val_str} ({info.get('source', '?')}, {info.get('latest_date', '')})"
+                    )
+            if whd_strs:
+                parts.append(
+                    f"Latest wearable health data: {'; '.join(whd_strs[:12])}"
+                )
+
+        # --- Health metric summaries (averages, trends, anomalies) ---
+        if context.get("health_summaries"):
+            hs = context["health_summaries"]
+            summary_strs = []
+            anomaly_strs = []
+            for mt, info in hs.items():
+                latest = info.get("latest")
+                avg7 = info.get("avg_7d")
+                avg30 = info.get("avg_30d")
+                trend = info.get("trend_7d", "stable")
+                if latest is not None:
+                    s = f"{mt}: latest={latest}"
+                    if avg7 is not None:
+                        s += f", 7d avg={avg7}"
+                    if avg30 is not None:
+                        s += f", 30d avg={avg30}"
+                    s += f", trend={trend}"
+                    summary_strs.append(s)
+                if info.get("anomalous") and info.get("anomaly"):
+                    anomaly_strs.append(
+                        f"{mt}: {info['anomaly']}"
+                    )
+            if summary_strs:
+                parts.append(
+                    f"Health metric summaries: {'; '.join(summary_strs)}"
+                )
+            if anomaly_strs:
+                parts.append(
+                    f"HEALTH ANOMALIES DETECTED: {'; '.join(anomaly_strs)}"
+                )
+
         # --- Prior AI insights ---
         if context.get("recent_insights"):
             insight_strs = []
@@ -1086,20 +1144,30 @@ async def _get_user_context(
     # --- Lab results (most recent 10) ---
     labs = await _supabase_get(
         "lab_results",
-        f"user_id=eq.{user_id}&order=test_date.desc&limit=10",
+        f"user_id=eq.{user_id}&order=test_date.desc&limit=10"
+        f"&select=test_type,test_date,lab_name,biomarkers,ai_summary",
     )
     if labs:
-        context["lab_results"] = [
-            {
-                "test": l.get("test_name"),
-                "value": l.get("value"),
-                "unit": l.get("unit"),
-                "date": (l.get("test_date") or "")[:10],
-                "status": l.get("status"),
-            }
-            for l in labs
-            if l.get("test_name")
-        ]
+        lab_entries = []
+        for l in labs:
+            biomarkers = l.get("biomarkers") or []
+            if isinstance(biomarkers, list):
+                for b in biomarkers:
+                    lab_entries.append({
+                        "test": l.get("test_type"),
+                        "biomarker": b.get("name"),
+                        "value": b.get("value"),
+                        "unit": b.get("unit"),
+                        "status": b.get("status", "unknown"),
+                        "date": (l.get("test_date") or "")[:10],
+                    })
+            if l.get("ai_summary"):
+                lab_entries.append({
+                    "test": l.get("test_type"),
+                    "ai_summary": l.get("ai_summary"),
+                    "date": (l.get("test_date") or "")[:10],
+                })
+        context["lab_results"] = lab_entries
 
     # --- Recent meal logs (last 7) ---
     meals = await _supabase_get(
@@ -1193,6 +1261,67 @@ async def _get_user_context(
             for ins in insights
             if ins.get("title")
         ]
+
+    # --- Supplements (active) ---
+    supplements = await _supabase_get(
+        "supplements",
+        f"user_id=eq.{user_id}&is_active=eq.true&order=created_at.desc&limit=15",
+    )
+    if supplements:
+        context["supplements"] = [
+            {
+                "name": s.get("supplement_name"),
+                "dosage": s.get("dosage"),
+                "frequency": s.get("frequency"),
+                "purpose": s.get("purpose"),
+            }
+            for s in supplements
+            if s.get("supplement_name")
+        ]
+
+    # --- Native health data (recent 7 days from HealthKit/Health Connect/wearables) ---
+    native_data = await _supabase_get(
+        "native_health_data",
+        f"user_id=eq.{user_id}&order=date.desc&limit=70"
+        f"&select=source,metric_type,date,value_json",
+    )
+    if native_data:
+        # Group by metric type, show latest + recent values
+        by_metric: dict = {}
+        for row in native_data:
+            mt = row.get("metric_type")
+            if mt and mt not in by_metric:
+                by_metric[mt] = {
+                    "source": row.get("source"),
+                    "latest_date": (row.get("date") or "")[:10],
+                    "value": row.get("value_json"),
+                }
+        context["wearable_health_data"] = by_metric
+
+    # --- Health metric summaries (pre-computed averages + anomalies) ---
+    summaries = await _supabase_get(
+        "health_metric_summaries",
+        f"user_id=eq.{user_id}&select=metric_type,latest_value,latest_date,"
+        f"avg_7d,avg_30d,avg_90d,trend_7d,trend_30d,"
+        f"personal_baseline,is_anomalous,anomaly_severity,anomaly_detail",
+    )
+    if summaries:
+        context["health_summaries"] = {
+            s["metric_type"]: {
+                "latest": s.get("latest_value"),
+                "date": s.get("latest_date"),
+                "avg_7d": s.get("avg_7d"),
+                "avg_30d": s.get("avg_30d"),
+                "avg_90d": s.get("avg_90d"),
+                "trend_7d": s.get("trend_7d"),
+                "trend_30d": s.get("trend_30d"),
+                "baseline": s.get("personal_baseline"),
+                "anomalous": s.get("is_anomalous"),
+                "anomaly": s.get("anomaly_detail"),
+            }
+            for s in summaries
+            if s.get("metric_type")
+        }
 
     return context
 
