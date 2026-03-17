@@ -357,32 +357,34 @@ export default function HomeScreen() {
 
       {/* Health Rings + Score */}
       {summaries && Object.keys(summaries).length > 0 ? (
-        <TouchableOpacity
-          onPress={() => router.push('/(tabs)/insights/trends')}
-          activeOpacity={0.85}
-          className="bg-surface-raised rounded-2xl p-5 mb-4 border border-surface-border items-center"
-        >
-          <HealthRings
-            data={{
-              sleep:    { value: summaries.sleep?.latest_value ?? 0, goal: 8 },
-              heart:    { value: summaries.hrv_sdnn?.latest_value ?? 0, goal: Math.max((summaries.hrv_sdnn?.avg_30d ?? 50) * 1.1, 50) },
-              activity: { value: summaries.steps?.latest_value ?? 0, goal: 8000 },
-              recovery: { value: healthScore ?? 0, goal: 100 },
-              overallScore: healthScore,
-            }}
-            size={180}
-          />
-          <Text className="text-[#526380] text-[10px] mt-2">Tap rings to see trends</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          onPress={() => router.push('/(tabs)/chat')}
-          activeOpacity={0.7}
-          className="mt-2 self-center flex-row items-center gap-1.5 px-4 py-2 rounded-lg"
-          style={{ borderWidth: 1, borderColor: 'rgba(0,212,170,0.2)' }}
-        >
-          <Ionicons name="sparkles" size={14} color="#00D4AA" />
-          <Text className="text-[#00D4AA] text-xs font-sansMedium">Ask AI about my health</Text>
-        </TouchableOpacity>
+        <>
+          <TouchableOpacity
+            onPress={() => router.push('/(tabs)/insights/trends')}
+            activeOpacity={0.85}
+            className="bg-surface-raised rounded-2xl p-5 mb-4 border border-surface-border items-center"
+          >
+            <HealthRings
+              data={{
+                sleep:    { value: summaries.sleep?.latest_value ?? 0, goal: 8 },
+                heart:    { value: summaries.hrv_sdnn?.latest_value ?? 0, goal: Math.max((summaries.hrv_sdnn?.avg_30d ?? 50) * 1.1, 50) },
+                activity: { value: summaries.steps?.latest_value ?? 0, goal: 8000 },
+                recovery: { value: healthScore ?? 0, goal: 100 },
+                overallScore: healthScore,
+              }}
+              size={180}
+            />
+            <Text className="text-[#526380] text-[10px] mt-2">Tap rings to see trends</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => router.push('/(tabs)/chat')}
+            activeOpacity={0.7}
+            className="mb-4 self-center flex-row items-center gap-1.5 px-4 py-2 rounded-lg"
+            style={{ borderWidth: 1, borderColor: 'rgba(0,212,170,0.2)' }}
+          >
+            <Ionicons name="sparkles" size={14} color="#00D4AA" />
+            <Text className="text-[#00D4AA] text-xs font-sansMedium">Ask AI about my health</Text>
+          </TouchableOpacity>
+        </>
       ) : healthScore !== null ? (
         <HealthScoreRing score={healthScore} trend={healthTrend} />
       ) : null}
