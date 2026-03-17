@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { View, Text, FlatList, RefreshControl, ActivityIndicator, TouchableOpacity } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
@@ -27,9 +26,89 @@ function InsightCard({ item }: { item: AIInsight }) {
   );
 }
 
-export default function InsightsScreen() {
-  const [advancedExpanded, setAdvancedExpanded] = useState(false);
+const ANALYSIS_CARDS = [
+  {
+    label: 'Triggers & Causes',
+    description: 'See what patterns and root causes drive your symptoms',
+    icon: 'git-branch-outline' as const,
+    iconColor: '#A78BFA',
+    route: '/(tabs)/insights/correlations',
+  },
+  {
+    label: 'Health Forecast',
+    description: 'Predict how your health may trend over the next weeks',
+    icon: 'telescope-outline' as const,
+    iconColor: '#60A5FA',
+    route: '/(tabs)/insights/predictions',
+  },
+  {
+    label: 'Research',
+    description: 'AI analysis and scientific literature for your patterns',
+    icon: 'flask-outline' as const,
+    iconColor: '#34D399',
+    route: '/(tabs)/insights/meta-analysis',
+  },
+  {
+    label: 'Simulate',
+    description: 'Model how lifestyle changes could affect your wellbeing',
+    icon: 'construct-outline' as const,
+    iconColor: '#F59E0B',
+    route: '/(tabs)/profile/health-twin',
+  },
+  {
+    label: 'Visit Prep',
+    description: 'Generate a health summary to share with your doctor',
+    icon: 'document-text-outline' as const,
+    iconColor: '#00D4AA',
+    route: '/(tabs)/insights/doctor-prep',
+  },
+] as const;
 
+function AnalysisCard({ item }: { readonly item: typeof ANALYSIS_CARDS[number] }) {
+  return (
+    <TouchableOpacity
+      onPress={() => router.push(item.route as never)}
+      className="bg-surface-raised border border-surface-border rounded-xl p-4 mb-3"
+      activeOpacity={0.7}
+    >
+      <View className="flex-row items-center gap-3">
+        <View className="rounded-xl p-2.5" style={{ backgroundColor: `${item.iconColor}18` }}>
+          <Ionicons name={item.icon} size={20} color={item.iconColor} />
+        </View>
+        <View className="flex-1">
+          <Text className="text-[#E8EDF5] font-sansMedium text-sm">{item.label}</Text>
+          <Text className="text-[#526380] text-xs mt-0.5 leading-4">{item.description}</Text>
+        </View>
+        <Ionicons name="chevron-forward" size={16} color="#3D4F66" />
+      </View>
+    </TouchableOpacity>
+  );
+}
+
+function InsightsListHeader() {
+  return (
+    <View>
+      {/* Page header */}
+      <View className="px-6 pt-14 pb-4">
+        <Text className="text-2xl font-display text-[#E8EDF5]">Understand</Text>
+        <Text className="text-[#526380] text-sm mt-1">Explore what's shaping your health</Text>
+      </View>
+
+      {/* Analysis cards */}
+      <View className="px-6 pb-4">
+        {ANALYSIS_CARDS.map((item) => (
+          <AnalysisCard key={item.label} item={item} />
+        ))}
+      </View>
+
+      {/* Divider */}
+      <View className="mx-6 mb-4 border-t border-surface-border" />
+      <Text className="px-6 pb-3 text-xs text-[#526380] uppercase tracking-wider">Recent Insights</Text>
+    </View>
+  );
+}
+
+export default function InsightsScreen() {
   const { data, isLoading, refetch } = useQuery({
     queryKey: ['insights'],
     queryFn: async () => {
@@ -40,91 +119,27 @@ export default function InsightsScreen() {
 
   return (
     <View className="flex-1 bg-obsidian-900">
-      <View className="px-6 pt-14 pb-4">
-        <View className="flex-row items-center justify-between">
-          <Text className="text-2xl font-display text-[#E8EDF5]">Insights</Text>
-          <TouchableOpacity
-            onPress={() => router.push('/(tabs)/insights/doctor-prep')}
-            className="flex-row items-center gap-1.5 bg-surface-raised border border-surface-border rounded-xl px-3 py-2"
-            activeOpacity={0.7}
-          >
-            <Ionicons name="document-text-outline" size={16} color="#00D4AA" />
-            <Text className="text-primary-500 text-xs font-sansMedium">Doctor Prep</Text>
-          </TouchableOpacity>
-        </View>
-        <Text className="text-[#526380] text-sm mt-1">Understand what's affecting your health</Text>
-      </View>
-
-      {/* Quick nav — Tier 1 */}
-      <View className="px-6 pb-1 gap-2">
-        <View className="flex-row gap-2">
-          {[
-            { label: 'Trends',        icon: 'analytics-outline' as const,  route: '/(tabs)/insights/trends' },
-            { label: 'Timeline',      icon: 'calendar-outline' as const,    route: '/(tabs)/insights/timeline' },
-            { label: 'Symptom\nTriggers', icon: 'git-branch-outline' as const, route: '/(tabs)/insights/correlations' },
-            { label: 'Health\nForecast',  icon: 'telescope-outline' as const,  route: '/(tabs)/insights/predictions' },
-          ].map((item) => (
-            <TouchableOpacity
-              key={item.label}
-              onPress={() => router.push(item.route as never)}
-              className="flex-1 bg-surface-raised border border-surface-border rounded-xl py-2.5 items-center gap-1"
-              activeOpacity={0.7}
-            >
-              <Ionicons name={item.icon} size={16} color="#526380" />
-              <Text className="text-[#526380] text-xs text-center">{item.label}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        {/* Tier 2 — Advanced Analysis (collapsible) */}
-        <TouchableOpacity
-          onPress={() => setAdvancedExpanded((v) => !v)}
-          className="flex-row items-center justify-between py-2 mt-1"
-          activeOpacity={0.7}
-        >
-          <Text className="text-[#526380] text-xs uppercase tracking-wider">Advanced Analysis</Text>
-          <Ionicons
-            name={advancedExpanded ? 'chevron-up' : 'chevron-down'}
-            size={13}
-            color="#526380"
-          />
-        </TouchableOpacity>
-
-        {advancedExpanded && (
-          <View className="flex-row gap-2 flex-wrap">
-            {[
-              { label: 'Root\nCauses',       icon: 'arrow-forward-circle-outline' as const, route: '/(tabs)/insights/causal-graph' },
-              { label: 'Research\nEvidence', icon: 'people-outline' as const,               route: '/(tabs)/insights/meta-analysis' },
-              { label: 'Evidence\nLibrary',  icon: 'library-outline' as const,              route: '/(tabs)/insights/research' },
-              { label: 'Simulate\nChanges',  icon: 'construct-outline' as const,            route: '/(tabs)/profile/health-twin' },
-            ].map((item) => (
-              <TouchableOpacity
-                key={item.label}
-                onPress={() => router.push(item.route as never)}
-                className="flex-1 bg-surface-raised border border-surface-border rounded-xl py-2.5 items-center gap-1"
-                activeOpacity={0.7}
-              >
-                <Ionicons name={item.icon} size={16} color="#526380" />
-                <Text className="text-[#526380] text-xs text-center">{item.label}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        )}
-      </View>
-
       {isLoading ? (
-        <ActivityIndicator color="#00D4AA" className="mt-10" />
+        <>
+          <InsightsListHeader />
+          <ActivityIndicator color="#00D4AA" className="mt-10" />
+        </>
       ) : (
         <FlatList
           data={data ?? []}
           keyExtractor={(item) => item.id}
-          renderItem={({ item }) => <InsightCard item={item} />}
-          contentContainerStyle={{ padding: 16, paddingTop: 4 }}
+          renderItem={({ item }) => (
+            <View className="px-6">
+              <InsightCard item={item} />
+            </View>
+          )}
+          ListHeaderComponent={<InsightsListHeader />}
+          contentContainerStyle={{ paddingBottom: 24 }}
           refreshControl={<RefreshControl refreshing={isLoading} onRefresh={refetch} tintColor="#00D4AA" />}
           ListEmptyComponent={
-            <View className="items-center py-12">
-              <Ionicons name="bulb-outline" size={48} color="#526380" />
-              <Text className="text-[#526380] mt-4 text-center">No insights yet{'\n'}Log more data to generate patterns</Text>
+            <View className="items-center py-8 px-6">
+              <Ionicons name="bulb-outline" size={40} color="#526380" />
+              <Text className="text-[#526380] mt-3 text-center text-sm">No insights yet{'\n'}Log more data to generate patterns</Text>
             </View>
           }
         />

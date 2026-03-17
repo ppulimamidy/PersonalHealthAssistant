@@ -90,7 +90,7 @@ export function CorrelationsView() {
         <div className="flex items-center gap-3">
           <Zap className="w-6 h-6 text-primary-600 dark:text-primary-400" />
           <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">
-            Symptom Triggers
+            Triggers &amp; Causes
           </h1>
         </div>
         <Card>
@@ -111,7 +111,7 @@ export function CorrelationsView() {
         <div className="flex items-center gap-3">
           <Zap className="w-6 h-6 text-primary-600 dark:text-primary-400" />
           <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">
-            Symptom Triggers
+            Triggers &amp; Causes
           </h1>
         </div>
         <Card>
@@ -119,7 +119,7 @@ export function CorrelationsView() {
             <div className="flex flex-col items-center justify-center py-12 text-center">
               <Lock className="w-12 h-12 text-slate-300 dark:text-slate-600 mb-4" />
               <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-2">
-                Unlock Symptom Triggers
+                Unlock Triggers &amp; Causes
               </h3>
               <p className="text-sm text-slate-500 dark:text-slate-400 max-w-md mb-4">
                 Discover how your nutrition affects your sleep, recovery, and performance.
@@ -142,7 +142,7 @@ export function CorrelationsView() {
         <div className="flex items-center gap-3">
           <Zap className="w-6 h-6 text-primary-600 dark:text-primary-400" />
           <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">
-            Symptom Triggers
+            Triggers &amp; Causes
           </h1>
         </div>
         <div className="flex items-center gap-2">
@@ -157,7 +157,7 @@ export function CorrelationsView() {
               }`}
             >
               <Zap className="w-3 h-3" />
-              Correlations
+              Patterns
             </button>
             <button
               onClick={() => setViewMode('causal')}
@@ -168,7 +168,7 @@ export function CorrelationsView() {
               }`}
             >
               <GitBranch className="w-3 h-3" />
-              Causal Graph
+              Causes
             </button>
           </div>
           {/* Period toggle (correlations only) */}
