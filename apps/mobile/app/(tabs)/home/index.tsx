@@ -356,7 +356,19 @@ export default function HomeScreen() {
       <GettingStartedCard />
 
       {/* Health Rings + Score */}
-      {summaries && Object.keys(summaries).length > 0 ? (
+      {summaries && Object.keys(summaries).length > 0 ? (() => {
+        const sleepVal = summaries.sleep?.latest_value ?? 0;
+        const hrvVal = summaries.hrv_sdnn?.latest_value ?? 0;
+        const stepsVal = summaries.steps?.latest_value ?? 0;
+        const hrvGoal = Math.max((summaries.hrv_sdnn?.avg_30d ?? 50) * 1.1, 50);
+        const sleepPct = Math.min(sleepVal / 8, 1);
+        const hrvPct = Math.min(hrvVal / hrvGoal, 1);
+        const stepsPct = Math.min(stepsVal / 8000, 1);
+        const computed = Math.round(sleepPct * 35 + hrvPct * 30 + stepsPct * 25 + stepsPct * 10);
+        const score = healthScore ?? (computed > 0 ? computed : null);
+        const recoveryVal = healthScore ?? computed ?? 0;
+
+        return (
         <>
           <TouchableOpacity
             onPress={() => router.push('/(tabs)/insights/trends')}
@@ -365,11 +377,11 @@ export default function HomeScreen() {
           >
             <HealthRings
               data={{
-                sleep:    { value: summaries.sleep?.latest_value ?? 0, goal: 8 },
-                heart:    { value: summaries.hrv_sdnn?.latest_value ?? 0, goal: Math.max((summaries.hrv_sdnn?.avg_30d ?? 50) * 1.1, 50) },
-                activity: { value: summaries.steps?.latest_value ?? 0, goal: 8000 },
-                recovery: { value: healthScore ?? 0, goal: 100 },
-                overallScore: healthScore,
+                sleep:    { value: sleepVal, goal: 8 },
+                heart:    { value: hrvVal, goal: hrvGoal },
+                activity: { value: stepsVal, goal: 8000 },
+                recovery: { value: recoveryVal, goal: 100 },
+                overallScore: score,
               }}
               size={180}
             />
@@ -385,7 +397,8 @@ export default function HomeScreen() {
             <Text className="text-[#00D4AA] text-xs font-sansMedium">Ask AI about my health</Text>
           </TouchableOpacity>
         </>
-      ) : healthScore !== null ? (
+        );
+      })() : healthScore !== null ? (
         <HealthScoreRing score={healthScore} trend={healthTrend} />
       ) : null}
 
