@@ -16,6 +16,8 @@ import {
   Users,
   FileText,
   Link2,
+  Pill,
+  FlaskConical,
 } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
 import type { InsightFollowUp } from '@/types';
@@ -269,25 +271,26 @@ function CaregiverHomeCards() {
 
 function QuickLogStrip() {
   const actions = [
-    { label: 'Log meal', href: '/nutrition', icon: Utensils, color: 'text-orange-400' },
-    { label: 'Log symptom', href: '/symptoms', icon: ClipboardList, color: 'text-purple-400' },
-    { label: 'Ask AI', href: '/agents', icon: Sparkles, color: 'text-[#00D4AA]' },
+    { label: 'Scan Meal', href: '/nutrition', icon: Utensils, color: 'text-orange-400' },
+    { label: 'Log Symptom', href: '/symptoms', icon: ClipboardList, color: 'text-purple-400' },
+    { label: 'Log Meds', href: '/medications', icon: Pill, color: 'text-blue-400' },
+    { label: 'Add Labs', href: '/lab-results', icon: FlaskConical, color: 'text-teal-400' },
   ];
 
   return (
-    <div className="grid grid-cols-3 gap-3">
+    <div className="grid grid-cols-4 gap-3">
       {actions.map(({ label, href, icon: Icon, color }) => (
         <Link
           key={label}
           href={href}
-          className="flex flex-col items-center gap-2.5 p-5 rounded-xl transition-all duration-150 hover:scale-[1.02]"
+          className="flex flex-col items-center gap-2 p-4 rounded-xl transition-all duration-150 hover:scale-[1.02]"
           style={{
             backgroundColor: 'rgba(255,255,255,0.03)',
             border: '1px solid rgba(255,255,255,0.06)',
           }}
         >
-          <Icon className={`w-6 h-6 ${color}`} />
-          <span className="text-sm font-medium text-[#8B97A8]">{label}</span>
+          <Icon className={`w-5 h-5 ${color}`} />
+          <span className="text-xs font-medium text-[#8B97A8]">{label}</span>
         </Link>
       ))}
     </div>
@@ -576,7 +579,17 @@ export function TodayView() {
                 }}
                 size={200}
               />
-              <p className="text-center text-[10px] text-[#526380] mt-2">Click to see trends</p>
+              <div className="flex items-center justify-center gap-4 mt-3">
+                <p className="text-[10px] text-[#526380]">Click rings to see trends</p>
+              </div>
+            </Link>
+            <Link
+              href="/agents"
+              className="flex items-center justify-center gap-1.5 mt-3 py-2 px-4 rounded-lg self-center transition-colors hover:bg-[#00D4AA]/10"
+              style={{ border: '1px solid rgba(0,212,170,0.2)' }}
+            >
+              <Sparkles className="w-3.5 h-3.5 text-[#00D4AA]" />
+              <span className="text-xs font-medium text-[#00D4AA]">Ask AI about my health</span>
             </Link>
             );
           })()

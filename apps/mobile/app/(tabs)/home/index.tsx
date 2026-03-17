@@ -71,30 +71,38 @@ function HealthScoreRing({ score, trend }: Readonly<{ score: number; trend?: str
 
 function QuickLogStrip() {
   return (
-    <View className="flex-row gap-3 mb-4">
-      <TouchableOpacity
-        onPress={() => router.push('/(tabs)/log/new-symptom')}
-        className="flex-1 bg-surface-raised border border-surface-border rounded-xl py-3 items-center"
-        activeOpacity={0.7}
-      >
-        <Ionicons name="body-outline" size={20} color="#F5A623" />
-        <Text className="text-[#E8EDF5] text-xs mt-1.5 font-sansMedium">Symptom</Text>
-      </TouchableOpacity>
+    <View className="flex-row gap-2 mb-4">
       <TouchableOpacity
         onPress={() => router.push('/(tabs)/log')}
         className="flex-1 bg-surface-raised border border-surface-border rounded-xl py-3 items-center"
         activeOpacity={0.7}
       >
-        <Ionicons name="restaurant-outline" size={20} color="#6EE7B7" />
-        <Text className="text-[#E8EDF5] text-xs mt-1.5 font-sansMedium">Meal</Text>
+        <Ionicons name="camera-outline" size={18} color="#6EE7B7" />
+        <Text className="text-[#E8EDF5] text-[10px] mt-1 font-sansMedium">Scan Meal</Text>
       </TouchableOpacity>
       <TouchableOpacity
-        onPress={() => router.push('/(tabs)/home/checkin')}
+        onPress={() => router.push('/(tabs)/log/new-symptom')}
         className="flex-1 bg-surface-raised border border-surface-border rounded-xl py-3 items-center"
         activeOpacity={0.7}
       >
-        <Ionicons name="clipboard-outline" size={20} color="#818CF8" />
-        <Text className="text-[#E8EDF5] text-xs mt-1.5 font-sansMedium">Check-in</Text>
+        <Ionicons name="body-outline" size={18} color="#F5A623" />
+        <Text className="text-[#E8EDF5] text-[10px] mt-1 font-sansMedium">Symptom</Text>
+      </TouchableOpacity>
+      <TouchableOpacity
+        onPress={() => router.push('/(tabs)/log/medications')}
+        className="flex-1 bg-surface-raised border border-surface-border rounded-xl py-3 items-center"
+        activeOpacity={0.7}
+      >
+        <Ionicons name="medkit-outline" size={18} color="#60A5FA" />
+        <Text className="text-[#E8EDF5] text-[10px] mt-1 font-sansMedium">Log Meds</Text>
+      </TouchableOpacity>
+      <TouchableOpacity
+        onPress={() => router.push('/(tabs)/log/lab-results')}
+        className="flex-1 bg-surface-raised border border-surface-border rounded-xl py-3 items-center"
+        activeOpacity={0.7}
+      >
+        <Ionicons name="flask-outline" size={18} color="#2DD4BF" />
+        <Text className="text-[#E8EDF5] text-[10px] mt-1 font-sansMedium">Add Labs</Text>
       </TouchableOpacity>
     </View>
   );
@@ -364,7 +372,16 @@ export default function HomeScreen() {
             }}
             size={180}
           />
-          <Text className="text-[#526380] text-[10px] mt-2">Tap to see trends</Text>
+          <Text className="text-[#526380] text-[10px] mt-2">Tap rings to see trends</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          onPress={() => router.push('/(tabs)/chat')}
+          activeOpacity={0.7}
+          className="mt-2 self-center flex-row items-center gap-1.5 px-4 py-2 rounded-lg"
+          style={{ borderWidth: 1, borderColor: 'rgba(0,212,170,0.2)' }}
+        >
+          <Ionicons name="sparkles" size={14} color="#00D4AA" />
+          <Text className="text-[#00D4AA] text-xs font-sansMedium">Ask AI about my health</Text>
         </TouchableOpacity>
       ) : healthScore !== null ? (
         <HealthScoreRing score={healthScore} trend={healthTrend} />
