@@ -137,7 +137,7 @@ export default function CausalGraphScreen() {
           <Ionicons name="chevron-back" size={24} color="#E8EDF5" />
         </TouchableOpacity>
         <View className="flex-1">
-          <Text className="text-xl font-display text-[#E8EDF5]">Root Causes</Text>
+          <Text className="text-xl font-display text-[#E8EDF5]">Triggers &amp; Causes</Text>
           <Text className="text-[#526380] text-xs mt-0.5">What's most likely driving your symptoms</Text>
         </View>
         {/* Day selector */}
@@ -155,6 +155,34 @@ export default function CausalGraphScreen() {
             </TouchableOpacity>
           ))}
         </View>
+      </View>
+
+      {/* Outer tab switcher: Patterns / Causes */}
+      <View className="flex-row mx-4 mt-3 mb-1 p-1 rounded-xl gap-1"
+        style={{ backgroundColor: 'rgba(255,255,255,0.04)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' }}>
+        {([
+          { label: 'Patterns', icon: 'analytics-outline' as const },
+          { label: 'Causes',   icon: 'git-branch-outline' as const },
+        ] as const).map((t) => (
+          <TouchableOpacity
+            key={t.label}
+            onPress={() => {
+              if (t.label === 'Patterns') router.back();
+            }}
+            className="flex-1 flex-row items-center justify-center gap-1.5 py-2 rounded-lg"
+            style={{
+              backgroundColor: t.label === 'Causes' ? 'rgba(0,212,170,0.12)' : 'transparent',
+              borderWidth: t.label === 'Causes' ? 1 : 0,
+              borderColor: 'rgba(0,212,170,0.2)',
+            }}
+            activeOpacity={0.7}
+          >
+            <Ionicons name={t.icon} size={14} color={t.label === 'Causes' ? '#00D4AA' : '#526380'} />
+            <Text className="text-sm font-sansMedium" style={{ color: t.label === 'Causes' ? '#00D4AA' : '#526380' }}>
+              {t.label}
+            </Text>
+          </TouchableOpacity>
+        ))}
       </View>
 
       <FirstVisitBanner

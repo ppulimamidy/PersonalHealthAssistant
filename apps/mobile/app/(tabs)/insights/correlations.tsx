@@ -165,8 +165,11 @@ function CorrelationCard({ c }: { c: Correlation }) {
 
 // ─── Screen ────────────────────────────────────────────────────────────────────
 
+type ViewTab = 'patterns' | 'causes';
+
 export default function CorrelationsScreen() {
   const [days, setDays] = useState<14 | 30>(30);
+  const [viewTab, setViewTab] = useState<ViewTab>('patterns');
 
   const { data, isLoading, refetch, isRefetching } = useQuery<CorrelationResults>({
     queryKey: ['correlations', days],
@@ -186,30 +189,66 @@ export default function CorrelationsScreen() {
           <Ionicons name="chevron-back" size={24} color="#E8EDF5" />
         </TouchableOpacity>
         <View className="flex-1">
-          <Text className="text-xl font-display text-[#E8EDF5]">Symptom Triggers</Text>
+          <Text className="text-xl font-display text-[#E8EDF5]">Triggers &amp; Causes</Text>
           <Text className="text-[#526380] text-xs mt-0.5">What's connected to how you feel</Text>
         </View>
-        <View className="flex-row gap-1 mr-2">
-          {DAY_OPTIONS.map((d) => (
-            <TouchableOpacity
-              key={d}
-              onPress={() => setDays(d)}
-              className="px-2.5 py-1 rounded-lg"
-              style={{
-                backgroundColor: days === d ? '#00D4AA20' : 'transparent',
-                borderWidth: 1,
-                borderColor: days === d ? '#00D4AA' : '#1E2A3B',
-              }}
-            >
-              <Text className="text-xs font-sansMedium" style={{ color: days === d ? '#00D4AA' : '#526380' }}>
-                {d}d
-              </Text>
+        {viewTab === 'patterns' && (
+          <>
+            <View className="flex-row gap-1 mr-2">
+              {DAY_OPTIONS.map((d) => (
+                <TouchableOpacity
+                  key={d}
+                  onPress={() => setDays(d)}
+                  className="px-2.5 py-1 rounded-lg"
+                  style={{
+                    backgroundColor: days === d ? '#00D4AA20' : 'transparent',
+                    borderWidth: 1,
+                    borderColor: days === d ? '#00D4AA' : '#1E2A3B',
+                  }}
+                >
+                  <Text className="text-xs font-sansMedium" style={{ color: days === d ? '#00D4AA' : '#526380' }}>
+                    {d}d
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <TouchableOpacity onPress={() => refetch()} disabled={isRefetching}>
+              <Ionicons name="refresh-outline" size={20} color={isRefetching ? '#526380' : '#00D4AA'} />
             </TouchableOpacity>
-          ))}
-        </View>
-        <TouchableOpacity onPress={() => refetch()} disabled={isRefetching}>
-          <Ionicons name="refresh-outline" size={20} color={isRefetching ? '#526380' : '#00D4AA'} />
-        </TouchableOpacity>
+          </>
+        )}
+      </View>
+
+      {/* Tab switcher */}
+      <View className="flex-row mx-6 mt-4 mb-1 p-1 rounded-xl gap-1"
+        style={{ backgroundColor: 'rgba(255,255,255,0.04)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' }}>
+        {([
+          { key: 'patterns' as ViewTab, label: 'Patterns', icon: 'analytics-outline' as const },
+          { key: 'causes'   as ViewTab, label: 'Causes',   icon: 'git-branch-outline' as const },
+        ] as const).map((t) => (
+          <TouchableOpacity
+            key={t.key}
+            onPress={() => {
+              if (t.key === 'causes') {
+                router.push('/(tabs)/insights/causal-graph');
+              } else {
+                setViewTab(t.key);
+              }
+            }}
+            className="flex-1 flex-row items-center justify-center gap-1.5 py-2 rounded-lg"
+            style={{
+              backgroundColor: viewTab === t.key ? 'rgba(0,212,170,0.12)' : 'transparent',
+              borderWidth: viewTab === t.key ? 1 : 0,
+              borderColor: 'rgba(0,212,170,0.2)',
+            }}
+            activeOpacity={0.7}
+          >
+            <Ionicons name={t.icon} size={14} color={viewTab === t.key ? '#00D4AA' : '#526380'} />
+            <Text className="text-sm font-sansMedium" style={{ color: viewTab === t.key ? '#00D4AA' : '#526380' }}>
+              {t.label}
+            </Text>
+          </TouchableOpacity>
+        ))}
       </View>
 
       <FirstVisitBanner
