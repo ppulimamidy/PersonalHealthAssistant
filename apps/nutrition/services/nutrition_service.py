@@ -179,7 +179,9 @@ class NutritionService:
                 timestamp = None
                 if client_ts:
                     try:
-                        timestamp = _dt.fromisoformat(client_ts.replace("Z", "+00:00"))
+                        ts = _dt.fromisoformat(client_ts.replace("Z", "+00:00"))
+                        # DB column is TIMESTAMP WITHOUT TIME ZONE — strip tzinfo
+                        timestamp = ts.replace(tzinfo=None)
                     except (ValueError, TypeError, AttributeError):
                         pass
 
@@ -385,15 +387,17 @@ class NutritionService:
             days_with_data = len(daily_rows)
             if days_with_data:
                 total_calories = sum(
-                    float(d.get("total_calories", 0) or 0) for d in daily_rows
+                    float(str(d.get("total_calories") or 0)) for d in daily_rows
                 )
                 total_protein = sum(
-                    float(d.get("total_protein_g", 0) or 0) for d in daily_rows
+                    float(str(d.get("total_protein_g") or 0)) for d in daily_rows
                 )
                 total_carbs = sum(
-                    float(d.get("total_carbs_g", 0) or 0) for d in daily_rows
+                    float(str(d.get("total_carbs_g") or 0)) for d in daily_rows
                 )
-                total_fat = sum(float(d.get("total_fat_g", 0) or 0) for d in daily_rows)
+                total_fat = sum(
+                    float(str(d.get("total_fat_g") or 0)) for d in daily_rows
+                )
 
                 avg_calories = total_calories / days_with_data
                 avg_protein = total_protein / days_with_data
