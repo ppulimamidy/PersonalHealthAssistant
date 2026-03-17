@@ -900,15 +900,25 @@ Example:
         media_type = self._image_media_type(image_bytes)
         food_names = [item["name"] for item in food_items]
 
-        prompt = f"""Analyze this food image and estimate the portion sizes in grams for these food items: {', '.join(food_names)}.
+        prompt = f"""Analyze this food image and estimate the portion sizes for these food items: {', '.join(food_names)}.
 
 Consider:
 - Visual size relative to common objects (plate, spoon, fork, etc.)
 - Typical serving sizes for each food
 - Density and volume of the food visible
+- Count discrete items when applicable (e.g. 2 bananas, 6 nuggets, 3 slices)
 
-Return ONLY a JSON object with food names as keys and estimated grams as integer values.
-Example: {{"grilled salmon": 180, "steamed rice": 150, "broccoli": 90}}"""
+Return ONLY a JSON object where each key is the food name and the value is an object with:
+- "quantity": numeric amount (e.g. 2, 1.5, 6)
+- "unit": the most natural unit for this food. Use common household units when appropriate:
+  piece/pieces (bananas, eggs, cookies), slice/slices (bread, pizza, cheese),
+  nuggets (chicken nuggets), cups (rice, soup, cereal), bowl (soup, oatmeal),
+  scoop/scoops (ice cream, protein powder), handful (nuts, chips),
+  wing (chicken wings), strip (bacon), patty (burgers), fillet (fish),
+  serving, or g (grams) for foods where weight is most natural (meat portions, etc.)
+- "grams": estimated weight in grams
+
+Example: {{"banana": {{"quantity": 2, "unit": "pieces", "grams": 240}}, "grilled salmon": {{"quantity": 1, "unit": "fillet", "grams": 180}}, "steamed rice": {{"quantity": 1, "unit": "cups", "grams": 185}}, "chicken nuggets": {{"quantity": 6, "unit": "nuggets", "grams": 108}}}}"""
 
         result = await client.messages.create(
             model="claude-sonnet-4-6",
@@ -939,18 +949,31 @@ Example: {{"grilled salmon": 180, "steamed rice": 150, "broccoli": 90}}"""
         elif "```" in content:
             content = content[content.find("```") + 3 : content.rfind("```")].strip()
 
-        grams_map = json.loads(content)
-        if not isinstance(grams_map, dict):
+        parsed = json.loads(content)
+        if not isinstance(parsed, dict):
             return self._estimate_portion_heuristic(food_items)
 
         updated: List[Dict[str, Any]] = []
         for item in food_items:
             name = (item.get("name") or "").strip()
-            g = grams_map.get(name) or grams_map.get(name.lower())
-            try:
-                g_val = int(float(g)) if g is not None else None
-            except Exception:
-                g_val = None
+            entry = parsed.get(name) or parsed.get(name.lower())
+
+            # Support both new {quantity, unit, grams} format and legacy int format
+            if isinstance(entry, dict):
+                g_val = int(float(entry.get("grams", 0)))
+                quantity = float(entry.get("quantity", 1))
+                unit = entry.get("unit", "g")
+            elif entry is not None:
+                try:
+                    g_val = int(float(entry))
+                except Exception:
+                    g_val = 0
+                quantity = g_val
+                unit = "g"
+            else:
+                g_val = 0
+                quantity = 0
+                unit = "g"
 
             if not g_val or g_val <= 0:
                 updated.append(item)
@@ -960,10 +983,13 @@ Example: {{"grilled salmon": 180, "steamed rice": 150, "broccoli": 90}}"""
                 {
                     **item,
                     "portion_g": g_val,
+                    "quantity": quantity,
+                    "unit": unit,
                     "portion_estimate": {
                         "food_name": name or item.get("name", "unknown"),
-                        "estimated_quantity": g_val,
-                        "unit": "g",
+                        "estimated_quantity": quantity,
+                        "unit": unit,
+                        "grams": g_val,
                         "confidence": 0.75,
                     },
                     "estimation_method": "anthropic",
@@ -985,15 +1011,20 @@ Example: {{"grilled salmon": 180, "steamed rice": 150, "broccoli": 90}}"""
 
         food_names = [item["name"] for item in food_items]
         prompt = f"""
-        Analyze this food image and estimate the portion sizes in grams for these food items: {', '.join(food_names)}.
+        Analyze this food image and estimate the portion sizes for these food items: {', '.join(food_names)}.
 
         Consider:
         - Visual size relative to common objects (spoon, plate, etc.)
         - Typical serving sizes
         - Density of the food
+        - Count discrete items when applicable (e.g. 2 bananas, 6 nuggets, 3 slices)
 
-        Return a JSON object with food names as keys and estimated grams as values.
-        Example: {{"rice": 150, "chicken": 120, "broccoli": 80}}
+        Return a JSON object where each key is the food name and the value is an object with:
+        - "quantity": numeric amount (e.g. 2, 1.5, 6)
+        - "unit": the most natural unit for this food (pieces, slices, nuggets, cups, bowl, scoop, handful, wing, strip, patty, fillet, serving, or g for grams)
+        - "grams": estimated weight in grams
+
+        Example: {{"banana": {{"quantity": 2, "unit": "pieces", "grams": 240}}, "rice": {{"quantity": 1, "unit": "cups", "grams": 185}}, "chicken nuggets": {{"quantity": 6, "unit": "nuggets", "grams": 108}}}}
         """
 
         response = await client.chat.completions.create(
@@ -1031,20 +1062,33 @@ Example: {{"grilled salmon": 180, "steamed rice": 150, "broccoli": 90}}"""
             else:
                 json_content = content.strip()
 
-            grams_map = json.loads(json_content) if json_content else {}
-            if not isinstance(grams_map, dict):
+            parsed = json.loads(json_content) if json_content else {}
+            if not isinstance(parsed, dict):
                 return self._estimate_portion_heuristic(food_items)
 
             updated: List[Dict[str, Any]] = []
             for item in food_items:
                 name = (item.get("name") or "").strip()
-                g = grams_map.get(name)
-                if g is None:
-                    g = grams_map.get(name.lower())
-                try:
-                    g_val = int(float(g)) if g is not None else None
-                except Exception:
-                    g_val = None
+                entry = parsed.get(name)
+                if entry is None:
+                    entry = parsed.get(name.lower())
+
+                # Support both new {quantity, unit, grams} format and legacy int format
+                if isinstance(entry, dict):
+                    g_val = int(float(entry.get("grams", 0)))
+                    quantity = float(entry.get("quantity", 1))
+                    unit = entry.get("unit", "g")
+                elif entry is not None:
+                    try:
+                        g_val = int(float(entry))
+                    except Exception:
+                        g_val = 0
+                    quantity = g_val
+                    unit = "g"
+                else:
+                    g_val = 0
+                    quantity = 0
+                    unit = "g"
 
                 if g_val is None or g_val <= 0:
                     updated.append(item)
@@ -1054,10 +1098,13 @@ Example: {{"grilled salmon": 180, "steamed rice": 150, "broccoli": 90}}"""
                     {
                         **item,
                         "portion_g": g_val,
+                        "quantity": quantity,
+                        "unit": unit,
                         "portion_estimate": {
                             "food_name": name or (item.get("name") or "unknown"),
-                            "estimated_quantity": g_val,
-                            "unit": "g",
+                            "estimated_quantity": quantity,
+                            "unit": unit,
+                            "grams": g_val,
                             "confidence": 0.7,
                         },
                         "estimation_method": "openai",
@@ -1074,59 +1121,117 @@ Example: {{"grilled salmon": 180, "steamed rice": 150, "broccoli": 90}}"""
     ) -> List[Dict[str, Any]]:
         """
         Estimate portion sizes using heuristic rules when AI estimation is not available.
+        Now returns natural units (pieces, slices, cups, etc.) when appropriate.
         """
         estimated_items = []
+
+        # Map food keywords to natural units: (grams, quantity, unit)
+        NATURAL_UNITS = {
+            "banana": (120, 1, "piece"),
+            "apple": (180, 1, "piece"),
+            "orange": (130, 1, "piece"),
+            "egg": (50, 1, "piece"),
+            "cookie": (35, 1, "piece"),
+            "donut": (60, 1, "piece"),
+            "muffin": (115, 1, "piece"),
+            "pancake": (75, 1, "piece"),
+            "waffle": (75, 1, "piece"),
+            "tortilla": (50, 1, "piece"),
+            "nugget": (18, 1, "nugget"),
+            "wing": (30, 1, "wing"),
+            "pizza": (110, 1, "slice"),
+            "bread": (30, 1, "slice"),
+            "toast": (30, 1, "slice"),
+            "cheese slice": (20, 1, "slice"),
+            "bacon": (8, 1, "strip"),
+            "rice": (185, 1, "cups"),
+            "cereal": (30, 1, "bowl"),
+            "oatmeal": (235, 1, "bowl"),
+            "soup": (400, 1, "bowl"),
+            "pasta": (140, 1, "cups"),
+            "ice cream": (65, 1, "scoop"),
+            "protein powder": (30, 1, "scoop"),
+            "yogurt": (245, 1, "cups"),
+            "milk": (244, 1, "cups"),
+            "nuts": (30, 1, "handful"),
+            "almonds": (30, 1, "handful"),
+            "chips": (25, 1, "handful"),
+            "burger": (115, 1, "patty"),
+            "salmon": (170, 1, "fillet"),
+            "steak": (225, 1, "piece"),
+            "sausage": (45, 1, "piece"),
+            "granola bar": (40, 1, "bar"),
+            "protein bar": (60, 1, "bar"),
+        }
 
         for food_item in food_items:
             food_name = food_item.get("name", "").lower()
             category = food_item.get("category", "other")
 
-            # Default portion sizes based on food category and common serving sizes
-            default_portion = 100  # Default 100g
+            # Check for natural unit match
+            matched = False
+            for keyword, (grams, qty, unit) in NATURAL_UNITS.items():
+                if keyword in food_name:
+                    estimated_items.append(
+                        {
+                            **food_item,
+                            "portion_g": grams,
+                            "quantity": qty,
+                            "unit": unit,
+                            "portion_estimate": {
+                                "food_name": (food_item.get("name") or "").strip()
+                                or "unknown",
+                                "estimated_quantity": qty,
+                                "unit": unit,
+                                "grams": grams,
+                                "confidence": 0.4,
+                            },
+                            "confidence": 0.7,
+                            "estimation_method": "heuristic",
+                        }
+                    )
+                    matched = True
+                    break
 
-            # Adjust based on food category
-            if category == "grains" or "rice" in food_name or "pasta" in food_name:
-                default_portion = 150  # 1 cup of cooked rice/pasta
-            elif category == "protein" or "chicken" in food_name or "meat" in food_name:
-                default_portion = 120  # ~4 oz serving
-            elif category == "vegetables":
-                default_portion = 80  # ~1 cup of vegetables
-            elif category == "fruits":
-                default_portion = 120  # ~1 medium fruit
-            elif category == "dairy":
-                default_portion = 100  # 1 cup of milk/yogurt
-            elif category == "nuts":
-                default_portion = 30  # ~1/4 cup
-            elif category == "oils":
-                default_portion = 15  # ~1 tablespoon
+            if matched:
+                continue
 
-            # Specific food adjustments
-            if "rice" in food_name:
+            # Fallback: category-based grams
+            default_portion = 100
+            if category == "grains":
                 default_portion = 150
-            elif "chicken" in food_name:
+            elif category == "protein" or "chicken" in food_name or "meat" in food_name:
                 default_portion = 120
-            elif "broccoli" in food_name:
+            elif category == "vegetables":
                 default_portion = 80
+            elif category == "fruits":
+                default_portion = 120
+            elif category == "dairy":
+                default_portion = 100
+            elif category == "nuts":
+                default_portion = 30
+            elif category == "oils":
+                default_portion = 15
+
+            if "sandwich" in food_name:
+                default_portion = 200
             elif "salad" in food_name:
                 default_portion = 100
-            elif "soup" in food_name:
-                default_portion = 250
-            elif "sandwich" in food_name:
-                default_portion = 200
-            elif "pizza" in food_name:
-                default_portion = 150  # 1 slice
 
             estimated_items.append(
                 {
                     **food_item,
                     "portion_g": default_portion,
+                    "quantity": default_portion,
+                    "unit": "g",
                     "portion_estimate": {
                         "food_name": (food_item.get("name") or "").strip() or "unknown",
                         "estimated_quantity": default_portion,
                         "unit": "g",
+                        "grams": default_portion,
                         "confidence": 0.4,
                     },
-                    "confidence": 0.7,  # Lower confidence for heuristic estimation
+                    "confidence": 0.7,
                     "estimation_method": "heuristic",
                 }
             )

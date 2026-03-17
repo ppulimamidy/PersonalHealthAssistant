@@ -26,11 +26,34 @@ function Stat({ label, value }: { label: string; value: string }) {
   );
 }
 
+// Natural unit → grams conversion (matches mobile app)
+const UNIT_TO_GRAMS: Record<string, number> = {
+  g: 1, oz: 28, cups: 240, tbsp: 15, tsp: 5, ml: 1,
+  piece: 120, pieces: 120, slice: 30, slices: 30,
+  scoop: 65, scoops: 65, bowl: 300, handful: 30,
+  serving: 100, nugget: 18, nuggets: 18, wing: 30,
+  strip: 25, patty: 115, fillet: 170, bar: 50,
+  can: 355, bottle: 500, stick: 15, packet: 30,
+};
+
+const PORTION_UNITS = [
+  'g', 'oz', 'piece', 'pieces', 'slice', 'slices',
+  'cups', 'bowl', 'scoop', 'scoops', 'tbsp', 'tsp',
+  'handful', 'serving', 'nugget', 'nuggets', 'wing',
+  'strip', 'patty', 'fillet', 'bar', 'can', 'bottle', 'ml',
+];
+
+function toGrams(quantity: number, unit: string): number {
+  return Math.round(quantity * (UNIT_TO_GRAMS[unit] ?? 1));
+}
+
+const INPUT_CLS = 'rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 px-3 py-2 text-sm';
+
 export function NutritionView() {
   const { user, isLoading: isAuthLoading } = useAuth(true);
   const [mealType, setMealType] = useState<MealType>('lunch');
   const [mealName, setMealName] = useState('');
-  const [foods, setFoods] = useState<MealFoodItemInput[]>([{ name: '', portion_g: 100 }]);
+  const [foods, setFoods] = useState<MealFoodItemInput[]>([{ name: '', quantity: 1, unit: 'g', portion_g: 100 }]);
   const [logError, setLogError] = useState<string | null>(null);
   const [logSuccess, setLogSuccess] = useState<string | null>(null);
 
@@ -68,7 +91,7 @@ export function NutritionView() {
   const [editingMealId, setEditingMealId] = useState<string | null>(null);
   const [editMealType, setEditMealType] = useState<MealType>('lunch');
   const [editMealName, setEditMealName] = useState('');
-  const [editFoods, setEditFoods] = useState<MealFoodItemInput[]>([{ name: '', portion_g: 100 }]);
+  const [editFoods, setEditFoods] = useState<MealFoodItemInput[]>([{ name: '', quantity: 1, unit: 'g', portion_g: 100 }]);
 
   const canSubmit = useMemo(() => {
     const nonEmptyFoods = foods.filter((f) => (f.name ?? '').trim().length > 0);
@@ -166,17 +189,17 @@ export function NutritionView() {
       setRecognition(res);
       const rows = (res?.recognized_foods ?? []) as RecognizedFoodItem[];
       setRecognizedFoods(
-        rows.map((r) => ({
-          ...r,
-          name: (r.name ?? '').toString(),
-          portion_g:
-            typeof r.portion_g === 'number'
-              ? r.portion_g
-              : typeof (r as any)?.portion_estimate?.estimated_quantity === 'number' &&
-                  String((r as any)?.portion_estimate?.unit || '').toLowerCase() === 'g'
-                ? (r as any).portion_estimate.estimated_quantity
-                : 100,
-        }))
+        rows.map((r) => {
+          const qty = typeof r.quantity === 'number' ? r.quantity : 1;
+          const unit = typeof r.unit === 'string' && r.unit ? r.unit : 'g';
+          let portion_g: number;
+          if (typeof r.portion_g === 'number') {
+            portion_g = r.portion_g;
+          } else {
+            portion_g = toGrams(qty, unit);
+          }
+          return { ...r, name: (r.name ?? '').toString(), quantity: qty, unit, portion_g };
+        })
       );
       // Auto-detect meal type from time; pre-populate name from top foods
       setScanMealType(detectMealTypeFromTime());
@@ -316,9 +339,9 @@ export function NutritionView() {
                         ) : (
                           <div className="space-y-2">
                             {recognizedFoods.map((f, idx) => (
-                              <div key={f.id ?? idx} className="grid grid-cols-1 md:grid-cols-6 gap-2 items-center">
+                              <div key={f.id ?? idx} className="grid grid-cols-1 md:grid-cols-6 gap-2 items-start">
                                 <input
-                                  className="md:col-span-3 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 px-3 py-2 text-sm"
+                                  className={`md:col-span-3 ${INPUT_CLS} placeholder:text-slate-400 dark:placeholder:text-slate-500`}
                                   value={(f.name ?? '').toString()}
                                   onChange={(e) => {
                                     const next = [...recognizedFoods];
@@ -327,21 +350,41 @@ export function NutritionView() {
                                   }}
                                   placeholder="Food name"
                                 />
-                                <div className="md:col-span-1 flex items-center gap-1">
-                                  <input
-                                    className="w-full rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 px-3 py-2 text-sm"
-                                    type="number"
-                                    min={1}
-                                    value={Math.round((f.portion_g as number) ?? 100)}
-                                    onChange={(e) => {
-                                      const next = [...recognizedFoods];
-                                      next[idx] = { ...next[idx], portion_g: Number(e.target.value) };
-                                      setRecognizedFoods(next);
-                                    }}
-                                  />
-                                  <span className="text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">g</span>
+                                <div className="md:col-span-1">
+                                  <div className="flex gap-1">
+                                    <input
+                                      className={`w-16 ${INPUT_CLS}`}
+                                      type="number"
+                                      min={0.1}
+                                      step={0.5}
+                                      value={f.quantity ?? 1}
+                                      onChange={(e) => {
+                                        const qty = Number(e.target.value);
+                                        const unit = f.unit ?? 'g';
+                                        const next = [...recognizedFoods];
+                                        next[idx] = { ...next[idx], quantity: qty, unit, portion_g: toGrams(qty, unit) };
+                                        setRecognizedFoods(next);
+                                      }}
+                                    />
+                                    <select
+                                      className={`flex-1 ${INPUT_CLS} dark:[color-scheme:dark]`}
+                                      value={f.unit ?? 'g'}
+                                      onChange={(e) => {
+                                        const unit = e.target.value;
+                                        const qty = f.quantity ?? 1;
+                                        const next = [...recognizedFoods];
+                                        next[idx] = { ...next[idx], unit, portion_g: toGrams(qty, unit) };
+                                        setRecognizedFoods(next);
+                                      }}
+                                    >
+                                      {PORTION_UNITS.map((u) => <option key={u} value={u}>{u}</option>)}
+                                    </select>
+                                  </div>
+                                  <div className="text-xs text-slate-400 dark:text-slate-500 mt-0.5 pl-1">
+                                    ≈ {f.portion_g ?? toGrams(f.quantity ?? 1, f.unit ?? 'g')}g
+                                  </div>
                                 </div>
-                                <div className="md:col-span-1 text-xs text-slate-500 dark:text-slate-400">
+                                <div className="md:col-span-1 text-xs text-slate-500 dark:text-slate-400 pt-2">
                                   {typeof f.calories === 'number' ? `${Math.round(f.calories)} kcal` : '—'}
                                 </div>
                                 <div className="md:col-span-1">
@@ -359,7 +402,7 @@ export function NutritionView() {
                               onClick={() =>
                                 setRecognizedFoods([
                                   ...recognizedFoods,
-                                  { name: '', portion_g: 100, confidence: 0.0 } as RecognizedFoodItem,
+                                  { name: '', quantity: 1, unit: 'g', portion_g: 100, confidence: 0 } as RecognizedFoodItem,
                                 ])
                               }
                             >
@@ -471,7 +514,9 @@ export function NutritionView() {
                                     .filter((x) => (x.name ?? '').toString().trim().length > 0)
                                     .map((x) => ({
                                       name: (x.name ?? '').toString().trim(),
-                                      portion_g: typeof x.portion_g === 'number' ? x.portion_g : 100,
+                                      quantity: x.quantity ?? 1,
+                                      unit: x.unit ?? 'g',
+                                      portion_g: typeof x.portion_g === 'number' ? x.portion_g : toGrams(x.quantity ?? 1, x.unit ?? 'g'),
                                     })),
                                 };
                                 logMealMutation.mutate(payload);
@@ -533,12 +578,12 @@ export function NutritionView() {
               </div>
 
               <div className="mt-4">
-                <div className="text-xs text-slate-500 dark:text-slate-400 mb-2">Foods (name + grams)</div>
+                <div className="text-xs text-slate-500 dark:text-slate-400 mb-2">Foods</div>
                 <div className="space-y-2">
                   {foods.map((f, idx) => (
-                    <div key={idx} className="grid grid-cols-1 md:grid-cols-5 gap-2">
+                    <div key={idx} className="grid grid-cols-1 md:grid-cols-5 gap-2 items-start">
                       <input
-                        className="md:col-span-3 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 px-3 py-2 text-sm"
+                        className={`md:col-span-3 ${INPUT_CLS} placeholder:text-slate-400 dark:placeholder:text-slate-500`}
                         value={f.name}
                         onChange={(e) => {
                           const next = [...foods];
@@ -547,23 +592,46 @@ export function NutritionView() {
                         }}
                         placeholder="Food (e.g., oatmeal)"
                       />
-                      <input
-                        className="md:col-span-1 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 px-3 py-2 text-sm"
-                        type="number"
-                        min={1}
-                        value={f.portion_g ?? 100}
-                        onChange={(e) => {
-                          const next = [...foods];
-                          next[idx] = { ...next[idx], portion_g: Number(e.target.value) };
-                          setFoods(next);
-                        }}
-                      />
-                      <div className="md:col-span-1 flex gap-2">
+                      <div className="md:col-span-1">
+                        <div className="flex gap-1">
+                          <input
+                            className={`w-16 ${INPUT_CLS}`}
+                            type="number"
+                            min={0.1}
+                            step={0.5}
+                            value={f.quantity ?? 1}
+                            onChange={(e) => {
+                              const qty = Number(e.target.value);
+                              const unit = f.unit ?? 'g';
+                              const next = [...foods];
+                              next[idx] = { ...next[idx], quantity: qty, unit, portion_g: toGrams(qty, unit) };
+                              setFoods(next);
+                            }}
+                          />
+                          <select
+                            className={`flex-1 ${INPUT_CLS} dark:[color-scheme:dark]`}
+                            value={f.unit ?? 'g'}
+                            onChange={(e) => {
+                              const unit = e.target.value;
+                              const qty = f.quantity ?? 1;
+                              const next = [...foods];
+                              next[idx] = { ...next[idx], unit, portion_g: toGrams(qty, unit) };
+                              setFoods(next);
+                            }}
+                          >
+                            {PORTION_UNITS.map((u) => <option key={u} value={u}>{u}</option>)}
+                          </select>
+                        </div>
+                        <div className="text-xs text-slate-400 dark:text-slate-500 mt-0.5 pl-1">
+                          ≈ {f.portion_g ?? toGrams(f.quantity ?? 1, f.unit ?? 'g')}g
+                        </div>
+                      </div>
+                      <div className="md:col-span-1">
                         <Button
                           variant="outline"
                           onClick={() => {
                             const next = foods.filter((_, i) => i !== idx);
-                            setFoods(next.length ? next : [{ name: '', portion_g: 100 }]);
+                            setFoods(next.length ? next : [{ name: '', quantity: 1, unit: 'g', portion_g: 100 }]);
                           }}
                         >
                           Remove
@@ -576,7 +644,7 @@ export function NutritionView() {
                 <div className="mt-3 flex flex-wrap gap-2">
                   <Button
                     variant="outline"
-                    onClick={() => setFoods([...foods, { name: '', portion_g: 100 }])}
+                    onClick={() => setFoods([...foods, { name: '', quantity: 1, unit: 'g', portion_g: 100 }])}
                   >
                     Add food
                   </Button>
@@ -591,7 +659,12 @@ export function NutritionView() {
                         meal_name: mealName.trim() ? mealName.trim() : undefined,
                         food_items: foods
                           .filter((x) => (x.name ?? '').trim().length > 0)
-                          .map((x) => ({ name: x.name.trim(), portion_g: x.portion_g ?? 100 })),
+                          .map((x) => ({
+                            name: x.name.trim(),
+                            quantity: x.quantity ?? 1,
+                            unit: x.unit ?? 'g',
+                            portion_g: x.portion_g ?? toGrams(x.quantity ?? 1, x.unit ?? 'g'),
+                          })),
                       };
                       logMealMutation.mutate(payload);
                     }}
@@ -778,9 +851,9 @@ export function NutritionView() {
                                     <div className="text-xs text-slate-500 dark:text-slate-400 mb-2">Foods</div>
                                     <div className="space-y-2">
                                       {editFoods.map((f, idx) => (
-                                        <div key={idx} className="grid grid-cols-1 md:grid-cols-5 gap-2">
+                                        <div key={idx} className="grid grid-cols-1 md:grid-cols-5 gap-2 items-start">
                                           <input
-                                            className="md:col-span-3 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 px-3 py-2 text-sm"
+                                            className={`md:col-span-3 ${INPUT_CLS} placeholder:text-slate-400 dark:placeholder:text-slate-500`}
                                             value={f.name}
                                             onChange={(e) => {
                                               const next = [...editFoods];
@@ -789,23 +862,46 @@ export function NutritionView() {
                                             }}
                                             placeholder="Food"
                                           />
-                                          <input
-                                            className="md:col-span-1 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 px-3 py-2 text-sm"
-                                            type="number"
-                                            min={1}
-                                            value={f.portion_g ?? 100}
-                                            onChange={(e) => {
-                                              const next = [...editFoods];
-                                              next[idx] = { ...next[idx], portion_g: Number(e.target.value) };
-                                              setEditFoods(next);
-                                            }}
-                                          />
+                                          <div className="md:col-span-1">
+                                            <div className="flex gap-1">
+                                              <input
+                                                className={`w-16 ${INPUT_CLS}`}
+                                                type="number"
+                                                min={0.1}
+                                                step={0.5}
+                                                value={f.quantity ?? 1}
+                                                onChange={(e) => {
+                                                  const qty = Number(e.target.value);
+                                                  const unit = f.unit ?? 'g';
+                                                  const next = [...editFoods];
+                                                  next[idx] = { ...next[idx], quantity: qty, unit, portion_g: toGrams(qty, unit) };
+                                                  setEditFoods(next);
+                                                }}
+                                              />
+                                              <select
+                                                className={`flex-1 ${INPUT_CLS} dark:[color-scheme:dark]`}
+                                                value={f.unit ?? 'g'}
+                                                onChange={(e) => {
+                                                  const unit = e.target.value;
+                                                  const qty = f.quantity ?? 1;
+                                                  const next = [...editFoods];
+                                                  next[idx] = { ...next[idx], unit, portion_g: toGrams(qty, unit) };
+                                                  setEditFoods(next);
+                                                }}
+                                              >
+                                                {PORTION_UNITS.map((u) => <option key={u} value={u}>{u}</option>)}
+                                              </select>
+                                            </div>
+                                            <div className="text-xs text-slate-400 dark:text-slate-500 mt-0.5 pl-1">
+                                              ≈ {f.portion_g ?? toGrams(f.quantity ?? 1, f.unit ?? 'g')}g
+                                            </div>
+                                          </div>
                                           <div className="md:col-span-1">
                                             <Button
                                               variant="outline"
                                               onClick={() => {
                                                 const next = editFoods.filter((_, i) => i !== idx);
-                                                setEditFoods(next.length ? next : [{ name: '', portion_g: 100 }]);
+                                                setEditFoods(next.length ? next : [{ name: '', quantity: 1, unit: 'g', portion_g: 100 }]);
                                               }}
                                             >
                                               Remove
@@ -818,7 +914,7 @@ export function NutritionView() {
                                     <div className="mt-3 flex flex-wrap gap-2">
                                       <Button
                                         variant="outline"
-                                        onClick={() => setEditFoods([...editFoods, { name: '', portion_g: 100 }])}
+                                        onClick={() => setEditFoods([...editFoods, { name: '', quantity: 1, unit: 'g', portion_g: 100 }])}
                                       >
                                         Add food
                                       </Button>
@@ -831,7 +927,12 @@ export function NutritionView() {
                                             meal_name: editMealName.trim() ? editMealName.trim() : undefined,
                                             food_items: editFoods
                                               .filter((x) => (x.name ?? '').trim().length > 0)
-                                              .map((x) => ({ name: x.name.trim(), portion_g: x.portion_g ?? 100 })),
+                                              .map((x) => ({
+                                                name: x.name.trim(),
+                                                quantity: x.quantity ?? 1,
+                                                unit: x.unit ?? 'g',
+                                                portion_g: x.portion_g ?? toGrams(x.quantity ?? 1, x.unit ?? 'g'),
+                                              })),
                                           };
                                           updateMealMutation.mutate({ mealId: m.id, payload });
                                         }}
@@ -879,18 +980,13 @@ export function NutritionView() {
                                         setEditingMealId(m.id);
                                         setEditMealType(((m.meal_type as MealType) ?? 'unknown') as MealType);
                                         setEditMealName((m.meal_name ?? '').toString());
-                                        const baseFoods =
-                                          (m.food_items ?? []).map((x) => ({
-                                            name: (x?.name ?? '').toString(),
-                                            portion_g:
-                                              typeof x?.portion_g === 'number'
-                                                ? x.portion_g
-                                                : typeof (x as any)?.portion_estimate?.estimated_quantity === 'number' &&
-                                                    String((x as any)?.portion_estimate?.unit || '').toLowerCase() === 'g'
-                                                  ? (x as any).portion_estimate.estimated_quantity
-                                                  : 100,
-                                          })) ?? [];
-                                        setEditFoods(baseFoods.length ? baseFoods : [{ name: '', portion_g: 100 }]);
+                                        const baseFoods = (m.food_items ?? []).map((x) => {
+                                          const qty = typeof x?.quantity === 'number' ? x.quantity : 1;
+                                          const unit = typeof x?.unit === 'string' && x.unit ? x.unit : 'g';
+                                          const portion_g = typeof x?.portion_g === 'number' ? x.portion_g : toGrams(qty, unit);
+                                          return { name: (x?.name ?? '').toString(), quantity: qty, unit, portion_g };
+                                        });
+                                        setEditFoods(baseFoods.length ? baseFoods : [{ name: '', quantity: 1, unit: 'g', portion_g: 100 }]);
                                       }}
                                     >
                                       Edit

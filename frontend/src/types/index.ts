@@ -144,6 +144,8 @@ export type MealType = 'breakfast' | 'lunch' | 'dinner' | 'snack' | 'unknown';
 export interface MealFoodItemInput {
   name: string;
   portion_g?: number;
+  quantity?: number;
+  unit?: string;
 }
 
 export interface LogMealRequest {
@@ -174,6 +176,8 @@ export interface RecognizedFoodItem {
   cuisine?: string;
   region?: string;
   portion_g?: number;
+  quantity?: number;
+  unit?: string;
   calories?: number;
   protein_g?: number;
   carbs_g?: number;

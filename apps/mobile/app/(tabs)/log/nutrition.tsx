@@ -24,15 +24,64 @@ import { api } from '@/services/api';
 
 type MealType = 'breakfast' | 'lunch' | 'dinner' | 'snack';
 
+type PortionUnit =
+  | 'g' | 'oz' | 'cups' | 'tbsp' | 'tsp' | 'ml'
+  | 'piece' | 'pieces' | 'slice' | 'slices'
+  | 'scoop' | 'scoops' | 'nugget' | 'nuggets'
+  | 'wing' | 'strip' | 'patty' | 'fillet'
+  | 'bowl' | 'handful' | 'serving' | 'bar'
+  | 'can' | 'bottle' | 'stick' | 'packet';
+
+const PORTION_UNITS: { value: PortionUnit; label: string }[] = [
+  { value: 'g', label: 'g' },
+  { value: 'oz', label: 'oz' },
+  { value: 'piece', label: 'piece' },
+  { value: 'pieces', label: 'pieces' },
+  { value: 'slice', label: 'slice' },
+  { value: 'slices', label: 'slices' },
+  { value: 'cups', label: 'cup' },
+  { value: 'bowl', label: 'bowl' },
+  { value: 'scoop', label: 'scoop' },
+  { value: 'scoops', label: 'scoops' },
+  { value: 'tbsp', label: 'tbsp' },
+  { value: 'tsp', label: 'tsp' },
+  { value: 'handful', label: 'handful' },
+  { value: 'serving', label: 'serving' },
+  { value: 'nugget', label: 'nugget' },
+  { value: 'nuggets', label: 'nuggets' },
+  { value: 'wing', label: 'wing' },
+  { value: 'strip', label: 'strip' },
+  { value: 'patty', label: 'patty' },
+  { value: 'fillet', label: 'fillet' },
+  { value: 'bar', label: 'bar' },
+  { value: 'can', label: 'can' },
+  { value: 'bottle', label: 'bottle' },
+  { value: 'ml', label: 'ml' },
+];
+
+// Approximate gram equivalents per unit (generic defaults)
+const UNIT_TO_GRAMS: Record<string, number> = {
+  g: 1, oz: 28, cups: 240, tbsp: 15, tsp: 5, ml: 1,
+  piece: 120, pieces: 120, slice: 30, slices: 30,
+  scoop: 65, scoops: 65, bowl: 300, handful: 30,
+  serving: 100, nugget: 18, nuggets: 18, wing: 30,
+  strip: 25, patty: 115, fillet: 170, bar: 50,
+  can: 355, bottle: 500, stick: 15, packet: 30,
+};
+
 interface FoodItem {
   name: string;
   portion_g: number;
+  quantity?: number;
+  unit?: PortionUnit;
 }
 
 interface RecognizedFood {
   name: string;
   confidence?: number;
   portion_g?: number;
+  quantity?: number;
+  unit?: string;
   calories?: number;
   category?: string;
 }
@@ -158,6 +207,8 @@ function PhotoScanModal({
       const foods: FoodItem[] = (data?.recognized_foods ?? []).map((f: RecognizedFood) => ({
         name: f.name,
         portion_g: f.portion_g ?? 100,
+        quantity: f.quantity ?? (f.portion_g ?? 100),
+        unit: (f.unit as PortionUnit) ?? 'g',
       }));
 
       if (foods.length === 0) {
@@ -175,7 +226,17 @@ function PhotoScanModal({
   }
 
   function updateFood(idx: number, field: keyof FoodItem, value: string | number) {
-    setRecognizedFoods((prev) => prev.map((f, i) => (i === idx ? { ...f, [field]: value } : f)));
+    setRecognizedFoods((prev) => prev.map((f, i) => {
+      if (i !== idx) return f;
+      const updated = { ...f, [field]: value };
+      // When quantity or unit changes, recompute portion_g
+      if (field === 'quantity' || field === 'unit') {
+        const qty = field === 'quantity' ? Number(value) || 0 : (f.quantity ?? f.portion_g);
+        const u = field === 'unit' ? String(value) : (f.unit ?? 'g');
+        updated.portion_g = Math.round(qty * (UNIT_TO_GRAMS[u] ?? 1));
+      }
+      return updated;
+    }));
   }
 
   function removeFood(idx: number) {
@@ -197,6 +258,8 @@ function PhotoScanModal({
         food_items: validFoods.map((f) => ({
           name: f.name.trim(),
           portion_g: Number(f.portion_g) || 100,
+          quantity: f.quantity ?? f.portion_g,
+          unit: f.unit ?? 'g',
         })),
         logged_at: new Date().toISOString(),
       });
@@ -332,28 +395,59 @@ function PhotoScanModal({
               </View>
 
               {recognizedFoods.map((food, idx) => (
-                <View key={idx} className="flex-row gap-2 mb-2 items-center">
-                  <TextInput
-                    className="bg-surface-raised border border-surface-border rounded-xl px-3 py-3 text-[#E8EDF5] flex-1"
-                    value={food.name}
-                    onChangeText={(v) => updateFood(idx, 'name', v)}
-                    placeholder="Food name"
-                    placeholderTextColor="#526380"
-                  />
-                  <View className="flex-row items-center bg-surface-raised border border-surface-border rounded-xl px-3 py-3" style={{ width: 90 }}>
+                <View key={idx} className="mb-3">
+                  <View className="flex-row gap-2 items-center">
                     <TextInput
-                      className="text-[#E8EDF5] flex-1 text-right"
-                      value={String(food.portion_g)}
-                      onChangeText={(v) => updateFood(idx, 'portion_g', parseInt(v) || 0)}
-                      keyboardType="numeric"
-                      placeholder="100"
+                      className="bg-surface-raised border border-surface-border rounded-xl px-3 py-3 text-[#E8EDF5] flex-1"
+                      value={food.name}
+                      onChangeText={(v) => updateFood(idx, 'name', v)}
+                      placeholder="Food name"
                       placeholderTextColor="#526380"
                     />
-                    <Text className="text-[#526380] text-xs ml-1">g</Text>
+                    <TouchableOpacity onPress={() => removeFood(idx)}>
+                      <Ionicons name="close-circle" size={20} color="#F87171" />
+                    </TouchableOpacity>
                   </View>
-                  <TouchableOpacity onPress={() => removeFood(idx)}>
-                    <Ionicons name="close-circle" size={20} color="#F87171" />
-                  </TouchableOpacity>
+                  <View className="flex-row gap-2 mt-1.5 items-center">
+                    <View className="flex-row items-center bg-surface-raised border border-surface-border rounded-xl px-3 py-2.5" style={{ width: 70 }}>
+                      <TextInput
+                        className="text-[#E8EDF5] flex-1 text-center"
+                        value={String(food.quantity ?? food.portion_g)}
+                        onChangeText={(v) => updateFood(idx, 'quantity', parseFloat(v) || 0)}
+                        keyboardType="decimal-pad"
+                        placeholder="1"
+                        placeholderTextColor="#526380"
+                      />
+                    </View>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} className="flex-1">
+                      <View className="flex-row gap-1">
+                        {PORTION_UNITS.map((u) => {
+                          const selected = (food.unit ?? 'g') === u.value;
+                          return (
+                            <TouchableOpacity
+                              key={u.value}
+                              onPress={() => updateFood(idx, 'unit', u.value)}
+                              className="px-2.5 py-2 rounded-lg border"
+                              style={{
+                                backgroundColor: selected ? '#00D4AA20' : 'transparent',
+                                borderColor: selected ? '#00D4AA' : '#1E2A3B',
+                              }}
+                            >
+                              <Text
+                                className="text-xs font-sansMedium"
+                                style={{ color: selected ? '#00D4AA' : '#526380' }}
+                              >
+                                {u.label}
+                              </Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+                    </ScrollView>
+                  </View>
+                  <Text className="text-[#526380] text-xs mt-1 ml-1">
+                    ≈ {food.portion_g}g
+                  </Text>
                 </View>
               ))}
 
@@ -382,7 +476,7 @@ function LogMealModal({
   const [mealType, setMealType] = useState<MealType>(inferMealType());
   const [mealName, setMealName] = useState('');
   const [notes, setNotes] = useState('');
-  const [foods, setFoods] = useState<FoodItem[]>([{ name: '', portion_g: 100 }]);
+  const [foods, setFoods] = useState<FoodItem[]>([{ name: '', portion_g: 100, quantity: 1, unit: 'serving' }]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -390,16 +484,25 @@ function LogMealModal({
     setMealType(inferMealType());
     setMealName('');
     setNotes('');
-    setFoods([{ name: '', portion_g: 100 }]);
+    setFoods([{ name: '', portion_g: 100, quantity: 1, unit: 'serving' }]);
     setError(null);
   }
 
   function handleClose() { reset(); onClose(); }
 
-  function addFood() { setFoods((prev) => [...prev, { name: '', portion_g: 100 }]); }
+  function addFood() { setFoods((prev) => [...prev, { name: '', portion_g: 100, quantity: 1, unit: 'serving' }]); }
   function removeFood(idx: number) { setFoods((prev) => prev.filter((_, i) => i !== idx)); }
   function updateFood(idx: number, field: keyof FoodItem, value: string | number) {
-    setFoods((prev) => prev.map((f, i) => (i === idx ? { ...f, [field]: value } : f)));
+    setFoods((prev) => prev.map((f, i) => {
+      if (i !== idx) return f;
+      const updated = { ...f, [field]: value };
+      if (field === 'quantity' || field === 'unit') {
+        const qty = field === 'quantity' ? Number(value) || 0 : (f.quantity ?? f.portion_g);
+        const u = field === 'unit' ? String(value) : (f.unit ?? 'g');
+        updated.portion_g = Math.round(qty * (UNIT_TO_GRAMS[u] ?? 1));
+      }
+      return updated;
+    }));
   }
 
   async function handleSave() {
@@ -411,7 +514,12 @@ function LogMealModal({
       await api.post('/api/v1/nutrition/log-meal', {
         meal_type: mealType,
         meal_name: mealName.trim() || undefined,
-        food_items: validFoods.map((f) => ({ name: f.name.trim(), portion_g: Number(f.portion_g) || 100 })),
+        food_items: validFoods.map((f) => ({
+          name: f.name.trim(),
+          portion_g: Number(f.portion_g) || 100,
+          quantity: f.quantity ?? f.portion_g,
+          unit: f.unit ?? 'g',
+        })),
         user_notes: notes.trim() || undefined,
         logged_at: new Date().toISOString(),
       });
@@ -483,30 +591,61 @@ function LogMealModal({
           </View>
 
           {foods.map((food, idx) => (
-            <View key={idx} className="flex-row gap-2 mb-2 items-center">
-              <TextInput
-                className="bg-surface-raised border border-surface-border rounded-xl px-3 py-3 text-[#E8EDF5] flex-1"
-                value={food.name}
-                onChangeText={(v) => updateFood(idx, 'name', v)}
-                placeholder="Food name"
-                placeholderTextColor="#526380"
-              />
-              <View className="flex-row items-center bg-surface-raised border border-surface-border rounded-xl px-3 py-3" style={{ width: 90 }}>
+            <View key={idx} className="mb-3">
+              <View className="flex-row gap-2 items-center">
                 <TextInput
-                  className="text-[#E8EDF5] flex-1 text-right"
-                  value={String(food.portion_g)}
-                  onChangeText={(v) => updateFood(idx, 'portion_g', parseInt(v) || 0)}
-                  keyboardType="numeric"
-                  placeholder="100"
+                  className="bg-surface-raised border border-surface-border rounded-xl px-3 py-3 text-[#E8EDF5] flex-1"
+                  value={food.name}
+                  onChangeText={(v) => updateFood(idx, 'name', v)}
+                  placeholder="Food name"
                   placeholderTextColor="#526380"
                 />
-                <Text className="text-[#526380] text-xs ml-1">g</Text>
+                {foods.length > 1 && (
+                  <TouchableOpacity onPress={() => removeFood(idx)}>
+                    <Ionicons name="close-circle" size={20} color="#F87171" />
+                  </TouchableOpacity>
+                )}
               </View>
-              {foods.length > 1 && (
-                <TouchableOpacity onPress={() => removeFood(idx)}>
-                  <Ionicons name="close-circle" size={20} color="#F87171" />
-                </TouchableOpacity>
-              )}
+              <View className="flex-row gap-2 mt-1.5 items-center">
+                <View className="flex-row items-center bg-surface-raised border border-surface-border rounded-xl px-3 py-2.5" style={{ width: 70 }}>
+                  <TextInput
+                    className="text-[#E8EDF5] flex-1 text-center"
+                    value={String(food.quantity ?? food.portion_g)}
+                    onChangeText={(v) => updateFood(idx, 'quantity', parseFloat(v) || 0)}
+                    keyboardType="decimal-pad"
+                    placeholder="1"
+                    placeholderTextColor="#526380"
+                  />
+                </View>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} className="flex-1">
+                  <View className="flex-row gap-1">
+                    {PORTION_UNITS.map((u) => {
+                      const selected = (food.unit ?? 'g') === u.value;
+                      return (
+                        <TouchableOpacity
+                          key={u.value}
+                          onPress={() => updateFood(idx, 'unit', u.value)}
+                          className="px-2.5 py-2 rounded-lg border"
+                          style={{
+                            backgroundColor: selected ? '#00D4AA20' : 'transparent',
+                            borderColor: selected ? '#00D4AA' : '#1E2A3B',
+                          }}
+                        >
+                          <Text
+                            className="text-xs font-sansMedium"
+                            style={{ color: selected ? '#00D4AA' : '#526380' }}
+                          >
+                            {u.label}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </ScrollView>
+              </View>
+              <Text className="text-[#526380] text-xs mt-1 ml-1">
+                ≈ {food.portion_g}g
+              </Text>
             </View>
           ))}
 
@@ -562,7 +701,11 @@ function MealCard({ meal, onDelete }: { meal: MealLog; onDelete: (id: string) =>
         <View className="mt-2 flex-row flex-wrap gap-1">
           {meal.food_items.slice(0, 5).map((f, i) => (
             <View key={i} className="bg-surface border border-surface-border rounded-full px-2 py-0.5">
-              <Text className="text-[#526380] text-xs">{f.name} {f.portion_g}g</Text>
+              <Text className="text-[#526380] text-xs">
+                {f.name} {f.quantity && f.unit && f.unit !== 'g'
+                  ? `${f.quantity} ${f.unit}`
+                  : `${f.portion_g}g`}
+              </Text>
             </View>
           ))}
           {meal.food_items.length > 5 && (

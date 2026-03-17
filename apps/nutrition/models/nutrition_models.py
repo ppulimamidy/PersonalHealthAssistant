@@ -13,6 +13,7 @@ from decimal import Decimal
 
 class NutrientType(str, Enum):
     """Types of nutrients."""
+
     CALORIES = "calories"
     PROTEIN = "protein"
     CARBS = "carbs"
@@ -41,6 +42,7 @@ class NutrientType(str, Enum):
 
 class Unit(str, Enum):
     """Measurement units."""
+
     GRAMS = "g"
     MILLIGRAMS = "mg"
     MICROGRAMS = "mcg"
@@ -53,10 +55,153 @@ class Unit(str, Enum):
     POUNDS = "lbs"
     MILLILITERS = "ml"
     LITERS = "L"
+    # Common household / natural units
+    PIECE = "piece"
+    PIECES = "pieces"
+    SLICE = "slice"
+    SLICES = "slices"
+    SCOOP = "scoop"
+    SCOOPS = "scoops"
+    SERVING = "serving"
+    BOWL = "bowl"
+    HANDFUL = "handful"
+    STICK = "stick"
+    PATTY = "patty"
+    FILLET = "fillet"
+    WING = "wing"
+    NUGGET = "nugget"
+    NUGGETS = "nuggets"
+    STRIP = "strip"
+    CAN = "can"
+    BOTTLE = "bottle"
+    BAR = "bar"
+    PACKET = "packet"
+
+
+# Approximate gram equivalents for common food+unit combos.
+# Keys: (food_keyword, unit) -> grams.  Falls back to generic unit defaults.
+UNIT_GRAM_DEFAULTS: dict[str, float] = {
+    # Generic per-unit defaults (when food isn't matched)
+    "piece": 120,
+    "pieces": 120,
+    "slice": 30,
+    "slices": 30,
+    "scoop": 65,
+    "scoops": 65,
+    "serving": 100,
+    "bowl": 300,
+    "handful": 30,
+    "stick": 15,
+    "patty": 115,
+    "fillet": 170,
+    "wing": 30,
+    "nugget": 18,
+    "nuggets": 18,
+    "strip": 25,
+    "can": 355,
+    "bottle": 500,
+    "bar": 50,
+    "packet": 30,
+    "cups": 240,
+    "tbsp": 15,
+    "tsp": 5,
+    "oz": 28,
+    "lbs": 454,
+    "ml": 1,
+    "L": 1000,
+    "g": 1,
+}
+
+# Food-specific overrides: (food_keyword, unit) -> grams
+FOOD_UNIT_GRAMS: dict[tuple[str, str], float] = {
+    ("banana", "piece"): 120,
+    ("banana", "pieces"): 120,
+    ("apple", "piece"): 180,
+    ("apple", "pieces"): 180,
+    ("orange", "piece"): 130,
+    ("egg", "piece"): 50,
+    ("egg", "pieces"): 50,
+    ("bread", "slice"): 30,
+    ("bread", "slices"): 30,
+    ("pizza", "slice"): 110,
+    ("pizza", "slices"): 110,
+    ("chicken nugget", "piece"): 18,
+    ("chicken nugget", "nugget"): 18,
+    ("chicken nugget", "nuggets"): 18,
+    ("nugget", "piece"): 18,
+    ("nugget", "nugget"): 18,
+    ("nugget", "nuggets"): 18,
+    ("chicken wing", "piece"): 30,
+    ("chicken wing", "wing"): 30,
+    ("cookie", "piece"): 35,
+    ("cookie", "pieces"): 35,
+    ("ice cream", "scoop"): 65,
+    ("ice cream", "scoops"): 65,
+    ("protein powder", "scoop"): 30,
+    ("protein powder", "scoops"): 30,
+    ("rice", "cups"): 185,
+    ("rice", "bowl"): 350,
+    ("cereal", "cups"): 30,
+    ("cereal", "bowl"): 60,
+    ("soup", "cups"): 240,
+    ("soup", "bowl"): 400,
+    ("oatmeal", "cups"): 235,
+    ("oatmeal", "bowl"): 350,
+    ("pasta", "cups"): 140,
+    ("pasta", "bowl"): 280,
+    ("yogurt", "cups"): 245,
+    ("milk", "cups"): 244,
+    ("cheese", "slice"): 20,
+    ("cheese", "slices"): 20,
+    ("avocado", "piece"): 150,
+    ("avocado", "pieces"): 150,
+    ("tortilla", "piece"): 50,
+    ("muffin", "piece"): 115,
+    ("donut", "piece"): 60,
+    ("pancake", "piece"): 75,
+    ("waffle", "piece"): 75,
+    ("sausage", "piece"): 45,
+    ("sausage", "link"): 45,
+    ("bacon", "strip"): 8,
+    ("bacon", "slice"): 8,
+    ("steak", "piece"): 225,
+    ("burger", "patty"): 115,
+    ("salmon", "fillet"): 170,
+    ("nuts", "handful"): 30,
+    ("almonds", "handful"): 30,
+    ("chips", "handful"): 25,
+    ("crackers", "piece"): 5,
+    ("crackers", "pieces"): 5,
+    ("granola bar", "bar"): 40,
+    ("protein bar", "bar"): 60,
+    ("soda", "can"): 355,
+    ("beer", "can"): 355,
+    ("beer", "bottle"): 355,
+    ("water", "bottle"): 500,
+    ("juice", "cups"): 248,
+}
+
+
+def convert_to_grams(food_name: str, quantity: float, unit: str) -> float:
+    """Convert a quantity + unit to grams, using food-specific data when available."""
+    if unit == "g":
+        return quantity
+
+    food_lower = food_name.lower().strip()
+
+    # Try food-specific lookup
+    for keyword, u in FOOD_UNIT_GRAMS:
+        if keyword in food_lower and u == unit:
+            return quantity * FOOD_UNIT_GRAMS[(keyword, u)]
+
+    # Fall back to generic unit default
+    grams_per_unit = UNIT_GRAM_DEFAULTS.get(unit, 100)
+    return quantity * grams_per_unit
 
 
 class FoodCategory(str, Enum):
     """Food categories."""
+
     FRUITS = "fruits"
     VEGETABLES = "vegetables"
     GRAINS = "grains"
@@ -72,7 +217,7 @@ class FoodCategory(str, Enum):
 
 class NutritionalData(BaseModel):
     """Nutritional information for a food item."""
-    
+
     calories: float = Field(..., description="Calories per serving")
     protein: float = Field(0.0, description="Protein in grams")
     carbs: float = Field(0.0, description="Carbohydrates in grams")
@@ -97,18 +242,42 @@ class NutritionalData(BaseModel):
     zinc: float = Field(0.0, description="Zinc in milligrams")
     magnesium: float = Field(0.0, description="Magnesium in milligrams")
     phosphorus: float = Field(0.0, description="Phosphorus in milligrams")
-    
+
     # Additional nutritional data
     saturated_fat: float = Field(0.0, description="Saturated fat in grams")
     trans_fat: float = Field(0.0, description="Trans fat in grams")
     cholesterol: float = Field(0.0, description="Cholesterol in milligrams")
     glycemic_index: Optional[float] = Field(None, description="Glycemic index")
-    
-    @validator('calories', 'protein', 'carbs', 'fat', 'fiber', 'sugar', 'sodium', 
-               'potassium', 'calcium', 'iron', 'vitamin_a', 'vitamin_c', 'vitamin_d',
-               'vitamin_e', 'vitamin_k', 'vitamin_b1', 'vitamin_b2', 'vitamin_b3',
-               'vitamin_b6', 'vitamin_b12', 'folate', 'zinc', 'magnesium', 'phosphorus',
-               'saturated_fat', 'trans_fat', 'cholesterol')
+
+    @validator(
+        "calories",
+        "protein",
+        "carbs",
+        "fat",
+        "fiber",
+        "sugar",
+        "sodium",
+        "potassium",
+        "calcium",
+        "iron",
+        "vitamin_a",
+        "vitamin_c",
+        "vitamin_d",
+        "vitamin_e",
+        "vitamin_k",
+        "vitamin_b1",
+        "vitamin_b2",
+        "vitamin_b3",
+        "vitamin_b6",
+        "vitamin_b12",
+        "folate",
+        "zinc",
+        "magnesium",
+        "phosphorus",
+        "saturated_fat",
+        "trans_fat",
+        "cholesterol",
+    )
     def validate_non_negative(cls, v):
         if v < 0:
             raise ValueError("Nutritional values cannot be negative")
@@ -117,7 +286,7 @@ class NutritionalData(BaseModel):
 
 class FoodItem(BaseModel):
     """A food item with nutritional information."""
-    
+
     id: Optional[str] = Field(None, description="Unique identifier")
     name: str = Field(..., description="Food name")
     brand: Optional[str] = Field(None, description="Brand name")
@@ -125,20 +294,24 @@ class FoodItem(BaseModel):
     serving_size: float = Field(..., description="Serving size")
     serving_unit: Unit = Field(..., description="Serving unit")
     nutrition: NutritionalData = Field(..., description="Nutritional information")
-    
+
     # Additional metadata
     barcode: Optional[str] = Field(None, description="Product barcode")
     ingredients: Optional[List[str]] = Field(None, description="List of ingredients")
     allergens: Optional[List[str]] = Field(None, description="List of allergens")
     cuisine: Optional[str] = Field(None, description="Cuisine type")
     region: Optional[str] = Field(None, description="Geographical region")
-    
+
     # Database fields
     created_at: Optional[datetime] = Field(None, description="Creation timestamp")
     updated_at: Optional[datetime] = Field(None, description="Last update timestamp")
-    source: Optional[str] = Field(None, description="Data source (USDA, Nutritionix, etc.)")
-    confidence_score: Optional[float] = Field(None, description="Recognition confidence score")
-    
+    source: Optional[str] = Field(
+        None, description="Data source (USDA, Nutritionix, etc.)"
+    )
+    confidence_score: Optional[float] = Field(
+        None, description="Recognition confidence score"
+    )
+
     model_config = {
         "json_schema_extra": {
             "example": {
@@ -154,10 +327,10 @@ class FoodItem(BaseModel):
                     "fat": 3.6,
                     "fiber": 0.0,
                     "sugar": 0.0,
-                    "sodium": 74.0
+                    "sodium": 74.0,
                 },
                 "cuisine": "american",
-                "region": "north_america"
+                "region": "north_america",
             }
         }
     }
@@ -165,32 +338,40 @@ class FoodItem(BaseModel):
 
 class MealAnalysis(BaseModel):
     """Analysis of a complete meal."""
-    
+
     id: Optional[str] = Field(None, description="Unique identifier")
     user_id: str = Field(..., description="User identifier")
     meal_type: str = Field(..., description="Breakfast, lunch, dinner, snack")
     timestamp: datetime = Field(..., description="Meal timestamp")
-    
+
     # Food items in the meal
     food_items: List[FoodItem] = Field(..., description="List of food items")
-    
+
     # Total nutritional values
-    total_nutrition: NutritionalData = Field(..., description="Total nutritional values")
-    
+    total_nutrition: NutritionalData = Field(
+        ..., description="Total nutritional values"
+    )
+
     # Analysis results
-    health_score: Optional[float] = Field(None, description="Overall health score (0-100)")
-    balance_score: Optional[float] = Field(None, description="Nutritional balance score")
+    health_score: Optional[float] = Field(
+        None, description="Overall health score (0-100)"
+    )
+    balance_score: Optional[float] = Field(
+        None, description="Nutritional balance score"
+    )
     variety_score: Optional[float] = Field(None, description="Food variety score")
-    
+
     # Recommendations
-    recommendations: Optional[List[str]] = Field(None, description="Nutritional recommendations")
+    recommendations: Optional[List[str]] = Field(
+        None, description="Nutritional recommendations"
+    )
     warnings: Optional[List[str]] = Field(None, description="Nutritional warnings")
-    
+
     # Metadata
     image_url: Optional[str] = Field(None, description="URL to meal image")
     notes: Optional[str] = Field(None, description="User notes")
     location: Optional[str] = Field(None, description="Meal location")
-    
+
     class Config:
         schema_extra = {
             "example": {
@@ -207,28 +388,28 @@ class MealAnalysis(BaseModel):
                             "calories": 165.0,
                             "protein": 31.0,
                             "carbs": 0.0,
-                            "fat": 3.6
-                        }
+                            "fat": 3.6,
+                        },
                     }
                 ],
                 "total_nutrition": {
                     "calories": 165.0,
                     "protein": 31.0,
                     "carbs": 0.0,
-                    "fat": 3.6
+                    "fat": 3.6,
                 },
                 "health_score": 85.0,
-                "recommendations": ["Add more vegetables for fiber"]
+                "recommendations": ["Add more vegetables for fiber"],
             }
         }
 
 
 class DailyNutrition(BaseModel):
     """Daily nutritional summary."""
-    
+
     user_id: str = Field(..., description="User identifier")
     date: datetime = Field(..., description="Date")
-    
+
     # Daily totals
     total_calories: float = Field(0.0, description="Total calories consumed")
     total_protein: float = Field(0.0, description="Total protein in grams")
@@ -237,26 +418,32 @@ class DailyNutrition(BaseModel):
     total_fiber: float = Field(0.0, description="Total fiber in grams")
     total_sugar: float = Field(0.0, description="Total sugar in grams")
     total_sodium: float = Field(0.0, description="Total sodium in milligrams")
-    
+
     # Goal comparison
     calorie_goal: Optional[float] = Field(None, description="Daily calorie goal")
     protein_goal: Optional[float] = Field(None, description="Daily protein goal")
     carb_goal: Optional[float] = Field(None, description="Daily carbohydrate goal")
     fat_goal: Optional[float] = Field(None, description="Daily fat goal")
-    
+
     # Progress percentages
-    calorie_progress: Optional[float] = Field(None, description="Calorie goal progress %")
-    protein_progress: Optional[float] = Field(None, description="Protein goal progress %")
+    calorie_progress: Optional[float] = Field(
+        None, description="Calorie goal progress %"
+    )
+    protein_progress: Optional[float] = Field(
+        None, description="Protein goal progress %"
+    )
     carb_progress: Optional[float] = Field(None, description="Carb goal progress %")
     fat_progress: Optional[float] = Field(None, description="Fat goal progress %")
-    
+
     # Meals
     meals: List[MealAnalysis] = Field(default_factory=list, description="List of meals")
-    
+
     # Analysis
     daily_score: Optional[float] = Field(None, description="Daily nutrition score")
-    recommendations: Optional[List[str]] = Field(None, description="Daily recommendations")
-    
+    recommendations: Optional[List[str]] = Field(
+        None, description="Daily recommendations"
+    )
+
     class Config:
         schema_extra = {
             "example": {
@@ -269,6 +456,6 @@ class DailyNutrition(BaseModel):
                 "calorie_goal": 2000.0,
                 "calorie_progress": 92.5,
                 "daily_score": 88.0,
-                "recommendations": ["Consider adding more fiber-rich foods"]
+                "recommendations": ["Consider adding more fiber-rich foods"],
             }
-        } 
+        }
