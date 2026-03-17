@@ -533,15 +533,17 @@ class Agent:
 
         if context.get("lab_results"):
             lab_strs = []
-            for l in context["lab_results"][:6]:
-                test = l.get("test", "")
-                val = f"{l.get('value', '')} {l.get('unit', '')}".strip()
-                date = l.get("date", "")
-                status = l.get("status", "")
-                status_str = (
-                    f" [{status}]" if status and status.lower() != "normal" else ""
-                )
-                lab_strs.append(f"{test}: {val}{status_str} ({date})")
+            for l in context["lab_results"][:15]:
+                if l.get("ai_summary"):
+                    lab_strs.append(f"{l.get('test', '')} ({l.get('date', '')}): {l['ai_summary'][:150]}")
+                else:
+                    biomarker = l.get("biomarker", l.get("test", ""))
+                    val = l.get("value", "")
+                    unit = l.get("unit", "")
+                    status = l.get("status", "")
+                    date = l.get("date", "")
+                    status_str = f" [{status}]" if status and status.lower() != "normal" else ""
+                    lab_strs.append(f"{biomarker}: {val} {unit}{status_str} ({date})")
             parts.append(f"Recent lab results: {'; '.join(lab_strs)}")
 
         if context.get("recent_meals"):
@@ -1151,6 +1153,12 @@ async def _get_user_context(
         lab_entries = []
         for l in labs:
             biomarkers = l.get("biomarkers") or []
+            # biomarkers may be stored as a JSON string — parse it
+            if isinstance(biomarkers, str):
+                try:
+                    biomarkers = json.loads(biomarkers)
+                except (json.JSONDecodeError, TypeError):
+                    biomarkers = []
             if isinstance(biomarkers, list):
                 for b in biomarkers:
                     lab_entries.append({
