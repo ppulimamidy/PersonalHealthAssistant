@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 
 from common.middleware.auth import get_current_user
 from common.utils.logging import get_logger
+from common.utils.audit import log_phi_modification
 from ..dependencies.usage_gate import (
     _supabase_patch,
     _supabase_upsert,
@@ -226,6 +227,14 @@ async def delete_account(
         len(deleted_tables),
         auth_deleted,
         len(errors),
+    )
+
+    # Audit log — HIPAA requires logging of all PHI deletions
+    await log_phi_modification(
+        user_id=user_id,
+        action="account_delete",
+        resource="all_user_data",
+        detail=f"Purged {len(deleted_tables)} tables, auth_deleted={auth_deleted}",
     )
 
     return {

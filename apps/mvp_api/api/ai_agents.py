@@ -1541,6 +1541,17 @@ async def send_message(
     # Get user context (includes name resolution and all health data)
     context = await _get_user_context(user_id, current_user)
 
+    # HIPAA audit: log that PHI was accessed for AI query
+    from common.utils.audit import log_phi_access
+
+    await log_phi_access(
+        user_id=user_id,
+        action="ai_query",
+        resource="health_profile",
+        detail=f"Agent: {agent.agent_type}, PHI categories: {len(context)} fields",
+        agent_type=agent.agent_type,
+    )
+
     # Generate agent response — pass user_id for preference-aware agents
     if isinstance(agent, NutritionAnalystAgent):
         response_content = await agent.generate_response(
