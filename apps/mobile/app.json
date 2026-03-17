@@ -18,7 +18,7 @@
     ],
     "ios": {
       "bundleIdentifier": "com.vitalix.app",
-      "buildNumber": "1",
+      "buildNumber": "2",
       "supportsTablet": false,
       "infoPlist": {
         "NSHealthShareUsageDescription": "Vitalix reads your steps, sleep, heart rate, HRV, SpO₂, and workout data to generate personalized health insights and help you prepare for doctor visits.",
