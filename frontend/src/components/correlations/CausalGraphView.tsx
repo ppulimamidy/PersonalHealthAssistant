@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
+import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { correlationsService } from '@/services/correlations';
 import { useAuth } from '@/hooks/useAuth';
@@ -11,36 +11,53 @@ import type { CausalGraph, CausalEdge } from '@/types';
 
 // ── Plain-language summary ─────────────────────────────────────────────────────
 
-function PlainLanguageSummary({ edges }: { edges: CausalEdge[] }) {
+function PlainLanguageSummary({ edges }: { readonly edges: CausalEdge[] }) {
   if (!edges.length) return null;
   const top = edges[0];
   const dir = top.correlation >= 0 ? 'increase' : 'decrease';
-  const lag = top.optimal_lag_days > 0
-    ? `${top.optimal_lag_days} day${top.optimal_lag_days > 1 ? 's' : ''} later`
-    : 'the same day';
+  const lagSuffix = top.optimal_lag_days === 1 ? 'day' : 'days';
+  const lag =
+    top.optimal_lag_days > 0
+      ? `${top.optimal_lag_days} ${lagSuffix} later`
+      : 'the same day';
+  const moreSuffix = edges.length > 2 ? 's' : '';
   return (
     <div
       className="p-4 rounded-xl"
       style={{ backgroundColor: 'rgba(0,212,170,0.06)', border: '1px solid rgba(0,212,170,0.15)' }}
     >
       <p className="text-xs font-semibold uppercase mb-1" style={{ color: '#00D4AA' }}>
-        {edges.length} causal pattern{edges.length !== 1 ? 's' : ''} detected
+        {edges.length} causal pattern{edges.length === 1 ? '' : 's'} detected
       </p>
       <p className="text-sm text-slate-200">
-        When your <strong>{top.from_label}</strong> is high,
-        your <strong>{top.to_label}</strong> tends to {dir} {lag}.
-        {edges.length > 1 && ` (+\u00a0${edges.length - 1} more pattern${edges.length > 2 ? 's' : ''} below)`}
+        When your <strong>{top.from_label}</strong> is high, your{' '}
+        <strong>{top.to_label}</strong> tends to {dir} {lag}.
+        {edges.length > 1 && ` (+\u00a0${edges.length - 1} more pattern${moreSuffix} below)`}
       </p>
     </div>
   );
 }
+
+// ── Node type → human-readable category ───────────────────────────────────────
+
+const NODE_TYPE_LABEL: Record<string, string> = {
+  nutrition: 'Nutrition',
+  health: 'Health Metric',
+  wearable: 'Wearable',
+  medical: 'Medical',
+  symptom: 'Symptom',
+  medication: 'Medication',
+  lab: 'Lab Result',
+};
+
+// ── Main component ─────────────────────────────────────────────────────────────
 
 export function CausalGraphView() {
   const { user, isLoading: isAuthLoading } = useAuth(true);
   const [days, setDays] = useState<7 | 14>(14);
   const [infoOpen, setInfoOpen] = useState(false);
 
-  const { data, isLoading, error, refetch } = useQuery({
+  const { data, isLoading, error } = useQuery({
     queryKey: ['causal-graph', days],
     queryFn: () => correlationsService.getCausalGraph(days),
     enabled: Boolean(user) && !isAuthLoading,
@@ -77,12 +94,17 @@ export function CausalGraphView() {
           </h3>
           <p className="text-slate-600 dark:text-slate-400 max-w-md mx-auto">
             Not enough data to detect causal relationships. Keep logging meals and syncing your
-            wearable to see how nutrition causally affects your health metrics.
+            connected devices to see how your lifestyle causally affects your health.
           </p>
         </CardContent>
       </Card>
     );
   }
+
+  // Build node-type lookup from the nodes list
+  const nodeTypeMap = Object.fromEntries(
+    graph.nodes.map((n) => [n.id, n.type])
+  );
 
   const getStrengthColor = (strength: string) => {
     switch (strength) {
@@ -95,6 +117,12 @@ export function CausalGraphView() {
       default:
         return 'text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700';
     }
+  };
+
+  const getArrowColor = (strength: string) => {
+    if (strength === 'strong') return 'text-red-600';
+    if (strength === 'moderate') return 'text-yellow-600';
+    return 'text-blue-600';
   };
 
   const getEvidenceBadge = (evidence: string[]) => {
@@ -121,10 +149,10 @@ export function CausalGraphView() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100">
-            Root Causes
+            Causes
           </h2>
           <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
-            What's most likely driving your symptoms
+            What&apos;s most likely driving your symptoms
           </p>
         </div>
         <div className="flex gap-2">
@@ -170,7 +198,9 @@ export function CausalGraphView() {
         {infoOpen && (
           <div className="px-4 pb-4 pt-2" style={{ backgroundColor: 'rgba(255,255,255,0.02)' }}>
             <p className="text-sm text-slate-400">
-              These patterns show what factors most influence how you feel. The AI checks whether something happening today (like eating a certain food) consistently leads to a health change days later — not just a coincidence.
+              These patterns show what factors most influence how you feel. The AI checks whether
+              something happening today (like eating a certain food or taking a medication) consistently
+              leads to a health change days later — not just a coincidence.
             </p>
             <div className="mt-3 flex flex-wrap gap-2">
               <span className="px-2 py-1 bg-purple-900/30 text-purple-300 text-xs rounded">
@@ -189,8 +219,11 @@ export function CausalGraphView() {
 
       {/* Causal Edges */}
       <div className="space-y-3">
-        {graph.edges.map((edge: CausalEdge, idx: number) => (
-          <Card key={idx} className={`border ${getStrengthColor(edge.strength)}`}>
+        {graph.edges.map((edge: CausalEdge) => (
+          <Card
+            key={`${edge.from_metric}-${edge.to_metric}`}
+            className={`border ${getStrengthColor(edge.strength)}`}
+          >
             <CardContent className="pt-6">
               <div className="flex items-center gap-4">
                 {/* From Node */}
@@ -202,13 +235,13 @@ export function CausalGraphView() {
                     {edge.from_label}
                   </div>
                   <div className="text-xs text-slate-600 dark:text-slate-400 mt-1">
-                    Nutrition
+                    {NODE_TYPE_LABEL[nodeTypeMap[edge.from_metric] ?? ''] ?? 'Input'}
                   </div>
                 </div>
 
                 {/* Arrow */}
                 <div className="flex flex-col items-center gap-1">
-                  <ArrowRight className={`w-8 h-8 ${edge.strength === 'strong' ? 'text-red-600' : edge.strength === 'moderate' ? 'text-yellow-600' : 'text-blue-600'}`} />
+                  <ArrowRight className={`w-8 h-8 ${getArrowColor(edge.strength)}`} />
                   <div className="text-xs text-slate-500 dark:text-slate-400">
                     {edge.optimal_lag_days > 0 ? `+${edge.optimal_lag_days}d` : 'same day'}
                   </div>
@@ -223,7 +256,7 @@ export function CausalGraphView() {
                     {edge.to_label}
                   </div>
                   <div className="text-xs text-slate-600 dark:text-slate-400 mt-1">
-                    Health Metric
+                    {NODE_TYPE_LABEL[nodeTypeMap[edge.to_metric] ?? ''] ?? 'Health Metric'}
                   </div>
                 </div>
 
@@ -235,7 +268,7 @@ export function CausalGraphView() {
                   <div className="text-xs text-slate-700 dark:text-slate-300">
                     <strong>Correlation:</strong> {edge.correlation > 0 ? '+' : ''}{(edge.correlation * 100).toFixed(0)}%
                   </div>
-                  {edge.granger_p_value !== null && edge.granger_p_value !== undefined && (
+                  {edge.granger_p_value != null && (
                     <div className="text-xs text-slate-700 dark:text-slate-300">
                       <strong>Statistical significance:</strong> {edge.granger_p_value.toFixed(3)}
                     </div>
@@ -250,7 +283,7 @@ export function CausalGraphView() {
               <div className="mt-4 pt-4 border-t border-slate-200 dark:border-slate-700">
                 <div className="text-xs text-slate-600 dark:text-slate-400">
                   <strong>Evidence types:</strong>{' '}
-                  {edge.evidence.map(e => e.replace(/_/g, ' ')).join(', ')}
+                  {edge.evidence.map((e) => e.replaceAll('_', ' ')).join(', ')}
                 </div>
               </div>
             </CardContent>
@@ -258,13 +291,21 @@ export function CausalGraphView() {
         ))}
       </div>
 
-      {/* Footer */}
+      {/* Data sources footnote */}
+      {graph.data_sources_used && graph.data_sources_used.length > 0 && (
+        <p className="text-xs text-slate-400 dark:text-slate-500 pt-2 border-t border-slate-100 dark:border-slate-800">
+          <span className="font-medium">Data sources used: </span>
+          {graph.data_sources_used.join(', ')}
+        </p>
+      )}
+
+      {/* Disclaimer */}
       <Card>
         <CardContent className="pt-6">
           <div className="text-sm text-slate-600 dark:text-slate-400">
             <strong>Note:</strong> Causal relationships are inferred using statistical methods and
             should be interpreted carefully. Consult with healthcare professionals before making
-            significant dietary changes.
+            significant lifestyle changes.
           </div>
         </CardContent>
       </Card>

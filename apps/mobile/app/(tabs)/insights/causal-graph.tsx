@@ -28,11 +28,12 @@ const STRENGTH_CONFIG: Record<CausalEdge['strength'], { color: string; label: st
 
 // ─── Edge Card ─────────────────────────────────────────────────────────────────
 
-function EdgeCard({ edge, index }: { edge: CausalEdge; index: number }) {
+function EdgeCard({ edge, index }: { readonly edge: CausalEdge; readonly index: number }) {
   const [expanded, setExpanded] = useState(false);
   const cfg = STRENGTH_CONFIG[edge.strength] ?? STRENGTH_CONFIG.weak;
   const dir = edge.correlation >= 0 ? '+' : '–';
   const isGranger = edge.evidence.includes('granger_causality');
+  const lagSuffix = edge.optimal_lag_days === 1 ? 'day' : 'days';
 
   return (
     <TouchableOpacity
@@ -91,7 +92,7 @@ function EdgeCard({ edge, index }: { edge: CausalEdge; index: number }) {
         {/* Expanded details */}
         {expanded && (
           <View className="mt-3 pt-3 border-t border-surface-border gap-1.5">
-            {edge.granger_p_value !== undefined && edge.granger_p_value !== null && (
+            {edge.granger_p_value != null && (
               <Text className="text-[#526380] text-xs">
                 <Text className="text-[#8B97A8]">Statistical significance: </Text>
                 {edge.granger_p_value.toFixed(4)}
@@ -100,12 +101,12 @@ function EdgeCard({ edge, index }: { edge: CausalEdge; index: number }) {
             )}
             <Text className="text-[#526380] text-xs">
               <Text className="text-[#8B97A8]">Evidence: </Text>
-              {edge.evidence.map((e) => e.replace(/_/g, ' ')).join(', ')}
+              {edge.evidence.map((e) => e.replaceAll('_', ' ')).join(', ')}
             </Text>
             {edge.optimal_lag_days > 0 && (
               <Text className="text-[#526380] text-xs">
                 <Text className="text-[#8B97A8]">Lag: </Text>
-                Effect appears {edge.optimal_lag_days} day{edge.optimal_lag_days > 1 ? 's' : ''} after cause
+                Effect appears {edge.optimal_lag_days} {lagSuffix} after cause
               </Text>
             )}
           </View>
@@ -129,6 +130,13 @@ export default function CausalGraphScreen() {
     },
   });
 
+  const topEdge = data?.edges[0];
+  const patternCount = data?.edges.length ?? 0;
+  const patternSuffix = patternCount === 1 ? '' : 's';
+  const lagDays = topEdge?.optimal_lag_days ?? 0;
+  const lagUnit = lagDays === 1 ? 'day' : 'days';
+  const lagText = lagDays > 0 ? ` ${lagDays} ${lagUnit} later` : ' the same day';
+
   return (
     <View className="flex-1 bg-obsidian-900">
       {/* Header */}
@@ -138,7 +146,7 @@ export default function CausalGraphScreen() {
         </TouchableOpacity>
         <View className="flex-1">
           <Text className="text-xl font-display text-[#E8EDF5]">Triggers &amp; Causes</Text>
-          <Text className="text-[#526380] text-xs mt-0.5">What's most likely driving your symptoms</Text>
+          <Text className="text-[#526380] text-xs mt-0.5">What&apos;s most likely driving your symptoms</Text>
         </View>
         {/* Day selector */}
         <View className="flex-row gap-1 bg-surface-raised border border-surface-border rounded-xl p-1">
@@ -248,7 +256,7 @@ export default function CausalGraphScreen() {
                 <Ionicons name="git-network-outline" size={48} color="#526380" />
                 <Text className="text-[#E8EDF5] font-sansMedium mt-4">No Causal Patterns Found</Text>
                 <Text className="text-[#526380] text-sm text-center mt-2 px-6">
-                  Keep logging meals and syncing your wearable. Patterns emerge after 7+ days of data.
+                  Keep logging meals and syncing your connected devices. Patterns emerge after 7+ days of data.
                 </Text>
               </View>
             ) : (
@@ -257,16 +265,14 @@ export default function CausalGraphScreen() {
                 <View className="rounded-2xl p-4 mb-4"
                   style={{ backgroundColor: 'rgba(0,212,170,0.06)', borderWidth: 1, borderColor: 'rgba(0,212,170,0.15)' }}>
                   <Text className="text-primary-500 text-xs font-semibold uppercase tracking-wider mb-1">
-                    {data.edges.length} causal pattern{data.edges.length !== 1 ? 's' : ''} detected
+                    {patternCount} causal pattern{patternSuffix} detected
                   </Text>
-                  {data.edges[0] && (
+                  {topEdge && (
                     <Text className="text-[#E8EDF5] text-sm leading-5">
-                      When your <Text className="font-semibold">{data.edges[0].from_label}</Text> is high,
-                      your <Text className="font-semibold">{data.edges[0].to_label}</Text> tends to{' '}
-                      {data.edges[0].correlation >= 0 ? 'increase' : 'decrease'}
-                      {data.edges[0].optimal_lag_days > 0
-                        ? ` ${data.edges[0].optimal_lag_days} day${data.edges[0].optimal_lag_days > 1 ? 's' : ''} later`
-                        : ' the same day'}.
+                      When your <Text className="font-semibold">{topEdge.from_label}</Text> is high,
+                      your <Text className="font-semibold">{topEdge.to_label}</Text> tends to{' '}
+                      {topEdge.correlation >= 0 ? 'increase' : 'decrease'}
+                      {lagText}.
                     </Text>
                   )}
                 </View>
@@ -280,6 +286,16 @@ export default function CausalGraphScreen() {
                     Computed {format(new Date(data.computed_at), 'MMM d, h:mm a')}
                   </Text>
                 )}
+
+                {/* Data sources footnote */}
+                {data.data_sources_used && data.data_sources_used.length > 0 && (
+                  <View className="mt-4 pt-4 border-t border-surface-border">
+                    <Text className="text-[#3D4F66] text-xs leading-4">
+                      <Text className="text-[#526380]">Data sources: </Text>
+                      {data.data_sources_used.join(', ')}
+                    </Text>
+                  </View>
+                )}
               </>
             )}
           </>
@@ -288,7 +304,7 @@ export default function CausalGraphScreen() {
         {/* Disclaimer */}
         <Text className="text-[#3D4F66] text-xs text-center mt-6 leading-4 px-4">
           Causal relationships are statistical inferences. Consult your healthcare provider before making
-          significant dietary changes.
+          significant lifestyle changes.
         </Text>
       </ScrollView>
     </View>

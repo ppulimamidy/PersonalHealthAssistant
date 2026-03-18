@@ -270,6 +270,7 @@ class CausalGraph(BaseModel):
     edges: List[CausalEdge]
     computed_at: str
     confidence_threshold: float
+    data_sources_used: List[str] = []
 
 
 # ---------------------------------------------------------------------------
@@ -1494,13 +1495,23 @@ def _compute_causal_graph(
                 return "nutrition"
             if "symptom" in metric:
                 return "symptom"
+            if "adherence" in metric:
+                return "medication"
+            if metric.startswith("lab_"):
+                return "lab"
             if metric in {
                 "blood_glucose",
                 "blood_pressure_systolic",
                 "blood_pressure_diastolic",
+                "body_temperature",
             }:
                 return "medical"
-            if metric in {"whoop_strain", "whoop_recovery"}:
+            if metric in {
+                "whoop_strain",
+                "whoop_recovery",
+                "garmin_stress",
+                "garmin_body_battery",
+            }:
                 return "wearable"
             return "health"
 
@@ -2192,8 +2203,14 @@ async def get_causal_graph(
 
     oura_daily = _extract_oura_daily(timeline)
 
+    # Track all connected data sources
+    causal_sources: List[str] = []
+    if oura_daily:
+        causal_sources.append("Oura Ring")
+
     # Supplement with native health data (all connected devices)
-    native_daily, _ = await _fetch_native_health_data(user_id, days)
+    native_daily, native_src = await _fetch_native_health_data(user_id, days)
+    causal_sources.extend(s for s in native_src if s not in causal_sources)
     for date_str, native_metrics in native_daily.items():
         if date_str not in oura_daily:
             oura_daily[date_str] = {}
@@ -2204,21 +2221,30 @@ async def get_causal_graph(
 
     # Merge symptom data as outcome variables
     symptoms_daily = await _fetch_symptoms_daily(user_id, days)
+    if symptoms_daily:
+        causal_sources.append("Symptom Journal")
     for date_str, symp_metrics in symptoms_daily.items():
         oura_daily.setdefault(date_str, {}).update(symp_metrics)
 
-    # Merge medication adherence as outcome variable
-    adherence_daily, _, _ = await _fetch_medications_supplements_context(user_id, days)
+    # Merge medication adherence as outcome variable + track source
+    adherence_daily, _, med_src = await _fetch_medications_supplements_context(
+        user_id, days
+    )
+    causal_sources.extend(s for s in med_src if s not in causal_sources)
     for date_str, adh_metrics in adherence_daily.items():
         oura_daily.setdefault(date_str, {}).update(adh_metrics)
 
-    # Merge lab biomarker draws (if >= 2 draws in window)
+    # Merge lab biomarker draws (>= 2 draws required for statistical use)
     lab_daily, _ = await _fetch_lab_biomarkers_daily(user_id, days)
+    if lab_daily:
+        causal_sources.append("Lab Results")
     for date_str, lab_metrics in lab_daily.items():
         oura_daily.setdefault(date_str, {}).update(lab_metrics)
 
     # Fetch nutrition data
     nutrition_daily = await _fetch_nutrition_daily(bearer, days)
+    if nutrition_daily:
+        causal_sources.append("Nutrition Logs")
 
     # Fetch condition variables so condition-specific pairs are included in the graph
     try:
@@ -2248,6 +2274,7 @@ async def get_causal_graph(
             edges=[],
             computed_at=datetime.now(timezone.utc).isoformat(),
             confidence_threshold=0.5,
+            data_sources_used=causal_sources,
         )
 
     # Compute causal graph
@@ -2258,4 +2285,5 @@ async def get_causal_graph(
         edges=[CausalEdge(**edge) for edge in graph_data["edges"]],
         computed_at=graph_data["computed_at"],
         confidence_threshold=graph_data["confidence_threshold"],
+        data_sources_used=causal_sources,
     )

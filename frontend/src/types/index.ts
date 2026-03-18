@@ -568,7 +568,7 @@ export interface CausalEdge {
 export interface CausalGraphNode {
   id: string;
   label: string;
-  type: 'nutrition' | 'oura';
+  type: 'nutrition' | 'health' | 'wearable' | 'medical' | 'symptom' | 'medication' | 'lab';
 }
 
 export interface CausalGraph {
@@ -576,6 +576,7 @@ export interface CausalGraph {
   edges: CausalEdge[];
   computed_at: string;
   confidence_threshold: number;
+  data_sources_used?: string[];
 }
 
 // Health Condition types
