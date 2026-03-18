@@ -329,6 +329,22 @@ METRIC_LABELS: Dict[str, str] = {
     "medication_adherence": "Medication Adherence",
 }
 
+# Track 1 — Health-self pairs (wearable vs wearable, no nutrition required).
+# Evaluated independently of diet data so users with wearable data but no
+# nutrition logs still see meaningful patterns.
+# Format: (metric_a, metric_b, category, lag_days)
+HEALTH_SELF_PAIRS: List[Tuple[str, str, str, int]] = [
+    ("sleep_score", "hrv_balance", "nutrition_readiness", 1),
+    ("sleep_score", "readiness_score", "nutrition_readiness", 1),
+    ("deep_sleep_hours", "hrv_balance", "nutrition_sleep", 1),
+    ("steps", "sleep_score", "nutrition_sleep", 1),
+    ("steps", "readiness_score", "nutrition_activity", 1),
+    ("active_calories", "hrv_balance", "nutrition_readiness", 1),
+    ("resting_heart_rate", "readiness_score", "nutrition_readiness", 1),
+    ("hrv_balance", "readiness_score", "nutrition_readiness", 0),
+    ("sleep_efficiency", "resting_heart_rate", "nutrition_sleep", 1),
+]
+
 # Key pairs for multi-lag analysis (1 to MAX_LAG_DAYS): (nutrition_metric, oura_metric, category)
 KEY_PAIRS_MULTILAG: List[Tuple[str, str, str]] = [
     ("total_sugar_g", "hrv_balance", "nutrition_readiness"),
@@ -1171,6 +1187,78 @@ def _one_correlation(
     }
 
 
+def _one_health_correlation(
+    metric_a: str,
+    metric_b: str,
+    category: str,
+    lag: int,
+    all_dates: List[str],
+    oura_daily: Dict[str, Dict[str, float]],
+    use_spearman: bool = False,
+    min_r: float = 0.4,
+    max_p: float = 0.10,
+) -> Optional[Dict[str, Any]]:
+    """
+    Correlation between two health/wearable metrics (Track 1 — no nutrition needed).
+    Both metric_a and metric_b are looked up from oura_daily.
+    """
+    x_vals: List[float] = []
+    y_vals: List[float] = []
+    points: List[Dict[str, Any]] = []
+
+    for i, d in enumerate(all_dates):
+        if lag > 0 and i + lag >= len(all_dates):
+            continue
+        target_date = all_dates[i + lag] if lag > 0 else d
+        src = oura_daily.get(d)
+        tgt = oura_daily.get(target_date)
+        if not src or not tgt or metric_a not in src or metric_b not in tgt:
+            continue
+        x, y = src[metric_a], tgt[metric_b]
+        if x == 0 or y == 0:
+            continue
+        x_vals.append(x)
+        y_vals.append(y)
+        points.append(
+            {"date": target_date, "a_value": round(x, 2), "b_value": round(y, 2)}
+        )
+
+    if len(x_vals) < MIN_OVERLAPPING_DAYS:
+        return None
+
+    if use_spearman:
+        r, p = _spearman_r(x_vals, y_vals)
+        correlation_type = "spearman"
+    else:
+        r, p = _pearson_r(x_vals, y_vals)
+        correlation_type = "pearson"
+
+    if abs(r) < min_r or p >= max_p:
+        return None
+
+    abs_r = abs(r)
+    strength = "strong" if abs_r >= 0.7 else "moderate" if abs_r >= 0.5 else "weak"
+    direction = "positive" if r > 0 else "negative"
+
+    return {
+        "id": str(uuid.uuid4()),
+        "metric_a": metric_a,
+        "metric_a_label": METRIC_LABELS.get(metric_a, metric_a),
+        "metric_b": metric_b,
+        "metric_b_label": METRIC_LABELS.get(metric_b, metric_b),
+        "correlation_coefficient": r,
+        "p_value": p,
+        "sample_size": len(x_vals),
+        "lag_days": lag,
+        "effect_description": "",
+        "category": category,
+        "strength": strength,
+        "direction": direction,
+        "data_points": points,
+        "correlation_type": correlation_type,
+    }
+
+
 def _compute_correlations(
     nutrition_daily: Dict[str, Dict[str, float]],
     oura_daily: Dict[str, Dict[str, float]],
@@ -1181,7 +1269,8 @@ def _compute_correlations(
     """
     Compute pairwise correlations (Pearson + Spearman for non-linear).
 
-    Five passes:
+    Six passes:
+      0) Health-self pairs (Track 1): wearable vs wearable — no nutrition needed
       1) Fixed-lag pairs from CORRELATION_PAIRS  (standard thresholds)
       2) Multi-lag analysis (1 to MAX_LAG_DAYS) for KEY_PAIRS_MULTILAG
       3) Condition-specific pairs — relaxed thresholds for clinical relevance
@@ -1191,7 +1280,37 @@ def _compute_correlations(
     Returns list of significant correlation dicts sorted by |r| descending.
     """
     all_dates = sorted(set(nutrition_daily.keys()) | set(oura_daily.keys()))
+    health_dates = sorted(oura_daily.keys())  # Track 1 only needs health data
     best_by_pair: Dict[Tuple[str, str], Dict[str, Any]] = {}
+
+    # 0) Track 1: Health-self pairs — wearable vs wearable, no nutrition needed.
+    #    Per-pair overlap check: each pair independently needs ≥MIN_OVERLAPPING_DAYS
+    #    of days where both metrics are present. Users with 0 nutrition logs still
+    #    get patterns from their wearable data here.
+    for metric_a, metric_b, category, lag in HEALTH_SELF_PAIRS:
+        best_c = None
+        for use_spearman in (False, True):
+            c = _one_health_correlation(
+                metric_a,
+                metric_b,
+                category,
+                lag,
+                health_dates,
+                oura_daily,
+                use_spearman=use_spearman,
+            )
+            if c and (
+                best_c is None
+                or abs(c["correlation_coefficient"])
+                > abs(best_c["correlation_coefficient"])
+            ):
+                best_c = c
+        if best_c:
+            key = (metric_a, metric_b)
+            if key not in best_by_pair or abs(best_c["correlation_coefficient"]) > abs(
+                best_by_pair[key]["correlation_coefficient"]
+            ):
+                best_by_pair[key] = best_c
 
     # 1) Fixed-lag pairs (Pearson + Spearman: keep stronger)
     for nutr_metric, oura_metric, category, lag in CORRELATION_PAIRS:
@@ -1597,6 +1716,8 @@ async def _generate_ai_summary(
     period_days: int,
     data_sources: Optional[List[str]] = None,
     user_context: Optional[Dict[str, str]] = None,
+    oura_days: int = 0,
+    nutrition_days: int = 0,
 ) -> Tuple[List[Dict[str, Any]], str]:
     """
     Use Anthropic Claude to generate plain-English descriptions for each correlation
@@ -1608,7 +1729,12 @@ async def _generate_ai_summary(
         for c in correlations:
             c["effect_description"] = _fallback_description(c)
         return correlations, _fallback_summary(
-            correlations, period_days, data_sources, user_context
+            correlations,
+            period_days,
+            data_sources,
+            user_context,
+            oura_days=oura_days,
+            nutrition_days=nutrition_days,
         )
 
     # Build the prompt
@@ -1628,7 +1754,15 @@ async def _generate_ai_summary(
     ctx_block = (
         ("\n\nUser health profile:\n" + "\n".join(ctx_lines)) if ctx_lines else ""
     )
-    prompt = f"""You are a health data analyst. A user has {period_days} days of data from: {sources_str}.{ctx_block}
+    # Note partial data availability so Claude can mention what to add
+    data_note = f"Health/wearable data: {oura_days} days. Nutrition logs: {nutrition_days} days."
+    if nutrition_days < MIN_OVERLAPPING_DAYS:
+        data_note += (
+            f" Diet-trigger patterns (nutrition → health) are not shown yet — "
+            f"need {MIN_OVERLAPPING_DAYS} overlapping days; currently {nutrition_days}."
+        )
+    prompt = f"""You are a health data analyst. A user has {period_days} days of data from: {sources_str}.
+{data_note}{ctx_block}
 
 The correlation engine uses multi-lag analysis (1-14 days), Pearson and Spearman (for non-linear relationships), and Granger causality for causal direction. Below are the statistically significant correlations.
 
@@ -1686,7 +1820,12 @@ Important: Do not provide medical diagnoses. Frame everything as observed patter
                     for c in correlations:
                         c["effect_description"] = _fallback_description(c)
                     return correlations, _fallback_summary(
-                        correlations, period_days, data_sources, user_context
+                        correlations,
+                        period_days,
+                        data_sources,
+                        user_context,
+                        oura_days=oura_days,
+                        nutrition_days=nutrition_days,
                     )
 
                 result = await resp.json()
@@ -1721,7 +1860,12 @@ Important: Do not provide medical diagnoses. Frame everything as observed patter
         for c in correlations:
             c["effect_description"] = _fallback_description(c)
         return correlations, _fallback_summary(
-            correlations, period_days, data_sources, user_context
+            correlations,
+            period_days,
+            data_sources,
+            user_context,
+            oura_days=oura_days,
+            nutrition_days=nutrition_days,
         )
 
 
@@ -1741,19 +1885,33 @@ def _fallback_summary(
     period_days: int,
     data_sources: Optional[List[str]] = None,
     user_context: Optional[Dict[str, str]] = None,
+    oura_days: int = 0,
+    nutrition_days: int = 0,
 ) -> str:
     """Generate a simple summary without AI."""
     if not correlations:
+        if oura_days >= MIN_OVERLAPPING_DAYS and nutrition_days < MIN_OVERLAPPING_DAYS:
+            return (
+                f"Found {oura_days} days of health data — no significant wearable patterns "
+                f"detected yet. Log meals for {MIN_OVERLAPPING_DAYS}+ days to unlock "
+                f"diet-trigger analysis (currently {nutrition_days} nutrition day(s))."
+            )
         return "No significant correlations found in the available data."
     top = correlations[0]
     sources_note = f" Data sources: {', '.join(data_sources)}." if data_sources else ""
     ctx_lines = [v for v in (user_context or {}).values() if v]
     ctx_note = f" Context: {'; '.join(ctx_lines)}." if ctx_lines else ""
+    diet_note = ""
+    if oura_days >= MIN_OVERLAPPING_DAYS and nutrition_days < MIN_OVERLAPPING_DAYS:
+        diet_note = (
+            f" Log meals for {MIN_OVERLAPPING_DAYS - nutrition_days} more day(s) "
+            f"to also see how your diet affects these patterns."
+        )
     return (
         f"Over the past {period_days} days, the strongest pattern found is between "
         f"{top['metric_a_label'].lower()} and {top['metric_b_label'].lower()} "
         f"(r={top['correlation_coefficient']}). "
-        f"{len(correlations)} significant correlations were detected.{sources_note}{ctx_note}"
+        f"{len(correlations)} significant correlations were detected.{diet_note}{sources_note}{ctx_note}"
     )
 
 
@@ -1896,11 +2054,20 @@ async def _compute_and_cache(
     overlap_count = len(overlap_dates)
     days_with_data = len(all_dates_union)
 
-    data_quality = min(1.0, overlap_count / max(period_days * 0.7, 1))
+    # Data quality is based on health data availability (Track 1 minimum),
+    # boosted when nutrition overlap is also sufficient (Track 2).
+    if oura_days >= MIN_OVERLAPPING_DAYS:
+        data_quality = min(
+            1.0,
+            (oura_days * 0.5 + overlap_count * 0.5) / max(period_days * 0.7, 1),
+        )
+    else:
+        data_quality = min(1.0, oura_days / max(period_days * 0.7, 1))
 
     now_str = datetime.now(timezone.utc).isoformat()
 
-    if overlap_count < MIN_OVERLAPPING_DAYS:
+    # Hard gate: need at least MIN_OVERLAPPING_DAYS of health data to find any pattern.
+    if oura_days < MIN_OVERLAPPING_DAYS:
         src_note = (
             f" Connected sources: {', '.join(data_sources_used)}."
             if data_sources_used
@@ -1909,9 +2076,8 @@ async def _compute_and_cache(
         result = CorrelationResults(
             correlations=[],
             summary=(
-                f"Need at least {MIN_OVERLAPPING_DAYS} days of overlapping data. "
-                f"Currently have {overlap_count} overlapping days "
-                f"({oura_days} health, {nutrition_days} nutrition).{src_note}"
+                f"Need at least {MIN_OVERLAPPING_DAYS} days of health data. "
+                f"Currently have {oura_days} day(s) of wearable data.{src_note}"
             ),
             data_quality_score=data_quality,
             oura_days_available=oura_days,
@@ -2024,7 +2190,12 @@ async def _compute_and_cache(
         if v
     }
     correlations, summary = await _generate_ai_summary(
-        raw_correlations, period_days, data_sources_used, user_context
+        raw_correlations,
+        period_days,
+        data_sources_used,
+        user_context,
+        oura_days=oura_days,
+        nutrition_days=nutrition_days,
     )
 
     # 10. Cache

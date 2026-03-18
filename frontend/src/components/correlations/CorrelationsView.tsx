@@ -300,10 +300,29 @@ export function CorrelationsView() {
                     </div>
                   </>
                 ) : (
-                  <p className="text-sm text-slate-500 dark:text-slate-400 max-w-md">
-                    {data.summary ||
-                      `Log meals and wear your Oura ring for at least 5 overlapping days to discover nutrition-health correlations.`}
-                  </p>
+                  <>
+                    <p className="text-sm text-slate-500 dark:text-slate-400 max-w-md">
+                      {data.summary || (
+                        data.oura_days_available >= 5 && data.nutrition_days_available < 5
+                          ? `${data.oura_days_available} days of health data found. Log meals for ${5 - data.nutrition_days_available} more day(s) to unlock diet-trigger patterns.`
+                          : `Log meals and wear your connected device for at least 5 days to discover health correlations.`
+                      )}
+                    </p>
+                    {data.oura_days_available >= 5 && data.nutrition_days_available < 5 && (
+                      <div className="mt-4 w-full max-w-xs">
+                        <div className="flex justify-between text-xs text-slate-500 mb-1.5">
+                          <span>Nutrition days logged</span>
+                          <span>{data.nutrition_days_available}/5</span>
+                        </div>
+                        <div className="h-1.5 rounded-full bg-slate-700">
+                          <div
+                            className="h-full rounded-full bg-primary-500 transition-all"
+                            style={{ width: `${Math.min(100, (data.nutrition_days_available / 5) * 100)}%` }}
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             </CardContent>
