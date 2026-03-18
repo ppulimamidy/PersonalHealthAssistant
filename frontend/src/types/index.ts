@@ -577,6 +577,7 @@ export interface CausalGraph {
   computed_at: string;
   confidence_threshold: number;
   data_sources_used?: string[];
+  days_with_data?: number; // actual days analyzed; populated when days=0 (all-history)
 }
 
 // Health Condition types

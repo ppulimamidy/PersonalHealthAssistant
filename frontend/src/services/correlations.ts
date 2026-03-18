@@ -1,13 +1,15 @@
 import { api } from './api';
 import type { CorrelationResults, Correlation, CorrelationSummary, CausalGraph } from '@/types';
 
+export type CorrelationDays = 14 | 30 | 0; // 0 = all history
+
 export const correlationsService = {
-  getCorrelations: async (days: 7 | 14 = 14): Promise<CorrelationResults> => {
+  getCorrelations: async (days: CorrelationDays = 0): Promise<CorrelationResults> => {
     const response = await api.get('/api/v1/correlations', { params: { days } });
     return response.data;
   },
 
-  refreshCorrelations: async (days: 7 | 14 = 14): Promise<CorrelationResults> => {
+  refreshCorrelations: async (days: CorrelationDays = 0): Promise<CorrelationResults> => {
     const response = await api.post('/api/v1/correlations/refresh', null, {
       params: { days },
     });
@@ -24,7 +26,7 @@ export const correlationsService = {
     return response.data;
   },
 
-  getCausalGraph: async (days: 7 | 14 = 14): Promise<CausalGraph> => {
+  getCausalGraph: async (days: CorrelationDays = 0): Promise<CausalGraph> => {
     const response = await api.get('/api/v1/correlations/causal-graph', {
       params: { days },
     });

@@ -26,6 +26,7 @@ const CONDITION_HINTS: Record<string, string> = {
 
 type FilterTab = 'all' | CorrelationCategory;
 type ViewMode = 'correlations' | 'causal';
+type FilterDays = 14 | 30 | 0;
 
 const TABS: { value: FilterTab; label: string }[] = [
   { value: 'all', label: 'All' },
@@ -36,7 +37,7 @@ const TABS: { value: FilterTab; label: string }[] = [
 
 export function CorrelationsView() {
   const [activeTab, setActiveTab] = useState<FilterTab>('all');
-  const [days, setDays] = useState<7 | 14>(14);
+  const [days, setDays] = useState<FilterDays>(0);
   const [viewMode, setViewMode] = useState<ViewMode>('correlations');
   const queryClient = useQueryClient();
   const setSubscription = useSubscriptionStore((s) => s.setSubscription);
@@ -174,19 +175,27 @@ export function CorrelationsView() {
           {/* Period toggle (correlations only) */}
           {viewMode === 'correlations' && (
             <div className="flex rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
-              {([7, 14] as const).map((d) => (
-                <button
-                  key={d}
-                  onClick={() => setDays(d)}
-                  className={`px-3 py-1.5 text-xs font-medium transition-colors ${
-                    days === d
-                      ? 'bg-primary-600 text-white'
-                      : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700'
-                  }`}
-                >
-                  {d}d
-                </button>
-              ))}
+              {([14, 30, 0] as const).map((d) => {
+                const label =
+                  d === 0
+                    ? days === 0 && data
+                      ? `All · ${data.period_days}d`
+                      : 'All'
+                    : `${d}d`;
+                return (
+                  <button
+                    key={d}
+                    onClick={() => setDays(d)}
+                    className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+                      days === d
+                        ? 'bg-primary-600 text-white'
+                        : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
             </div>
           )}
           {viewMode === 'correlations' && (
@@ -220,7 +229,8 @@ export function CorrelationsView() {
             />
           </div>
           <span className="text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">
-            {data.days_with_data ?? data.oura_days_available} days of data
+            {data.days_with_data ?? data.oura_days_available} days
+            {days === 0 && ' · full history'}
           </span>
         </div>
       )}
@@ -372,7 +382,7 @@ export function CorrelationsView() {
           <span className="font-medium">Data sources used: </span>
           {(data.data_sources_used ?? []).length > 0
             ? (data.data_sources_used ?? []).join(', ')
-            : ['Oura Ring', data.nutrition_days_available > 0 ? 'Nutrition Logs' : null].filter(Boolean).join(', ')
+            : data.nutrition_days_available > 0 ? 'Health Data · Nutrition Logs' : 'Health Data'
           }
           {(data.days_with_data ?? 0) > 0 && ` · ${data.days_with_data} days`}
         </p>

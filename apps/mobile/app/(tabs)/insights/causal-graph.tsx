@@ -119,7 +119,7 @@ function EdgeCard({ edge, index }: { readonly edge: CausalEdge; readonly index: 
 // ─── Screen ────────────────────────────────────────────────────────────────────
 
 export default function CausalGraphScreen() {
-  const [days, setDays] = useState<7 | 14>(14);
+  const [days, setDays] = useState<14 | 30 | 0>(0);
   const [infoOpen, setInfoOpen] = useState(false);
 
   const { data, isLoading, isError, refetch } = useQuery({
@@ -150,18 +150,26 @@ export default function CausalGraphScreen() {
         </View>
         {/* Day selector */}
         <View className="flex-row gap-1 bg-surface-raised border border-surface-border rounded-xl p-1">
-          {([7, 14] as const).map((d) => (
-            <TouchableOpacity
-              key={d}
-              onPress={() => setDays(d)}
-              className="px-3 py-1.5 rounded-lg"
-              style={{ backgroundColor: days === d ? 'rgba(0,212,170,0.12)' : 'transparent' }}
-            >
-              <Text style={{ color: days === d ? '#00D4AA' : '#526380', fontSize: 12, fontWeight: '500' }}>
-                {d}d
-              </Text>
-            </TouchableOpacity>
-          ))}
+          {([14, 30, 0] as const).map((d) => {
+            let label: string;
+            if (d === 0) {
+              label = days === 0 && data ? `All · ${data.days_with_data ?? 0}d` : 'All';
+            } else {
+              label = `${d}d`;
+            }
+            return (
+              <TouchableOpacity
+                key={d}
+                onPress={() => setDays(d)}
+                className="px-3 py-1.5 rounded-lg"
+                style={{ backgroundColor: days === d ? 'rgba(0,212,170,0.12)' : 'transparent' }}
+              >
+                <Text style={{ color: days === d ? '#00D4AA' : '#526380', fontSize: 12, fontWeight: '500' }}>
+                  {label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
         </View>
       </View>
 

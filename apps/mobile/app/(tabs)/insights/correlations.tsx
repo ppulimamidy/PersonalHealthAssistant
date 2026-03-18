@@ -48,7 +48,7 @@ interface CorrelationResults {
   data_sources_used?: string[];
 }
 
-const DAY_OPTIONS = [14, 30] as const;
+const DAY_OPTIONS = [14, 30, 0] as const;
 
 // ─── Correlation Card ─────────────────────────────────────────────────────────
 
@@ -170,7 +170,7 @@ function CorrelationCard({ c }: { c: Correlation }) {
 type ViewTab = 'patterns' | 'causes';
 
 export default function CorrelationsScreen() {
-  const [days, setDays] = useState<14 | 30>(30);
+  const [days, setDays] = useState<14 | 30 | 0>(0);
   const [viewTab, setViewTab] = useState<ViewTab>('patterns');
 
   const { data, isLoading, refetch, isRefetching } = useQuery<CorrelationResults>({
@@ -197,22 +197,30 @@ export default function CorrelationsScreen() {
         {viewTab === 'patterns' && (
           <>
             <View className="flex-row gap-1 mr-2">
-              {DAY_OPTIONS.map((d) => (
-                <TouchableOpacity
-                  key={d}
-                  onPress={() => setDays(d)}
-                  className="px-2.5 py-1 rounded-lg"
-                  style={{
-                    backgroundColor: days === d ? '#00D4AA20' : 'transparent',
-                    borderWidth: 1,
-                    borderColor: days === d ? '#00D4AA' : '#1E2A3B',
-                  }}
-                >
-                  <Text className="text-xs font-sansMedium" style={{ color: days === d ? '#00D4AA' : '#526380' }}>
-                    {d}d
-                  </Text>
-                </TouchableOpacity>
-              ))}
+              {DAY_OPTIONS.map((d) => {
+                let label: string;
+                if (d === 0) {
+                  label = days === 0 && data ? `All · ${data.days_with_data ?? data.oura_days_available}d` : 'All';
+                } else {
+                  label = `${d}d`;
+                }
+                return (
+                  <TouchableOpacity
+                    key={d}
+                    onPress={() => setDays(d)}
+                    className="px-2.5 py-1 rounded-lg"
+                    style={{
+                      backgroundColor: days === d ? '#00D4AA20' : 'transparent',
+                      borderWidth: 1,
+                      borderColor: days === d ? '#00D4AA' : '#1E2A3B',
+                    }}
+                  >
+                    <Text className="text-xs font-sansMedium" style={{ color: days === d ? '#00D4AA' : '#526380' }}>
+                      {label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
             </View>
             <TouchableOpacity onPress={() => refetch()} disabled={isRefetching}>
               <Ionicons name="refresh-outline" size={20} color={isRefetching ? '#526380' : '#00D4AA'} />
@@ -266,6 +274,7 @@ export default function CorrelationsScreen() {
             <View className="flex-row items-center gap-3">
               <Text className="text-[#526380] text-xs">
                 {data.oura_days_available}d wearable · {data.nutrition_days_available}d nutrition
+                {days === 0 ? ' · full history' : ''}
               </Text>
               <View
                 className="w-2.5 h-2.5 rounded-full"
@@ -311,10 +320,12 @@ export default function CorrelationsScreen() {
               <Text className="text-[#526380]">Data sources: </Text>
               {data.data_sources_used && data.data_sources_used.length > 0
                 ? data.data_sources_used.join(', ')
-                : [
-                    data.oura_days_available > 0 ? 'Oura Ring' : null,
-                    data.nutrition_days_available > 0 ? 'Nutrition Logs' : null,
-                  ].filter(Boolean).join(', ') || 'No data sources connected'
+                : data.oura_days_available > 0 || data.nutrition_days_available > 0
+                  ? [
+                      data.oura_days_available > 0 ? 'Health Data' : null,
+                      data.nutrition_days_available > 0 ? 'Nutrition Logs' : null,
+                    ].filter(Boolean).join(', ')
+                  : 'No data sources connected'
               }
               {(data.days_with_data ?? data.oura_days_available) > 0
                 ? ` · ${data.days_with_data ?? data.oura_days_available} days analyzed`

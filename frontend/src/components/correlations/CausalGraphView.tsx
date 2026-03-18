@@ -3,7 +3,6 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent } from '@/components/ui/Card';
-import { Button } from '@/components/ui/Button';
 import { correlationsService } from '@/services/correlations';
 import { useAuth } from '@/hooks/useAuth';
 import { ArrowRight, Info, AlertCircle, ChevronDown } from 'lucide-react';
@@ -54,7 +53,7 @@ const NODE_TYPE_LABEL: Record<string, string> = {
 
 export function CausalGraphView() {
   const { user, isLoading: isAuthLoading } = useAuth(true);
-  const [days, setDays] = useState<7 | 14>(14);
+  const [days, setDays] = useState<14 | 30 | 0>(0);
   const [infoOpen, setInfoOpen] = useState(false);
 
   const { data, isLoading, error } = useQuery({
@@ -155,21 +154,28 @@ export function CausalGraphView() {
             What&apos;s most likely driving your symptoms
           </p>
         </div>
-        <div className="flex gap-2">
-          <Button
-            variant={days === 7 ? 'primary' : 'outline'}
-            size="sm"
-            onClick={() => setDays(7)}
-          >
-            7 Days
-          </Button>
-          <Button
-            variant={days === 14 ? 'primary' : 'outline'}
-            size="sm"
-            onClick={() => setDays(14)}
-          >
-            14 Days
-          </Button>
+        <div className="flex rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
+          {([14, 30, 0] as const).map((d) => {
+            let label: string;
+            if (d === 0) {
+              label = days === 0 && data ? `All · ${data.days_with_data}d` : 'All';
+            } else {
+              label = `${d}d`;
+            }
+            return (
+              <button
+                key={d}
+                onClick={() => setDays(d)}
+                className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+                  days === d
+                    ? 'bg-primary-600 text-white'
+                    : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700'
+                }`}
+              >
+                {label}
+              </button>
+            );
+          })}
         </div>
       </div>
 
