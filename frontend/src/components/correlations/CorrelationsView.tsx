@@ -220,8 +220,7 @@ export function CorrelationsView() {
             />
           </div>
           <span className="text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">
-            {data.oura_days_available} Oura / {data.nutrition_days_available} nutrition
-            days
+            {data.days_with_data ?? data.oura_days_available} days of data
           </span>
         </div>
       )}
@@ -346,6 +345,18 @@ export function CorrelationsView() {
             ))}
           </div>
         </>
+      )}
+
+      {/* Data sources footnote */}
+      {data && (data.data_sources_used?.length > 0 || data.oura_days_available > 0) && (
+        <p className="text-xs text-slate-400 dark:text-slate-500 pt-2 border-t border-slate-100 dark:border-slate-800">
+          <span className="font-medium">Data sources used: </span>
+          {data.data_sources_used?.length > 0
+            ? data.data_sources_used.join(', ')
+            : ['Oura Ring', data.nutrition_days_available > 0 ? 'Nutrition Logs' : null].filter(Boolean).join(', ')
+          }
+          {data.days_with_data > 0 && ` · ${data.days_with_data} days`}
+        </p>
       )}
 
       </>}

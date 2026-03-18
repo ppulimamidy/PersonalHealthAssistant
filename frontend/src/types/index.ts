@@ -539,6 +539,8 @@ export interface CorrelationResults {
   data_quality_score: number;
   oura_days_available: number;
   nutrition_days_available: number;
+  days_with_data?: number;
+  data_sources_used?: string[];
   computed_at: string;
   period_days: number;
 }

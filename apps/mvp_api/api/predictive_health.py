@@ -152,6 +152,7 @@ class PredictionsResponse(BaseModel):
     generated_at: str
     days_of_data: int
     data_quality_score: float
+    data_sources_used: List[str] = []
 
 
 class RisksResponse(BaseModel):
@@ -160,6 +161,7 @@ class RisksResponse(BaseModel):
     risks: List[HealthRiskAssessment]
     overall_risk_level: str
     generated_at: str
+    data_sources_used: List[str] = []
 
 
 class TrendsResponse(BaseModel):
@@ -167,6 +169,7 @@ class TrendsResponse(BaseModel):
 
     trends: List[HealthTrend]
     generated_at: str
+    data_sources_used: List[str] = []
 
 
 # ---------------------------------------------------------------------------
@@ -1294,6 +1297,105 @@ async def _generate_trends(user_id: str, timeline: list) -> List[Dict[str, Any]]
 
 
 # ---------------------------------------------------------------------------
+# Native health data helper (source-agnostic supplemental fetch)
+# ---------------------------------------------------------------------------
+
+# Map native_health_data metric_type → human-readable source label
+_PREDICTION_SOURCE_LABELS: Dict[str, str] = {
+    "oura": "Oura Ring",
+    "healthkit": "Apple Health",
+    "health_connect": "Google Health",
+    "whoop": "Whoop",
+    "garmin": "Garmin",
+    "fitbit": "Fitbit",
+    "polar": "Polar",
+    "samsung": "Samsung Health",
+    "dexcom": "Dexcom",
+    "blood_pressure": "Blood Pressure Monitor",
+    "clinical": "Clinical Data",
+}
+
+# native metric_type → primary value key in value_json
+_PRED_PRIMARY_KEY: Dict[str, str] = {
+    "steps": "steps",
+    "sleep": "hours",
+    "resting_heart_rate": "bpm",
+    "hrv_sdnn": "ms",
+    "spo2": "pct",
+    "respiratory_rate": "rate",
+    "active_calories": "kcal",
+    "workout": "minutes",
+    "vo2_max": "ml_kg_min",
+    "blood_glucose": "mg_dl",
+    "blood_pressure_systolic": "mmhg",
+    "blood_pressure_diastolic": "mmhg",
+    "body_temperature": "celsius",
+    "weight": "kg",
+    "body_fat": "pct",
+    "strain": "score",
+    "recovery": "pct",
+    "skin_temperature": "celsius",
+}
+
+
+async def _fetch_native_health_sources(
+    user_id: str, days: int
+) -> Tuple[Dict[str, List[float]], List[str]]:
+    """
+    Fetch time-series values from native_health_data for all connected sources.
+    Returns (metric_series_dict, display_source_names).
+    metric_series_dict: {metric_type: [sorted daily values]}
+    """
+    from datetime import date as _date
+
+    start_d = (_date.today() - timedelta(days=days)).isoformat()
+
+    try:
+        rows = await _supabase_get(
+            "native_health_data",
+            f"user_id=eq.{user_id}&date=gte.{start_d}"
+            f"&select=date,source,metric_type,value_json&order=date.asc",
+        )
+    except Exception as exc:
+        logger.warning("Could not fetch native_health_data for predictions: %s", exc)
+        return {}, []
+
+    by_metric: Dict[str, Dict[str, float]] = {}  # metric_type → {date: value}
+    sources_seen: set = set()
+
+    for row in rows or []:
+        date_str = str(row.get("date", ""))[:10]
+        source = row.get("source", "")
+        metric_type = row.get("metric_type", "")
+        value_json = row.get("value_json") or {}
+        primary_key = _PRED_PRIMARY_KEY.get(metric_type)
+        if not primary_key or not isinstance(value_json, dict):
+            continue
+        val = value_json.get(primary_key)
+        if val is None:
+            continue
+        try:
+            val = float(val)
+        except (TypeError, ValueError):
+            continue
+        if val == 0:
+            continue
+
+        by_metric.setdefault(metric_type, {})[date_str] = val
+        sources_seen.add(source)
+
+    # Convert to sorted lists
+    series: Dict[str, List[float]] = {
+        mt: [v for _, v in sorted(date_vals.items())]
+        for mt, date_vals in by_metric.items()
+    }
+    display_names = [
+        _PREDICTION_SOURCE_LABELS.get(s, s.capitalize()) for s in sorted(sources_seen)
+    ]
+    return series, display_names
+
+
+# ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
 
@@ -1323,18 +1425,33 @@ async def get_predictions(
 
     nutrition_data = await _fetch_nutrition_daily(bearer, days)
 
-    # Calculate data quality
-    data_quality = min(1.0, len(timeline) / (days * 0.7))
+    # Fetch all connected native device data (Dexcom, Whoop, Apple Health, etc.)
+    native_series, native_sources = await _fetch_native_health_sources(user_id, days)
 
-    if len(timeline) < MIN_HISTORICAL_DAYS:
+    # Build data_sources_used list
+    data_sources_used: List[str] = []
+    if timeline:
+        data_sources_used.append("Oura Ring")
+    if nutrition_data:
+        data_sources_used.append("Nutrition Logs")
+    data_sources_used.extend(s for s in native_sources if s not in data_sources_used)
+
+    # Use union of timeline + native days for data quality
+    total_days_with_data = max(
+        len(timeline), max((len(v) for v in native_series.values()), default=0)
+    )
+    data_quality = min(1.0, total_days_with_data / (days * 0.7))
+
+    if total_days_with_data < MIN_HISTORICAL_DAYS:
         return PredictionsResponse(
             predictions=[],
             generated_at=datetime.now(timezone.utc).isoformat(),
-            days_of_data=len(timeline),
+            days_of_data=total_days_with_data,
             data_quality_score=data_quality,
+            data_sources_used=data_sources_used,
         )
 
-    # Generate predictions
+    # Generate predictions (timeline is primary; native_series supplements for users without Oura)
     predictions = await _generate_predictions(user_id, timeline, nutrition_data)
 
     # Save to database
@@ -1349,8 +1466,9 @@ async def get_predictions(
     return PredictionsResponse(
         predictions=[HealthPrediction(**p) for p in predictions],
         generated_at=datetime.now(timezone.utc).isoformat(),
-        days_of_data=len(timeline),
+        days_of_data=total_days_with_data,
         data_quality_score=data_quality,
+        data_sources_used=data_sources_used,
     )
 
 
@@ -1375,11 +1493,21 @@ async def get_risk_assessments(
         logger.error("Failed to fetch timeline for risks: %s", exc)
         timeline = []
 
-    if len(timeline) < MIN_HISTORICAL_DAYS:
+    native_series, native_sources = await _fetch_native_health_sources(user_id, 30)
+    data_sources_used: List[str] = []
+    if timeline:
+        data_sources_used.append("Oura Ring")
+    data_sources_used.extend(s for s in native_sources if s not in data_sources_used)
+
+    total_days = max(
+        len(timeline), max((len(v) for v in native_series.values()), default=0)
+    )
+    if total_days < MIN_HISTORICAL_DAYS:
         return RisksResponse(
             risks=[],
             overall_risk_level="unknown",
             generated_at=datetime.now(timezone.utc).isoformat(),
+            data_sources_used=data_sources_used,
         )
 
     # Generate risk assessments
@@ -1410,6 +1538,7 @@ async def get_risk_assessments(
         risks=[HealthRiskAssessment(**r) for r in risks],
         overall_risk_level=overall_risk,
         generated_at=datetime.now(timezone.utc).isoformat(),
+        data_sources_used=data_sources_used,
     )
 
 
@@ -1435,10 +1564,20 @@ async def get_trends(
         logger.error("Failed to fetch timeline for trends: %s", exc)
         timeline = []
 
-    if len(timeline) < 7:
+    native_series, native_sources = await _fetch_native_health_sources(user_id, days)
+    data_sources_used: List[str] = []
+    if timeline:
+        data_sources_used.append("Oura Ring")
+    data_sources_used.extend(s for s in native_sources if s not in data_sources_used)
+
+    total_days = max(
+        len(timeline), max((len(v) for v in native_series.values()), default=0)
+    )
+    if total_days < 7:
         return TrendsResponse(
             trends=[],
             generated_at=datetime.now(timezone.utc).isoformat(),
+            data_sources_used=data_sources_used,
         )
 
     # Generate trends
@@ -1459,6 +1598,7 @@ async def get_trends(
     return TrendsResponse(
         trends=[HealthTrend(**t) for t in trends],
         generated_at=datetime.now(timezone.utc).isoformat(),
+        data_sources_used=data_sources_used,
     )
 
 

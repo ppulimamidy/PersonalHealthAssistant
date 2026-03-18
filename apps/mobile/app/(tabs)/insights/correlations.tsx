@@ -44,6 +44,8 @@ interface CorrelationResults {
   data_quality_score: number;
   oura_days_available: number;
   nutrition_days_available: number;
+  days_with_data?: number;
+  data_sources_used?: string[];
 }
 
 const DAY_OPTIONS = [14, 30] as const;
@@ -300,6 +302,25 @@ export default function CorrelationsScreen() {
           </View>
         ) : (
           correlations.map((c) => <CorrelationCard key={c.id} c={c} />)
+        )}
+
+        {/* Data sources footnote */}
+        {data && (
+          <View className="mt-4 pt-4 border-t border-surface-border">
+            <Text className="text-[#3D4F66] text-xs leading-4">
+              <Text className="text-[#526380]">Data sources: </Text>
+              {data.data_sources_used && data.data_sources_used.length > 0
+                ? data.data_sources_used.join(', ')
+                : [
+                    data.oura_days_available > 0 ? 'Oura Ring' : null,
+                    data.nutrition_days_available > 0 ? 'Nutrition Logs' : null,
+                  ].filter(Boolean).join(', ') || 'No data sources connected'
+              }
+              {(data.days_with_data ?? data.oura_days_available) > 0
+                ? ` · ${data.days_with_data ?? data.oura_days_available} days analyzed`
+                : ''}
+            </Text>
+          </View>
         )}
       </View>
     </ScrollView>
