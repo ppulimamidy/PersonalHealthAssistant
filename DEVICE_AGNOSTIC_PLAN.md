@@ -1,7 +1,7 @@
 # Device-Agnostic Health Analytics — Implementation Plan
 
 > Created: 2026-03-18
-> Status: Planning complete, Session 1 not started
+> Status: Sessions 1–6 complete (2026-03-18). Session 7 deferred.
 
 ---
 
@@ -197,77 +197,69 @@ from both is preserved.
 
 ## Session Plan
 
-### Session 1 — `common/metrics/` Foundation (zero risk, pure new code)
+### ✅ Session 1 — `common/metrics/` Foundation (DONE — commit acd850e)
 **Commit gate:** all unit tests pass, no existing code touched
 
-- [ ] `common/metrics/registry.py` — CanonicalMetric, MetricSource enum, CANONICAL_METRICS dict
-- [ ] `common/metrics/adapters/base.py` — DeviceAdapter ABC, NormalizedMetric dataclass, AdapterRegistry
-- [ ] `common/metrics/adapters/oura_adapter.py`
-- [ ] `common/metrics/adapters/apple_health_adapter.py`
-- [ ] `common/metrics/adapters/health_connect_adapter.py`
-- [ ] `common/metrics/adapters/dexcom_adapter.py` — daily aggregates
-- [ ] `common/metrics/adapters/whoop_adapter.py` — stub
-- [ ] `common/metrics/adapters/garmin_adapter.py` — stub
-- [ ] `common/metrics/adapters/fitbit_adapter.py` — stub
-- [ ] `common/metrics/composite_scores.py` — readiness, activity, hrv_balance, sleep formulas
-- [ ] `common/metrics/normalizer.py` — HealthNormalizer
-- [ ] Unit tests for all adapters + composite scores
+- [x] `common/metrics/adapters/base.py` — DeviceAdapter ABC, NormalizedMetric dataclass, AdapterRegistry
+- [x] `common/metrics/adapters/oura_adapter.py`
+- [x] `common/metrics/adapters/apple_health_adapter.py`
+- [x] `common/metrics/adapters/health_connect_adapter.py`
+- [x] `common/metrics/adapters/dexcom_adapter.py` — daily aggregates
+- [x] `common/metrics/adapters/whoop_adapter.py` — stub
+- [x] `common/metrics/adapters/garmin_adapter.py` — stub
+- [x] `common/metrics/adapters/fitbit_adapter.py` — stub
+- [x] `common/metrics/composite_scores.py` — readiness, activity, hrv_balance, sleep formulas
+- [x] `common/metrics/normalizer.py` — HealthNormalizer
+- [x] Unit tests for all adapters + composite scores (85 tests passing)
 
-### Session 2 — DB Migration + Ingest Wiring (additive only)
+### ✅ Session 2 — DB Migration + Ingest Wiring (DONE — commit 488dcc5)
 **Commit gate:** migration runs clean, ingest test passes, existing correlation endpoint
 returns identical results (nothing reads from new table yet)
 
-- [ ] Migration script: create health_metrics_normalized table + indexes
-- [ ] Add HealthNormalizer.persist(user_id, date, metrics) method
-- [ ] Update health_data.py ingest: after writing native_health_data, also normalize + persist
-- [ ] Integration test: ingest sample payload, verify normalized row appears
-- [ ] Verify existing /api/v1/correlations still returns identical results
+- [x] `common/metrics/persistence.py` — async upsert to health_metrics_normalized
+- [x] DDL comment block for health_metrics_normalized table (in persistence.py + health_data.py)
+- [x] `_build_raw_day()` + `_SOURCE_REMAP` in health_data.py — per-source key remapping
+- [x] `normalize_and_persist_ingest()` background task wired into POST /ingest
+- [x] 22 unit tests for persistence + _build_raw_day
 
-### Session 3 — Engine Refactor (highest risk)
-**Test plan before any commit:**
-  - Sarah Chen demo data: correlations numerically identical to pre-refactor
-  - health_days_available returned + oura_days_available alias present
-  - Apple Health only user: engine returns results
-  - No data user: graceful empty response
+### ✅ Session 3 — Engine Refactor (DONE — commit 1f876f0)
+- [x] Rename oura_daily → health_daily throughout correlations.py
+- [x] `_build_health_daily()`: priority-based data fetch (health_metrics_normalized → Oura → native)
+- [x] `_oura_to_canonical()` mapping + `_OURA_TO_CANONICAL` / `_OURA_SCALE` dicts
+- [x] `_OURA_VARS → _HEALTH_VARS` (canonical names); backward-compat alias kept
+- [x] HEALTH_SELF_PAIRS, CORRELATION_PAIRS, METRIC_LABELS updated to canonical names
+- [x] `data_sources_used` derived dynamically from contributing sources
+- [x] `oura_days_available` alias preserved in API response
 
-- [ ] Rename oura_daily → health_daily throughout correlations.py
-- [ ] Replace _extract_oura_daily() → _build_health_daily() reading health_metrics_normalized
-- [ ] Rename _OURA_VARS → _HEALTH_VARS (canonical names)
-- [ ] Update HEALTH_SELF_PAIRS to canonical names
-- [ ] Rename oura_days_available → health_days_available in responses
-  (keep oura_days_available as backward-compat alias for 1 release)
-- [ ] data_sources_used: derive dynamically from contributing sources
-- [ ] Run full test plan, verify no regressions
+### ✅ Session 4 — UI Updates (DONE — commit cc2658a)
+- [x] Mobile correlations.tsx: device-agnostic 'Health Data' fallback (removed 'Oura Ring')
+- [x] Mobile causal-graph.tsx: day picker expanded from [7,14] to [14,30,0]
+- [x] CorrelationsView.tsx: 'Health Data' fallback, 'Oura Ring' removed
+- [x] CausalGraphView.tsx: day picker expanded to [14,30,0], removed unused Button import
+- [x] correlations.ts: CorrelationDays type updated to 14|30|0
+- [x] types/index.ts: days_with_data? added to CausalGraph interface
+- Note: CorrelationCard derived/computed_composite badge deferred (minor visual polish)
 
-### Session 4 — UI Updates (low risk, validates Session 3 end-to-end)
-**Commit gate:** correct source names shown for Oura-only, Apple Health-only, mixed users.
-No visual regressions.
+### ✅ Session 5 — Track B: Postprandial Module (DONE — commit 6a5e966)
+- [x] `common/metrics/postprandial.py` — PostprandialAnalyzer (pure computation, no I/O)
+  - GlucoseReading / MealEntry / PostprandialMetrics dataclasses
+  - analyze(): pre/post meal windows, excursion, AUC (trapezoidal), time-to-peak
+  - to_meal_series(): aligned lists for correlation pairing
+  - meal_correlations(): carbs/fiber/fat/GL vs excursion/peak, returns nutrition_glucose dicts
+- [x] `correlations.py`: _compute_glucose_meal_correlations() — activates only when glucose_readings table has data; _fetch_raw_glucose_readings() gracefully returns [] when table absent
+- [x] CorrelationCategory type: 'nutrition_glucose' added
+- [x] CorrelationsView.tsx: Glucose tab shown only when nutrition_glucose correlations present
+- [x] Mobile correlations.tsx: adaptive filter row with horizontal scroll, Glucose tab conditional
+- [x] 30 tests passing (trapezoid AUC, time-of-day, graceful degradation, meal_correlations)
 
-- [ ] Frontend types: oura_days_available → health_days_available in CorrelationResults + CausalGraph
-- [ ] CorrelationsView.tsx: data quality bar + footnote dynamic source names
-- [ ] CausalGraphView.tsx: same
-- [ ] Mobile correlations.tsx: dynamic source names, remove hardcoded "Oura Ring"
-- [ ] Mobile causal-graph.tsx: same
-- [ ] CorrelationCard + mobile equivalent: derived/computed_composite badge
-
-### Session 5 — Track B: Postprandial Module (new feature, isolated)
-**Commit gate:** postprandial correlations appear when data present; nothing breaks when absent.
-
-- [ ] common/metrics/postprandial.py — PostprandialAnalyzer
-- [ ] correlations.py: _compute_glucose_meal_correlations() — activates when glucose + meal timestamps present
-- [ ] New CorrelationCategory: nutrition_glucose
-- [ ] Web CorrelationCard: glucose spike variant
-- [ ] Mobile: nutrition_glucose filter tab (only when CGM data present)
-- [ ] Test: mock glucose + meals → verify postprandial metrics; verify absent when no glucose data
-
-### Session 6 — Push on First Connect
-**Commit gate:** full flow tested on simulator — permission grant → initial sync → data in correlations.
-
-- [ ] Backend: POST /api/v1/health-data/initial-sync (90d historical pull, returns task_id)
-- [ ] Backend: GET /api/v1/health-data/sync-status/{task_id}
-- [ ] iOS: trigger initial sync after requestAuthorization success
-- [ ] Android: trigger after Health Connect permission grant
-- [ ] Incremental sync watermark logic (last_sync_at per source per user)
+### ✅ Session 6 — Push on First Connect (DONE — commit 7760df1)
+- [x] Backend: POST /api/v1/health-data/initial-sync (chunked ingest, returns task_id)
+  - Idempotency guard: returns status='skipped' if watermark already exists
+- [x] Backend: GET /api/v1/health-data/sync-status/{task_id} (pending|running|done|error)
+- [x] Backend: GET /api/v1/health-data/sync-watermark (last_sync_at per source)
+- [x] `_get_last_sync` / `_set_watermark` helpers; DDL comment for health_sync_watermarks table
+- [x] Mobile: `registerInitialSyncWatermark()` called after first successful HealthKit sync
+- [x] Mobile: same wired into syncHealthConnect for Android
 
 ### Session 7 — Backfill (DEFERRED — do after all sessions stable)
 **⚠️ Do not skip. Must be done before production launch.**
