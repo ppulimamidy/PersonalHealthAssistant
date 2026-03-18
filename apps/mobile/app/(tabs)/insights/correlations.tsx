@@ -168,10 +168,19 @@ function CorrelationCard({ c }: { c: Correlation }) {
 // ─── Screen ────────────────────────────────────────────────────────────────────
 
 type ViewTab = 'patterns' | 'causes';
+type FilterCategory = 'all' | 'nutrition_sleep' | 'nutrition_readiness' | 'nutrition_activity' | 'nutrition_glucose';
+
+const CATEGORY_FILTERS: { value: FilterCategory; label: string }[] = [
+  { value: 'all', label: 'All' },
+  { value: 'nutrition_sleep', label: 'Sleep' },
+  { value: 'nutrition_readiness', label: 'Recovery' },
+  { value: 'nutrition_activity', label: 'Activity' },
+];
 
 export default function CorrelationsScreen() {
   const [days, setDays] = useState<14 | 30 | 0>(0);
   const [viewTab, setViewTab] = useState<ViewTab>('patterns');
+  const [filterCat, setFilterCat] = useState<FilterCategory>('all');
 
   const { data, isLoading, refetch, isRefetching } = useQuery<CorrelationResults>({
     queryKey: ['correlations', days],
@@ -181,7 +190,13 @@ export default function CorrelationsScreen() {
     },
   });
 
-  const correlations = data?.correlations ?? [];
+  const allCorrelations = data?.correlations ?? [];
+  const hasGlucose = allCorrelations.some((c) => c.category === 'nutrition_glucose');
+  const visibleFilters = hasGlucose
+    ? [...CATEGORY_FILTERS, { value: 'nutrition_glucose' as FilterCategory, label: 'Glucose' }]
+    : CATEGORY_FILTERS;
+  const correlations =
+    filterCat === 'all' ? allCorrelations : allCorrelations.filter((c) => c.category === filterCat);
 
   return (
     <ScrollView className="flex-1 bg-obsidian-900" contentContainerStyle={{ paddingBottom: 40 }}>
@@ -297,6 +312,30 @@ export default function CorrelationsScreen() {
             </View>
             <Text className="text-[#E8EDF5] text-sm leading-5">{data.summary}</Text>
           </View>
+        )}
+
+        {/* Category filter tabs — shown when correlations exist */}
+        {!isLoading && allCorrelations.length > 0 && (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} className="mb-4 -mx-1">
+            <View className="flex-row gap-1.5 px-1">
+              {visibleFilters.map((f) => (
+                <TouchableOpacity
+                  key={f.value}
+                  onPress={() => setFilterCat(f.value)}
+                  className="px-3 py-1.5 rounded-lg"
+                  style={{
+                    backgroundColor: filterCat === f.value ? '#00D4AA20' : 'rgba(255,255,255,0.04)',
+                    borderWidth: 1,
+                    borderColor: filterCat === f.value ? '#00D4AA' : '#1E2A3B',
+                  }}
+                >
+                  <Text className="text-xs font-sansMedium" style={{ color: filterCat === f.value ? '#00D4AA' : '#526380' }}>
+                    {f.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </ScrollView>
         )}
 
         {isLoading ? (

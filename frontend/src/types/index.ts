@@ -508,7 +508,7 @@ export interface ReferralStats extends ReferralInfo {
 // Correlation Engine types
 export type CorrelationStrength = 'strong' | 'moderate' | 'weak';
 export type CorrelationDirection = 'positive' | 'negative';
-export type CorrelationCategory = 'nutrition_sleep' | 'nutrition_readiness' | 'nutrition_activity';
+export type CorrelationCategory = 'nutrition_sleep' | 'nutrition_readiness' | 'nutrition_activity' | 'nutrition_glucose';
 
 export interface CorrelationDataPoint {
   date: string;

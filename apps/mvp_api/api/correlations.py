@@ -356,6 +356,11 @@ METRIC_LABELS: Dict[str, str] = {
     "time_in_range_pct": "Time in Range (%)",
     "glucose_variability_cv": "Glucose Variability (CV%)",
     "glucose_spikes_count": "Glucose Spikes",
+    # Track B postprandial metrics
+    "postprandial_excursion_mgdl": "Glucose Spike (mg/dL)",
+    "postprandial_peak_mgdl": "Peak Post-Meal Glucose (mg/dL)",
+    "postprandial_auc": "Glucose AUC (mg·min/dL)",
+    "time_to_peak_min": "Time to Glucose Peak (min)",
     "blood_pressure_systolic_mmhg": "Systolic BP (mmHg)",
     "blood_pressure_diastolic_mmhg": "Diastolic BP (mmHg)",
 }
@@ -2137,6 +2142,187 @@ async def _save_to_cache(
 
 
 # ---------------------------------------------------------------------------
+# Track B: Postprandial glucose-meal correlations
+# ---------------------------------------------------------------------------
+
+_GLUCOSE_DAILY_METRICS = frozenset(
+    {
+        "avg_glucose_mgdl",
+        "peak_glucose_mgdl",
+        "time_in_range_pct",
+        "glucose_variability_cv",
+        "glucose_spikes_count",
+    }
+)
+
+
+async def _fetch_meal_logs_raw(bearer: Optional[str], days: int) -> list:
+    """
+    Fetch individual meal log entries with timestamps from the nutrition service.
+    Returns a list of raw meal dicts (not daily-aggregated).
+    Empty list on error or when service unreachable.
+    """
+    end_d = date.today()
+    start_d = end_d - timedelta(days=days)
+    url = (
+        f"{NUTRITION_SERVICE_URL}/api/v1/nutrition/nutrition-history"
+        f"?start_date={start_d.isoformat()}&end_date={end_d.isoformat()}"
+    )
+    headers: Dict[str, str] = {}
+    if bearer:
+        headers["Authorization"] = bearer
+
+    timeout = aiohttp.ClientTimeout(total=NUTRITION_TIMEOUT_S)
+    try:
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.get(url, headers=headers) as resp:
+                if resp.status != 200:
+                    return []
+                payload = await resp.json()
+    except (aiohttp.ClientError, TimeoutError):
+        return []
+
+    if isinstance(payload, dict):
+        if payload.get("success") and "data" in payload:
+            return payload["data"] if isinstance(payload["data"], list) else []
+        if "items" in payload:
+            return payload["items"] if isinstance(payload["items"], list) else []
+    return payload if isinstance(payload, list) else []
+
+
+async def _fetch_raw_glucose_readings(user_id: str, days: int) -> list:
+    """
+    Fetch sub-daily glucose readings from the glucose_readings table (if it exists).
+    Returns [] when the table doesn't exist or no data is present — callers must
+    handle the empty case gracefully (Track B disabled).
+
+    Each row has: {timestamp: str, mg_dl: float, source: str}
+    """
+    from datetime import date as _date
+
+    start_d = (_date.today() - timedelta(days=days)).isoformat()
+    try:
+        rows = await _supabase_get(
+            "glucose_readings",
+            f"user_id=eq.{user_id}&timestamp=gte.{start_d}"
+            f"&select=timestamp,mg_dl,source&order=timestamp.asc",
+        )
+        return rows or []
+    except Exception:  # pylint: disable=broad-except
+        # Table likely doesn't exist yet — not an error, just no Track B data
+        return []
+
+
+async def _compute_glucose_meal_correlations(
+    bearer: Optional[str],
+    user_id: str,
+    fetch_days: int,
+    health_daily: Dict[str, Dict[str, float]],
+) -> List[Dict[str, Any]]:
+    """
+    Track B: per-meal postprandial correlations.
+
+    Activates only when:
+    1. Glucose data is present in health_daily (daily aggregates or CGM), AND
+    2. Meal logs with timestamps are available from the nutrition service.
+
+    Two paths:
+    A. Raw CGM readings available (glucose_readings table) → full postprandial analysis
+    B. Daily averages only → degrade gracefully, skip Track B (daily correlations
+       are already handled by _build_dynamic_native_pairs in Track A).
+
+    Returns list of correlation dicts (may be empty).
+    """
+    from datetime import datetime as _dt
+
+    # Guard: no glucose data at all → skip
+    has_glucose = any(
+        any(k in day_metrics for k in _GLUCOSE_DAILY_METRICS)
+        for day_metrics in health_daily.values()
+    )
+    if not has_glucose:
+        return []
+
+    # Fetch raw CGM readings (Track B path)
+    raw_rows = await _fetch_raw_glucose_readings(user_id, fetch_days)
+    if not raw_rows:
+        # No minute-level CGM data; daily correlations already handled in Track A.
+        return []
+
+    from common.metrics.postprandial import (
+        GlucoseReading,
+        MealEntry,
+        PostprandialAnalyzer,
+    )
+
+    # Build GlucoseReading list
+    glucose_readings = []
+    for row in raw_rows:
+        ts_raw = row.get("timestamp", "")
+        mg_dl = row.get("mg_dl")
+        if not ts_raw or mg_dl is None:
+            continue
+        try:
+            ts = _dt.fromisoformat(str(ts_raw).replace("Z", "+00:00"))
+            glucose_readings.append(GlucoseReading(timestamp=ts, mg_dl=float(mg_dl)))
+        except (ValueError, TypeError):
+            continue
+
+    if not glucose_readings:
+        return []
+
+    # Fetch individual meal logs (with timestamps)
+    raw_meals = await _fetch_meal_logs_raw(bearer, fetch_days)
+    meal_entries: List[Any] = []
+    for meal in raw_meals:
+        ts_raw = meal.get("timestamp") or meal.get("date") or ""
+        if not ts_raw or len(ts_raw) < 13:
+            continue  # No time component — can't do postprandial analysis
+        try:
+            ts = _dt.fromisoformat(str(ts_raw).replace("Z", "+00:00"))
+            carbs = float(meal.get("total_carbs_g") or 0)
+            fiber = float(meal.get("total_fiber_g") or 0)
+            meal_entries.append(
+                MealEntry(
+                    meal_id=str(
+                        meal.get("id")
+                        or meal.get("meal_id")
+                        or f"meal_{len(meal_entries)}"
+                    ),
+                    timestamp=ts,
+                    total_carbs_g=carbs,
+                    total_fiber_g=fiber,
+                    total_fat_g=float(meal.get("total_fat_g") or 0),
+                    total_protein_g=float(meal.get("total_protein_g") or 0),
+                    total_calories=float(meal.get("total_calories") or 0),
+                    glycemic_load_est=max(0.0, carbs - fiber),
+                )
+            )
+        except (ValueError, TypeError):
+            continue
+
+    if not meal_entries:
+        return []
+
+    analyzer = PostprandialAnalyzer()
+    pp_metrics = analyzer.analyze(glucose_readings, meal_entries)
+    if not pp_metrics:
+        return []
+
+    logger.info(
+        "Track B postprandial: %d meals analyzed for user %s", len(pp_metrics), user_id
+    )
+
+    # Filter by significance (|r| >= 0.4, p < 0.10) — same as main engine defaults
+    all_corrs = analyzer.meal_correlations(pp_metrics)
+    return [
+        c
+        for c in all_corrs
+        if abs(c["correlation_coefficient"]) >= 0.4 and c["p_value"] < 0.10
+    ]
+
+
+# ---------------------------------------------------------------------------
 # Main computation orchestrator
 # ---------------------------------------------------------------------------
 
@@ -2201,7 +2387,16 @@ async def _compute_and_cache(
         for date_str, lab_metrics in lab_daily.items():
             health_daily.setdefault(date_str, {}).update(lab_metrics)
 
-    # 4d. Active conditions context for AI (variable prioritisation already handled in step 6)
+    # 4d. Track B: postprandial glucose-meal correlations (activates only when CGM data present)
+    glucose_meal_correlations = await _compute_glucose_meal_correlations(
+        bearer, user_id, fetch_days, health_daily
+    )
+    if glucose_meal_correlations:
+        data_sources_used = list(
+            dict.fromkeys(data_sources_used + ["CGM / Glucose Monitor"])
+        )
+
+    # 4e. Active conditions context for AI (variable prioritisation already handled in step 6)
     conditions_context = await _fetch_conditions_context(user_id)
 
     # 5. Compute data quality
@@ -2329,7 +2524,7 @@ async def _compute_and_cache(
             user_id,
         )
 
-    # 8. Compute correlations
+    # 8. Compute correlations (Track A) + merge Track B postprandial results
     raw_correlations = _compute_correlations(
         nutrition_daily,
         health_daily,
@@ -2337,6 +2532,16 @@ async def _compute_and_cache(
         learned_priors,
         dynamic_native_pairs,
     )
+
+    # Merge Track B glucose-meal correlations (deduplicate by metric pair key)
+    if glucose_meal_correlations:
+        track_a_keys = {(c["metric_a"], c["metric_b"]) for c in raw_correlations}
+        for c in glucose_meal_correlations:
+            if (c["metric_a"], c["metric_b"]) not in track_a_keys:
+                raw_correlations.append(c)
+        raw_correlations.sort(
+            key=lambda c: abs(c["correlation_coefficient"]), reverse=True
+        )
 
     # 9. AI summary (pass all data sources + user health profile so Claude can personalise)
     user_context = {

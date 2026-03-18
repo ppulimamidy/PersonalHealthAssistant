@@ -79,6 +79,10 @@ export function CorrelationsView() {
     },
   });
 
+  const visibleTabs = (data?.correlations ?? []).some((c) => c.category === 'nutrition_glucose')
+    ? [...TABS, { value: 'nutrition_glucose' as FilterTab, label: 'Glucose' }]
+    : TABS;
+
   const filtered =
     activeTab === 'all'
       ? data?.correlations ?? []
@@ -344,7 +348,7 @@ export function CorrelationsView() {
       {data && data.correlations.length > 0 && (
         <>
           <div className="flex gap-1 border-b border-slate-200 dark:border-slate-700">
-            {TABS.map((tab) => {
+            {visibleTabs.map((tab) => {
               const count =
                 tab.value === 'all'
                   ? data.correlations.length
