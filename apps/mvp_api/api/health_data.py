@@ -154,6 +154,116 @@ _PRIMARY_KEY: Dict[str, str] = {
 
 
 # ---------------------------------------------------------------------------
+# Session 2: DDL for health_metrics_normalized
+# (Run once in Supabase SQL editor — or execute via migration script)
+# ---------------------------------------------------------------------------
+# CREATE TABLE IF NOT EXISTS public.health_metrics_normalized (
+#     id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+#     user_id          UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+#     date             DATE NOT NULL,
+#     canonical_metric TEXT NOT NULL,
+#     value            FLOAT NOT NULL,
+#     source           TEXT NOT NULL,
+#     source_type      TEXT NOT NULL
+#         CHECK (source_type IN ('direct', 'derived', 'computed_composite')),
+#     raw_metric       TEXT,
+#     confidence       FLOAT NOT NULL DEFAULT 1.0,
+#     computed_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+#     UNIQUE (user_id, date, canonical_metric, source)
+# );
+# CREATE INDEX IF NOT EXISTS idx_hmn_user_date
+#     ON public.health_metrics_normalized (user_id, date DESC);
+# CREATE INDEX IF NOT EXISTS idx_hmn_user_metric
+#     ON public.health_metrics_normalized (user_id, canonical_metric, date DESC);
+# ALTER TABLE public.health_metrics_normalized ENABLE ROW LEVEL SECURITY;
+# CREATE POLICY "own normalized metrics" ON public.health_metrics_normalized
+#     FOR ALL USING (auth.uid() = user_id)
+#     WITH CHECK  (auth.uid() = user_id);
+# ---------------------------------------------------------------------------
+
+# Mapping from (source, metric_type) → (value_json_key, adapter_raw_key)
+# Used by _build_raw_day() to reconstruct the flat dict each DeviceAdapter expects.
+#   value_json_key  — the key to extract from native_health_data.value_json
+#   adapter_raw_key — the key to use in the raw_day dict passed to the adapter
+_HEALTHKIT_REMAP: Dict[str, tuple] = {
+    "steps": ("steps", "steps"),
+    "sleep": ("hours", "sleep_hours"),
+    "resting_heart_rate": ("bpm", "resting_heart_rate"),
+    "hrv_sdnn": ("ms", "hrv_sdnn_ms"),
+    "spo2": ("pct", "spo2_pct"),
+    "respiratory_rate": ("rate", "respiratory_rate"),
+    "active_calories": ("kcal", "active_calories_kcal"),
+    "workout": ("minutes", "workout_minutes"),
+    "vo2_max": ("ml_kg_min", "vo2_max"),
+    "blood_glucose": ("mg_dl", "blood_glucose_mgdl"),
+    "blood_pressure_systolic": ("mmhg", "blood_pressure_systolic_mmhg"),
+    "blood_pressure_diastolic": ("mmhg", "blood_pressure_diastolic_mmhg"),
+    "body_temperature": ("celsius", "body_temperature_c"),
+    "weight": ("kg", "weight_kg"),
+    "body_fat": ("pct", "body_fat_pct"),
+}
+
+_HEALTH_CONNECT_REMAP: Dict[str, tuple] = {
+    **_HEALTHKIT_REMAP,
+    "hrv_sdnn": ("ms", "hrv_rmssd_ms"),  # Health Connect uses RMSSD
+    "hrv_rmssd": ("ms", "hrv_rmssd_ms"),  # explicit RMSSD key
+    "stress_score": ("score", "stress_score"),
+}
+
+_DEXCOM_REMAP: Dict[str, tuple] = {
+    "blood_glucose": ("mg_dl", "blood_glucose_mgdl"),
+    "avg_glucose": ("mg_dl", "avg_glucose_mgdl"),
+    "peak_glucose": ("mg_dl", "peak_glucose_mgdl"),
+    "time_in_range": ("pct", "time_in_range_pct"),
+    "glucose_variability": ("cv", "glucose_variability_cv"),
+    "glucose_spikes": ("count", "glucose_spikes_count"),
+}
+
+_SOURCE_REMAP: Dict[str, Dict[str, tuple]] = {
+    "healthkit": _HEALTHKIT_REMAP,
+    "health_connect": _HEALTH_CONNECT_REMAP,
+    "dexcom": _DEXCOM_REMAP,
+}
+
+
+def _build_raw_day(
+    source: str, data_points: List["HealthDataPoint"]
+) -> Dict[str, Dict[str, Any]]:
+    """
+    Group *data_points* by date and produce a flat adapter-ready raw_day
+    dict for each date.
+
+    Returns ``{date_str: {adapter_raw_key: scalar_value, ...}, ...}``.
+    """
+    remap = _SOURCE_REMAP.get(source, {})
+    by_date: Dict[str, Dict[str, Any]] = {}
+
+    for dp in data_points:
+        day = by_date.setdefault(dp.date, {})
+        vj = dp.value_json if isinstance(dp.value_json, dict) else {}
+
+        mapping = remap.get(dp.metric_type)
+        if mapping:
+            vj_key, adapter_key = mapping
+            if vj_key in vj:
+                try:
+                    day[adapter_key] = float(vj[vj_key])
+                except (TypeError, ValueError):
+                    pass
+        else:
+            # Fallback: extract any numeric value from value_json
+            # and key it by metric_type (handles future or unknown metrics)
+            for vj_val in vj.values():
+                try:
+                    day[dp.metric_type] = float(vj_val)
+                    break
+                except (TypeError, ValueError):
+                    pass
+
+    return by_date
+
+
+# ---------------------------------------------------------------------------
 # Models
 # ---------------------------------------------------------------------------
 
@@ -273,6 +383,10 @@ async def ingest_health_data(
     # Recompute summaries in the background (non-blocking)
     if accepted > 0:
         background_tasks.add_task(recompute_summaries, user_id)
+        # Session 2: also normalize + persist to health_metrics_normalized
+        background_tasks.add_task(
+            normalize_and_persist_ingest, user_id, body.source, body.data_points
+        )
 
     return HealthIngestResponse(
         accepted=accepted,
@@ -577,6 +691,66 @@ async def recompute_summaries(user_id: str) -> None:
         logger.info("Summaries recomputed user=%s metrics=%d", user_id, len(summaries))
     except Exception as exc:  # pylint: disable=broad-except
         logger.error("recompute_summaries failed user=%s: %s", user_id, exc)
+
+
+# ---------------------------------------------------------------------------
+# Session 2: normalize ingest data → health_metrics_normalized
+# ---------------------------------------------------------------------------
+
+
+async def normalize_and_persist_ingest(
+    user_id: str,
+    source: str,
+    data_points: List[HealthDataPoint],
+) -> None:
+    """
+    Background task: convert raw ingest data_points into canonical
+    NormalizedMetric objects and persist to ``health_metrics_normalized``.
+
+    Only runs for sources with a registered DeviceAdapter
+    (healthkit, health_connect, dexcom).  Unrecognised sources are
+    silently skipped — existing Oura data flows through the Oura
+    polling endpoint (Session 3 will unify the two paths).
+    """
+    from common.metrics.normalizer import HealthNormalizer  # late import avoids cycles
+    from common.metrics.persistence import persist_normalized_metrics
+
+    try:
+        by_date = _build_raw_day(source, data_points)
+        if not by_date:
+            return
+
+        normalizer = HealthNormalizer()
+        total_rows = 0
+
+        for date_str, raw_day in by_date.items():
+            if not raw_day:
+                continue
+
+            # Phase 2: pass empty baseline — composite scores that need
+            # rolling history (hrv_balance, readiness) will be computed
+            # once health_metrics_normalized has 14+ days (Session 3+).
+            metrics = normalizer.normalize(
+                source=source,
+                raw_day=raw_day,
+                date=date_str,
+                user_baseline={},
+            )
+            if metrics:
+                n = await persist_normalized_metrics(user_id, date_str, metrics)
+                total_rows += n
+
+        logger.info(
+            "normalize_and_persist: user=%s source=%s dates=%d rows=%d",
+            user_id,
+            source,
+            len(by_date),
+            total_rows,
+        )
+    except Exception as exc:  # pylint: disable=broad-except
+        logger.error(
+            "normalize_and_persist failed user=%s source=%s: %s", user_id, source, exc
+        )
 
 
 @router.get("/summaries")
