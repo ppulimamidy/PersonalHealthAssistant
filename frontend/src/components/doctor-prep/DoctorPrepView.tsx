@@ -267,8 +267,20 @@ function CorrelationsPanel({ correlations }: { correlations: CorrelationHighligh
   );
 }
 
+function computeAge(dob?: string): number | null {
+  if (!dob) return null;
+  const birth = new Date(dob);
+  const today = new Date();
+  let age = today.getFullYear() - birth.getFullYear();
+  const m = today.getMonth() - birth.getMonth();
+  if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--;
+  return age;
+}
+
 function ReportView({ report }: { report: DoctorPrepReport }) {
   const { user, profile } = useAuthStore();
+  const displayAge = profile?.age ?? computeAge(profile?.date_of_birth);
+  const displaySex = profile?.gender ?? profile?.biological_sex;
   const doctorQuestions = buildDoctorQuestions(report);
 
   const handleExportPDF = async () => {
@@ -294,8 +306,8 @@ function ReportView({ report }: { report: DoctorPrepReport }) {
       doc.setFontSize(12);
       const lines: string[] = [];
       if (user?.name) lines.push(`Name: ${user.name}`);
-      if (profile?.age != null) lines.push(`Age: ${profile.age}`);
-      if (profile?.gender) lines.push(`Gender: ${profile.gender}`);
+      if (displayAge != null) lines.push(`Age: ${displayAge}`);
+      if (displaySex) lines.push(`Sex: ${displaySex}`);
       if (profile?.weight_kg != null) lines.push(`Weight: ${profile.weight_kg} kg`);
       if (lines.length > 0) {
         doc.text('Patient profile:', 20, yPos);
@@ -483,11 +495,11 @@ function ReportView({ report }: { report: DoctorPrepReport }) {
               </div>
               <div>
                 <div className="text-slate-500 dark:text-slate-400">Age</div>
-                <div className="font-medium text-slate-900 dark:text-slate-100">{profile?.age ?? '—'}</div>
+                <div className="font-medium text-slate-900 dark:text-slate-100">{displayAge ?? '—'}</div>
               </div>
               <div>
                 <div className="text-slate-500 dark:text-slate-400">Gender</div>
-                <div className="font-medium text-slate-900 dark:text-slate-100">{profile?.gender ?? '—'}</div>
+                <div className="font-medium text-slate-900 dark:text-slate-100 capitalize">{displaySex ?? '—'}</div>
               </div>
               <div>
                 <div className="text-slate-500 dark:text-slate-400">Weight</div>
