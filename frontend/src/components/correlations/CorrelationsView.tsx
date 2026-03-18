@@ -348,14 +348,14 @@ export function CorrelationsView() {
       )}
 
       {/* Data sources footnote */}
-      {data && (data.data_sources_used?.length > 0 || data.oura_days_available > 0) && (
+      {data && ((data.data_sources_used ?? []).length > 0 || data.oura_days_available > 0) && (
         <p className="text-xs text-slate-400 dark:text-slate-500 pt-2 border-t border-slate-100 dark:border-slate-800">
           <span className="font-medium">Data sources used: </span>
-          {data.data_sources_used?.length > 0
-            ? data.data_sources_used.join(', ')
+          {(data.data_sources_used ?? []).length > 0
+            ? (data.data_sources_used ?? []).join(', ')
             : ['Oura Ring', data.nutrition_days_available > 0 ? 'Nutrition Logs' : null].filter(Boolean).join(', ')
           }
-          {data.days_with_data > 0 && ` · ${data.days_with_data} days`}
+          {(data.days_with_data ?? 0) > 0 && ` · ${data.days_with_data} days`}
         </p>
       )}
 
