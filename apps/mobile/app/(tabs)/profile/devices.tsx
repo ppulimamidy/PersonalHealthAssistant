@@ -80,6 +80,26 @@ const METRICS: SyncMetric[] = [
 
 const BATCH_SIZE = 400; // stay well under the 500 API limit
 
+/**
+ * Register a server-side sync watermark after a successful first-connect sync.
+ * Called with empty data_points because the data was already uploaded via
+ * uploadInBatches → /ingest. This prevents duplicate re-ingestion on future
+ * app launches by setting last_sync_at in health_sync_watermarks.
+ */
+async function registerInitialSyncWatermark(
+  source: 'healthkit' | 'health_connect',
+): Promise<void> {
+  try {
+    await api.post('/api/v1/health-data/initial-sync', {
+      source,
+      data_points: [],
+    });
+  } catch (err) {
+    // Non-blocking — watermark failure doesn't break the sync
+    console.warn('[initial-sync] watermark registration failed:', err);
+  }
+}
+
 async function uploadInBatches(
   source: 'healthkit' | 'health_connect',
   dataPoints: Array<{ metric_type: string; date: string; value_json: object }>,
@@ -326,6 +346,10 @@ async function syncHealthKit(onProgress: (msg: string) => void) {
 
   const result = await uploadInBatches('healthkit', dataPoints, now.toISOString(), onProgress);
   await setSyncTimestamp('healthkit', now.toISOString());
+  if (isFirstSync && result.accepted > 0) {
+    // Register server-side watermark so duplicate initial syncs are skipped
+    await registerInitialSyncWatermark('healthkit');
+  }
 
   // Build latestValues so metric rows populate in the UI
   const latestValues: Record<string, number> = {};
@@ -503,6 +527,9 @@ async function syncHealthConnect(onProgress: (msg: string) => void) {
 
   const result = await uploadInBatches('health_connect', dataPoints, now.toISOString(), onProgress);
   await setSyncTimestamp('health_connect', now.toISOString());
+  if (isFirstSync && result.accepted > 0) {
+    await registerInitialSyncWatermark('health_connect');
+  }
 
   // Build latestValues so metric rows populate in the UI
   const latestValues: Record<string, number> = {};

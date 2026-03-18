@@ -85,8 +85,10 @@ Supported sources (Tier 1–3):
     Tier 3 (Medical):      dexcom, blood_pressure, clinical
 """
 
+import asyncio
 import json
 import math
+import uuid
 from datetime import datetime, date, timedelta, timezone
 from typing import Any, Dict, List, Literal, Optional
 
@@ -797,3 +799,308 @@ async def get_health_summaries(
             "anomaly_detail": row.get("anomaly_detail"),
         }
     return result
+
+
+# ---------------------------------------------------------------------------
+# Session 6: Push on First Connect — initial-sync + sync-status endpoints
+# ---------------------------------------------------------------------------
+
+# In-process task registry (survives process restart only for fast tasks;
+# long historical pulls finish within a few minutes so this is sufficient).
+_sync_tasks: Dict[str, Dict[str, Any]] = {}
+
+# Watermark table DDL (run once in Supabase SQL editor):
+#
+#   CREATE TABLE IF NOT EXISTS public.health_sync_watermarks (
+#       user_id   UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+#       source    TEXT NOT NULL,
+#       last_sync_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+#       PRIMARY KEY (user_id, source)
+#   );
+#   ALTER TABLE public.health_sync_watermarks ENABLE ROW LEVEL SECURITY;
+#   CREATE POLICY "own watermarks" ON public.health_sync_watermarks
+#       FOR ALL USING (auth.uid() = user_id)
+#       WITH CHECK (auth.uid() = user_id);
+
+INITIAL_SYNC_DAYS = int(__import__("os").environ.get("INITIAL_SYNC_DAYS", "90"))
+
+
+class InitialSyncRequest(BaseModel):
+    source: Literal[
+        "healthkit",
+        "health_connect",
+        "oura",
+        "whoop",
+        "garmin",
+        "fitbit",
+        "polar",
+        "samsung",
+        "dexcom",
+        "blood_pressure",
+        "clinical",
+    ]
+    data_points: List[HealthDataPoint] = Field(
+        default=[],
+        description="Pre-fetched 90d data_points from the mobile client. "
+        "If empty the server will note that it expects the client to push data.",
+    )
+
+
+class InitialSyncResponse(BaseModel):
+    task_id: str
+    status: str  # 'accepted' | 'skipped' (already synced)
+    message: str
+    accepted: int = 0
+
+
+class SyncStatusResponse(BaseModel):
+    task_id: str
+    status: str  # 'pending' | 'running' | 'done' | 'error'
+    accepted: int = 0
+    message: str = ""
+    completed_at: Optional[str] = None
+
+
+async def _get_last_sync(user_id: str, source: str) -> Optional[datetime]:
+    """Return the last_sync_at watermark for (user_id, source), or None."""
+    try:
+        rows = await _supabase_get(
+            "health_sync_watermarks",
+            f"user_id=eq.{user_id}&source=eq.{source}&select=last_sync_at&limit=1",
+        )
+        if rows:
+            ts = rows[0].get("last_sync_at")
+            if ts:
+                return datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+    except Exception as exc:  # pylint: disable=broad-except
+        logger.warning("Could not read watermark for %s/%s: %s", user_id, source, exc)
+    return None
+
+
+async def _set_watermark(user_id: str, source: str) -> None:
+    """Upsert the last_sync_at watermark to now."""
+    now_iso = datetime.now(timezone.utc).isoformat()
+    try:
+        await _supabase_upsert(
+            "health_sync_watermarks",
+            [{"user_id": user_id, "source": source, "last_sync_at": now_iso}],
+            on_conflict="user_id,source",
+        )
+    except Exception as exc:  # pylint: disable=broad-except
+        logger.warning("Could not write watermark for %s/%s: %s", user_id, source, exc)
+
+
+async def _run_initial_sync(
+    task_id: str,
+    user_id: str,
+    source: str,
+    data_points: List[HealthDataPoint],
+) -> None:
+    """
+    Background task: ingest pre-fetched data_points, update watermark, mark done.
+    The mobile client is responsible for fetching and sending the 90-day history;
+    this function handles persistence + normalization.
+    """
+    _sync_tasks[task_id]["status"] = "running"
+
+    total_accepted = 0
+    try:
+        if data_points:
+            now_iso = datetime.now(timezone.utc).isoformat()
+            rows = [
+                {
+                    "user_id": user_id,
+                    "source": source,
+                    "metric_type": dp.metric_type,
+                    "date": dp.date,
+                    "value_json": dp.value_json,
+                    "created_at": now_iso,
+                }
+                for dp in data_points
+            ]
+
+            if SUPABASE_URL and SUPABASE_SERVICE_KEY and rows:
+                url = f"{SUPABASE_URL}/rest/v1/native_health_data?on_conflict={_ON_CONFLICT}"
+                headers = {
+                    **_supabase_headers(),
+                    "Prefer": "resolution=merge-duplicates,return=representation",
+                }
+                # Chunk into batches of 500 to avoid payload limits
+                for i in range(0, len(rows), 500):
+                    chunk = rows[i : i + 500]
+                    async with aiohttp.ClientSession(
+                        timeout=aiohttp.ClientTimeout(total=60),
+                        connector=aiohttp.TCPConnector(ssl=_ssl_context()),
+                    ) as session:
+                        async with session.post(
+                            url, headers=headers, json=chunk
+                        ) as resp:
+                            if resp.status in (200, 201):
+                                data = await resp.json()
+                                total_accepted += (
+                                    len(data) if isinstance(data, list) else len(chunk)
+                                )
+                            else:
+                                err = await resp.text()
+                                logger.error(
+                                    "initial-sync chunk failed status=%d err=%s",
+                                    resp.status,
+                                    err,
+                                )
+
+            # Trigger normalization in background (fire-and-forget)
+            if total_accepted > 0:
+                asyncio.create_task(
+                    normalize_and_persist_ingest(user_id, source, data_points)
+                )
+                asyncio.create_task(recompute_summaries(user_id))
+
+        await _set_watermark(user_id, source)
+
+        _sync_tasks[task_id].update(
+            {
+                "status": "done",
+                "accepted": total_accepted,
+                "message": f"Ingested {total_accepted} data points",
+                "completed_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+        logger.info(
+            "initial-sync done user=%s source=%s accepted=%d",
+            user_id,
+            source,
+            total_accepted,
+        )
+
+    except Exception as exc:  # pylint: disable=broad-except
+        logger.error("initial-sync task %s failed: %s", task_id, exc)
+        _sync_tasks[task_id].update(
+            {
+                "status": "error",
+                "message": str(exc),
+                "completed_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+
+
+@router.post("/initial-sync", response_model=InitialSyncResponse, status_code=202)
+async def initial_sync(
+    body: InitialSyncRequest,
+    background_tasks: BackgroundTasks,
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Trigger a one-time 90-day historical sync after a device is first connected.
+
+    The mobile client should:
+    1. Request health permissions.
+    2. Fetch the past 90 days of data locally (HealthKit / Health Connect).
+    3. POST this endpoint with data_points (batched; call multiple times if >500).
+
+    If the source already has a watermark (has been synced before), returns
+    status='skipped' to prevent redundant re-ingestion.
+
+    Returns a task_id to poll via GET /api/v1/health-data/sync-status/{task_id}.
+    """
+    user_id = current_user["id"]
+
+    if body.source not in VALID_SOURCES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown source '{body.source}'. Valid: {sorted(VALID_SOURCES)}",
+        )
+
+    # Idempotency guard: skip if watermark exists (already synced)
+    last_sync = await _get_last_sync(user_id, body.source)
+    if last_sync is not None:
+        task_id = str(uuid.uuid4())
+        _sync_tasks[task_id] = {
+            "status": "done",
+            "accepted": 0,
+            "message": f"Already synced at {last_sync.isoformat()}",
+            "completed_at": datetime.now(timezone.utc).isoformat(),
+        }
+        return InitialSyncResponse(
+            task_id=task_id,
+            status="skipped",
+            message=f"Already synced at {last_sync.isoformat()}",
+        )
+
+    task_id = str(uuid.uuid4())
+    _sync_tasks[task_id] = {
+        "status": "pending",
+        "accepted": 0,
+        "message": "Queued",
+        "completed_at": None,
+    }
+
+    background_tasks.add_task(
+        _run_initial_sync, task_id, user_id, body.source, body.data_points
+    )
+
+    logger.info(
+        "initial-sync queued task=%s user=%s source=%s points=%d",
+        task_id,
+        user_id,
+        body.source,
+        len(body.data_points),
+    )
+
+    return InitialSyncResponse(
+        task_id=task_id,
+        status="accepted",
+        message=f"Syncing {len(body.data_points)} data points in background",
+        accepted=len(body.data_points),
+    )
+
+
+@router.get("/sync-status/{task_id}", response_model=SyncStatusResponse)
+async def get_sync_status(
+    task_id: str,
+    current_user: dict = Depends(get_current_user),  # auth required
+):
+    """
+    Poll the status of a background initial-sync task.
+
+    Returns one of: pending | running | done | error.
+    Poll every 2–3 seconds until status is 'done' or 'error'.
+    """
+    task = _sync_tasks.get(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    return SyncStatusResponse(
+        task_id=task_id,
+        status=task["status"],
+        accepted=task.get("accepted", 0),
+        message=task.get("message", ""),
+        completed_at=task.get("completed_at"),
+    )
+
+
+@router.get("/sync-watermark")
+async def get_sync_watermark(
+    source: Optional[str] = None,
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Return the last_sync_at watermark for the user's connected sources.
+    Mobile uses this to determine if an initial sync is needed and what
+    date range to fetch (from watermark to now for incremental syncs).
+    """
+    user_id = current_user["id"]
+    query = f"user_id=eq.{user_id}&select=source,last_sync_at"
+    if source:
+        query += f"&source=eq.{source}"
+
+    try:
+        rows = await _supabase_get("health_sync_watermarks", query)
+    except Exception as exc:  # pylint: disable=broad-except
+        logger.warning("Could not read watermarks: %s", exc)
+        rows = []
+
+    return {
+        row.get("source"): row.get("last_sync_at")
+        for row in (rows or [])
+        if row.get("source")
+    }
