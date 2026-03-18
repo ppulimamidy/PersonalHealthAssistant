@@ -224,6 +224,33 @@ class CorrelationDataPoint(BaseModel):
     b_value: float
 
 
+# Metrics that are derived (computed from a rolling baseline) or computed_composite
+# (blended from multiple sources). The badge tells users the outcome metric is an
+# estimate rather than a direct sensor reading.
+_ESTIMATED_METRICS: frozenset = frozenset(
+    {
+        # Derived (computed from rolling baseline)
+        "hrv_balance",
+        "body_temp_deviation_c",
+        "glucose_variability_cv",
+        # Composite scores (formula-blended; may be direct on Oura but estimated elsewhere)
+        "readiness_score",
+        "activity_score",
+        "recovery_index",
+        # Nutrition-derived
+        "glycemic_load_est",
+        "protein_pct",
+        "carb_pct",
+        "fat_pct",
+        # Track B postprandial (per-meal computed metrics)
+        "postprandial_excursion_mgdl",
+        "postprandial_peak_mgdl",
+        "postprandial_auc",
+        "time_to_peak_min",
+    }
+)
+
+
 class Correlation(BaseModel):
     """One statistically significant correlation between two metrics."""
 
@@ -241,6 +268,7 @@ class Correlation(BaseModel):
     strength: str  # strong, moderate, weak
     direction: str  # positive, negative
     data_points: List[CorrelationDataPoint]
+    is_estimated: bool = False  # True when metric_b is derived/computed_composite
 
 
 class CorrelationResults(BaseModel):
@@ -1355,6 +1383,8 @@ def _one_correlation(
         "direction": direction,
         "data_points": points,
         "correlation_type": correlation_type,
+        "is_estimated": nutr_metric in _ESTIMATED_METRICS
+        or oura_metric in _ESTIMATED_METRICS,
     }
 
 
@@ -1427,6 +1457,8 @@ def _one_health_correlation(
         "direction": direction,
         "data_points": points,
         "correlation_type": correlation_type,
+        "is_estimated": metric_a in _ESTIMATED_METRICS
+        or metric_b in _ESTIMATED_METRICS,
     }
 
 

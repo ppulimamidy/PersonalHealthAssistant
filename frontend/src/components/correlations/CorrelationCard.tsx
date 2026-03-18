@@ -11,7 +11,7 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from 'recharts';
-import { ChevronDown, ChevronUp, TrendingUp, TrendingDown } from 'lucide-react';
+import { ChevronDown, ChevronUp, TrendingUp, TrendingDown, FlaskConical } from 'lucide-react';
 import type { Correlation } from '@/types';
 
 const STRENGTH_COLORS: Record<string, { bg: string; text: string; dot: string }> = {
@@ -62,6 +62,15 @@ export function CorrelationCard({ correlation: c }: CorrelationCardProps) {
               {c.lag_days > 0 && (
                 <span className="text-xs text-slate-400 dark:text-slate-500">
                   next-day
+                </span>
+              )}
+              {c.is_estimated && (
+                <span
+                  className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400"
+                  title="One or more metrics in this correlation are computed or estimated rather than directly measured"
+                >
+                  <FlaskConical className="w-2.5 h-2.5" />
+                  computed
                 </span>
               )}
             </div>

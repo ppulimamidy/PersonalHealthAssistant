@@ -531,6 +531,7 @@ export interface Correlation {
   strength: CorrelationStrength;
   direction: CorrelationDirection;
   data_points: CorrelationDataPoint[];
+  is_estimated?: boolean; // true when either metric is derived/computed_composite
 }
 
 export interface CorrelationResults {

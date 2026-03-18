@@ -36,6 +36,7 @@ interface Correlation {
   direction: 'positive' | 'negative';
   category: string;
   data_points: DataPoint[];
+  is_estimated?: boolean;
 }
 
 interface CorrelationResults {
@@ -112,10 +113,19 @@ function CorrelationCard({ c }: { c: Correlation }) {
           <Text className="font-display text-xl" style={{ color: coeff > 0 ? '#6EE7B7' : '#F87171' }}>
             {coeff > 0 ? '+' : ''}{coeff.toFixed(2)}
           </Text>
-          <View className="px-2 py-0.5 rounded-full mt-0.5" style={{ backgroundColor: `${strColor}20` }}>
-            <Text className="text-xs capitalize font-sansMedium" style={{ color: strColor }}>
-              {c.strength}
-            </Text>
+          <View className="flex-row gap-1 mt-0.5">
+            {c.is_estimated && (
+              <View className="px-1.5 py-0.5 rounded-full" style={{ backgroundColor: 'rgba(245,158,11,0.15)' }}>
+                <Text className="text-[10px] font-sansMedium" style={{ color: '#F59E0B' }}>
+                  ~est
+                </Text>
+              </View>
+            )}
+            <View className="px-2 py-0.5 rounded-full" style={{ backgroundColor: `${strColor}20` }}>
+              <Text className="text-xs capitalize font-sansMedium" style={{ color: strColor }}>
+                {c.strength}
+              </Text>
+            </View>
           </View>
         </View>
       </View>
