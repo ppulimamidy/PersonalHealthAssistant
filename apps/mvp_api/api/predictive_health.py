@@ -1395,6 +1395,48 @@ async def _fetch_native_health_sources(
     return series, display_names
 
 
+async def _fetch_user_health_profile(user_id: str, days: int) -> Tuple[List[str], str]:
+    """
+    Fetch medications, supplements, lab results, and health conditions for this user.
+    Returns (extra_sources, context_str) to enrich data_sources_used and AI prompts.
+    """
+    from .correlations import (
+        _fetch_medications_supplements_context,
+        _fetch_lab_biomarkers_daily,
+        _fetch_conditions_context,
+    )
+
+    extra_sources: List[str] = []
+    ctx_parts: List[str] = []
+
+    try:
+        _, meds_ctx, med_sources = await _fetch_medications_supplements_context(
+            user_id, days
+        )
+        extra_sources.extend(med_sources)
+        if meds_ctx:
+            ctx_parts.append(meds_ctx)
+    except Exception as exc:
+        logger.warning("Could not fetch meds/supps profile for predictions: %s", exc)
+
+    try:
+        _, lab_ctx = await _fetch_lab_biomarkers_daily(user_id, days)
+        if lab_ctx:
+            extra_sources.append("Lab Results")
+            ctx_parts.append(lab_ctx)
+    except Exception as exc:
+        logger.warning("Could not fetch lab context for predictions: %s", exc)
+
+    try:
+        cond_ctx = await _fetch_conditions_context(user_id)
+        if cond_ctx:
+            ctx_parts.append(cond_ctx)
+    except Exception as exc:
+        logger.warning("Could not fetch conditions context for predictions: %s", exc)
+
+    return extra_sources, " | ".join(ctx_parts)
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
@@ -1435,6 +1477,10 @@ async def get_predictions(
     if nutrition_data:
         data_sources_used.append("Nutrition Logs")
     data_sources_used.extend(s for s in native_sources if s not in data_sources_used)
+
+    # Include medications, supplements, lab results, conditions in sources
+    profile_sources, _ = await _fetch_user_health_profile(user_id, days)
+    data_sources_used.extend(s for s in profile_sources if s not in data_sources_used)
 
     # Use union of timeline + native days for data quality
     total_days_with_data = max(
@@ -1498,6 +1544,9 @@ async def get_risk_assessments(
     if timeline:
         data_sources_used.append("Oura Ring")
     data_sources_used.extend(s for s in native_sources if s not in data_sources_used)
+
+    profile_sources, _ = await _fetch_user_health_profile(user_id, 30)
+    data_sources_used.extend(s for s in profile_sources if s not in data_sources_used)
 
     total_days = max(
         len(timeline), max((len(v) for v in native_series.values()), default=0)
@@ -1569,6 +1618,9 @@ async def get_trends(
     if timeline:
         data_sources_used.append("Oura Ring")
     data_sources_used.extend(s for s in native_sources if s not in data_sources_used)
+
+    profile_sources, _ = await _fetch_user_health_profile(user_id, days)
+    data_sources_used.extend(s for s in profile_sources if s not in data_sources_used)
 
     total_days = max(
         len(timeline), max((len(v) for v in native_series.values()), default=0)

@@ -851,6 +851,185 @@ async def _fetch_symptoms_daily(user_id: str, days: int) -> Dict[str, Dict[str, 
     return daily
 
 
+async def _fetch_medications_supplements_context(
+    user_id: str, days: int
+) -> Tuple[Dict[str, Dict[str, float]], str, List[str]]:
+    """
+    Fetch active medications and supplements, and daily adherence rates.
+    Returns (adherence_daily, context_str, sources_used).
+    - adherence_daily: {date: {medication_adherence_rate: 0.0–1.0}} from adherence log
+    - context_str: human-readable list for the AI summary prompt
+    - sources_used: ["Medications"] and/or ["Supplements"] if any exist
+    """
+    from datetime import date as _date
+
+    start_d = (_date.today() - timedelta(days=days)).isoformat()
+    sources_used: List[str] = []
+    context_parts: List[str] = []
+
+    # Active medications
+    try:
+        med_rows = await _supabase_get(
+            "medications",
+            f"user_id=eq.{user_id}&is_active=eq.true"
+            f"&select=medication_name,dosage,frequency,indication",
+        )
+        if med_rows:
+            sources_used.append("Medications")
+            descs = []
+            for r in med_rows:
+                d = f"{r.get('medication_name', '')} {r.get('dosage', '')} {r.get('frequency', '')}".strip()
+                if r.get("indication"):
+                    d += f" (for {r['indication']})"
+                descs.append(d)
+            context_parts.append("Active medications: " + "; ".join(descs))
+    except Exception as exc:
+        logger.warning("Could not fetch medications for context: %s", exc)
+
+    # Active supplements
+    try:
+        supp_rows = await _supabase_get(
+            "supplements",
+            f"user_id=eq.{user_id}&is_active=eq.true"
+            f"&select=supplement_name,dosage,frequency,purpose",
+        )
+        if supp_rows:
+            sources_used.append("Supplements")
+            descs = []
+            for r in supp_rows:
+                d = f"{r.get('supplement_name', '')} {r.get('dosage', '')}".strip()
+                if r.get("purpose"):
+                    d += f" ({r['purpose']})"
+                descs.append(d)
+            context_parts.append("Active supplements: " + "; ".join(descs))
+    except Exception as exc:
+        logger.warning("Could not fetch supplements for context: %s", exc)
+
+    # Medication adherence log → daily adherence rate (continuous variable for correlations)
+    adherence_daily: Dict[str, Dict[str, float]] = {}
+    try:
+        adh_rows = await _supabase_get(
+            "medication_adherence_log",
+            f"user_id=eq.{user_id}&scheduled_time=gte.{start_d}"
+            f"&select=scheduled_time,was_taken&order=scheduled_time.asc",
+        )
+        if adh_rows:
+            by_date: Dict[str, List[bool]] = {}
+            for row in adh_rows:
+                d = str(row.get("scheduled_time", ""))[:10]
+                taken = bool(row.get("was_taken", False))
+                if d:
+                    by_date.setdefault(d, []).append(taken)
+            for d, bools in by_date.items():
+                adherence_daily[d] = {
+                    "medication_adherence_rate": round(sum(bools) / len(bools), 3)
+                }
+    except Exception as exc:
+        logger.warning("Could not fetch medication_adherence_log: %s", exc)
+
+    context_str = " | ".join(context_parts) if context_parts else ""
+    return adherence_daily, context_str, sources_used
+
+
+async def _fetch_lab_biomarkers_daily(
+    user_id: str, days: int
+) -> Tuple[Dict[str, Dict[str, float]], str]:
+    """
+    Fetch lab results within the date window.
+    Returns (daily_dict, context_str).
+    - daily_dict: {test_date: {lab_glucose: 125.0, lab_hba1c: 6.8, ...}}
+      Only populated if >= 2 draws exist in the window (need variance for statistics).
+    - context_str: most-recent lab values formatted for the AI prompt.
+    """
+    import re as _re
+    from datetime import date as _date
+
+    start_d = (_date.today() - timedelta(days=days)).isoformat()
+
+    try:
+        rows = await _supabase_get(
+            "lab_results",
+            f"user_id=eq.{user_id}&test_date=gte.{start_d}"
+            f"&select=test_date,biomarkers&order=test_date.asc",
+        )
+    except Exception as exc:
+        logger.warning("Could not fetch lab_results: %s", exc)
+        return {}, ""
+
+    if not rows:
+        return {}, ""
+
+    def _slug(name: str) -> str:
+        return "lab_" + _re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
+
+    daily: Dict[str, Dict[str, float]] = {}
+    most_recent_date = ""
+    most_recent_markers: List[str] = []
+
+    for row in rows:
+        date_str = str(row.get("test_date", ""))[:10]
+        biomarkers = row.get("biomarkers") or []
+        if not date_str or not isinstance(biomarkers, list):
+            continue
+        day_vals: Dict[str, float] = {}
+        for bm in biomarkers:
+            name = str(bm.get("name", "")).strip()
+            val = bm.get("value")
+            if not name or val is None:
+                continue
+            try:
+                day_vals[_slug(name)] = float(val)
+            except (TypeError, ValueError):
+                continue
+        if day_vals:
+            daily[date_str] = day_vals
+            if date_str >= most_recent_date:
+                most_recent_date = date_str
+                most_recent_markers = [
+                    f"{bm.get('name', '')} {bm.get('value', '')} {bm.get('unit', '')}".strip()
+                    + (
+                        " ⚠"
+                        if str(bm.get("status", "")).lower()
+                        in ("high", "low", "abnormal", "critical")
+                        else ""
+                    )
+                    for bm in biomarkers
+                    if bm.get("name") and bm.get("value") is not None
+                ]
+
+    # Only expose daily dict for statistical use if we have >= 2 draws
+    stats_daily = daily if len(daily) >= 2 else {}
+
+    context_str = (
+        f"Recent labs ({most_recent_date}): {', '.join(most_recent_markers[:8])}"
+        if most_recent_markers and most_recent_date
+        else ""
+    )
+    return stats_daily, context_str
+
+
+async def _fetch_conditions_context(user_id: str) -> str:
+    """Return the user's active health conditions as a short string for the AI prompt."""
+    try:
+        rows = await _supabase_get(
+            "health_conditions",
+            f"user_id=eq.{user_id}&is_active=eq.true"
+            f"&select=condition_name,severity&order=created_at.asc",
+        )
+        if rows:
+            parts = []
+            for r in rows:
+                name = r.get("condition_name", "")
+                if name:
+                    sev = r.get("severity", "")
+                    parts.append(f"{name} ({sev})" if sev else name)
+            if parts:
+                return "Active conditions: " + ", ".join(parts)
+    except Exception as exc:
+        logger.warning("Could not fetch conditions for context: %s", exc)
+    return ""
+
+
 # ---------------------------------------------------------------------------
 # Correlation computation
 # ---------------------------------------------------------------------------
@@ -1406,6 +1585,7 @@ async def _generate_ai_summary(
     correlations: List[Dict[str, Any]],
     period_days: int,
     data_sources: Optional[List[str]] = None,
+    user_context: Optional[Dict[str, str]] = None,
 ) -> Tuple[List[Dict[str, Any]], str]:
     """
     Use Anthropic Claude to generate plain-English descriptions for each correlation
@@ -1416,7 +1596,9 @@ async def _generate_ai_summary(
         # Fallback: generate simple descriptions without AI
         for c in correlations:
             c["effect_description"] = _fallback_description(c)
-        return correlations, _fallback_summary(correlations, period_days, data_sources)
+        return correlations, _fallback_summary(
+            correlations, period_days, data_sources, user_context
+        )
 
     # Build the prompt
     corr_summary = []
@@ -1431,7 +1613,13 @@ async def _generate_ai_summary(
     sources_str = (
         ", ".join(data_sources) if data_sources else "wearable and nutrition data"
     )
-    prompt = f"""You are a health data analyst. A user has {period_days} days of data from: {sources_str}. The correlation engine uses multi-lag analysis (1-14 days), Pearson and Spearman (for non-linear relationships), and Granger causality for causal direction. Below are the statistically significant correlations.
+    ctx_lines = [v for v in (user_context or {}).values() if v]
+    ctx_block = (
+        ("\n\nUser health profile:\n" + "\n".join(ctx_lines)) if ctx_lines else ""
+    )
+    prompt = f"""You are a health data analyst. A user has {period_days} days of data from: {sources_str}.{ctx_block}
+
+The correlation engine uses multi-lag analysis (1-14 days), Pearson and Spearman (for non-linear relationships), and Granger causality for causal direction. Below are the statistically significant correlations.
 
 Correlations:
 {chr(10).join(corr_summary)}
@@ -1487,7 +1675,7 @@ Important: Do not provide medical diagnoses. Frame everything as observed patter
                     for c in correlations:
                         c["effect_description"] = _fallback_description(c)
                     return correlations, _fallback_summary(
-                        correlations, period_days, data_sources
+                        correlations, period_days, data_sources, user_context
                     )
 
                 result = await resp.json()
@@ -1521,7 +1709,9 @@ Important: Do not provide medical diagnoses. Frame everything as observed patter
         logger.warning("AI summary generation failed: %s", exc)
         for c in correlations:
             c["effect_description"] = _fallback_description(c)
-        return correlations, _fallback_summary(correlations, period_days, data_sources)
+        return correlations, _fallback_summary(
+            correlations, period_days, data_sources, user_context
+        )
 
 
 def _fallback_description(c: Dict[str, Any]) -> str:
@@ -1539,17 +1729,20 @@ def _fallback_summary(
     correlations: List[Dict[str, Any]],
     period_days: int,
     data_sources: Optional[List[str]] = None,
+    user_context: Optional[Dict[str, str]] = None,
 ) -> str:
     """Generate a simple summary without AI."""
     if not correlations:
         return "No significant correlations found in the available data."
     top = correlations[0]
     sources_note = f" Data sources: {', '.join(data_sources)}." if data_sources else ""
+    ctx_lines = [v for v in (user_context or {}).values() if v]
+    ctx_note = f" Context: {'; '.join(ctx_lines)}." if ctx_lines else ""
     return (
         f"Over the past {period_days} days, the strongest pattern found is between "
         f"{top['metric_a_label'].lower()} and {top['metric_b_label'].lower()} "
         f"(r={top['correlation_coefficient']}). "
-        f"{len(correlations)} significant correlations were detected.{sources_note}"
+        f"{len(correlations)} significant correlations were detected.{sources_note}{ctx_note}"
     )
 
 
@@ -1663,6 +1856,26 @@ async def _compute_and_cache(
             if date_str not in oura_daily:
                 oura_daily[date_str] = {}
             oura_daily[date_str].update(symp_metrics)
+
+    # 4b. Fetch medications + supplements: adherence as daily variable + context for AI
+    (
+        adherence_daily,
+        meds_context,
+        med_sources,
+    ) = await _fetch_medications_supplements_context(user_id, period_days)
+    data_sources_used.extend(s for s in med_sources if s not in data_sources_used)
+    for date_str, adh_metrics in adherence_daily.items():
+        oura_daily.setdefault(date_str, {}).update(adh_metrics)
+
+    # 4c. Fetch lab biomarkers: time-series for stats + context for AI
+    lab_daily, lab_context = await _fetch_lab_biomarkers_daily(user_id, period_days)
+    if lab_daily:
+        data_sources_used.append("Lab Results")
+        for date_str, lab_metrics in lab_daily.items():
+            oura_daily.setdefault(date_str, {}).update(lab_metrics)
+
+    # 4d. Active conditions context for AI (variable prioritisation already handled in step 6)
+    conditions_context = await _fetch_conditions_context(user_id)
 
     # 5. Compute data quality
     oura_days = len(oura_daily)
@@ -1789,9 +2002,18 @@ async def _compute_and_cache(
         dynamic_native_pairs,
     )
 
-    # 9. AI summary (pass all data sources so the summary can mention them)
+    # 9. AI summary (pass all data sources + user health profile so Claude can personalise)
+    user_context = {
+        k: v
+        for k, v in {
+            "conditions": conditions_context,
+            "medications_supplements": meds_context,
+            "labs": lab_context,
+        }.items()
+        if v
+    }
     correlations, summary = await _generate_ai_summary(
-        raw_correlations, period_days, data_sources_used
+        raw_correlations, period_days, data_sources_used, user_context
     )
 
     # 10. Cache
@@ -1983,9 +2205,17 @@ async def get_causal_graph(
     # Merge symptom data as outcome variables
     symptoms_daily = await _fetch_symptoms_daily(user_id, days)
     for date_str, symp_metrics in symptoms_daily.items():
-        if date_str not in oura_daily:
-            oura_daily[date_str] = {}
-        oura_daily[date_str].update(symp_metrics)
+        oura_daily.setdefault(date_str, {}).update(symp_metrics)
+
+    # Merge medication adherence as outcome variable
+    adherence_daily, _, _ = await _fetch_medications_supplements_context(user_id, days)
+    for date_str, adh_metrics in adherence_daily.items():
+        oura_daily.setdefault(date_str, {}).update(adh_metrics)
+
+    # Merge lab biomarker draws (if >= 2 draws in window)
+    lab_daily, _ = await _fetch_lab_biomarkers_daily(user_id, days)
+    for date_str, lab_metrics in lab_daily.items():
+        oura_daily.setdefault(date_str, {}).update(lab_metrics)
 
     # Fetch nutrition data
     nutrition_daily = await _fetch_nutrition_daily(bearer, days)
