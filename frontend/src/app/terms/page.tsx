@@ -79,7 +79,7 @@ export default function TermsOfService() {
           <Section title="3. The Service">
             <p>
               Vitalix provides a platform to aggregate health data from wearable devices
-              (including Oura Ring, Apple Health, and Google Health Connect), analyse that
+              (including Oura Ring, Apple Health, Google Health Connect, Dexcom, WHOOP, Garmin, and Fitbit), analyse that
               data using artificial intelligence, and present personalised wellness insights.
             </p>
             <p className="mt-3">
@@ -149,7 +149,7 @@ export default function TermsOfService() {
 
           <Section title="7. Third-Party Integrations">
             <p>
-              Vitalix integrates with third-party services (Oura, Apple Health, Google Health
+              Vitalix integrates with third-party services (Oura, Apple Health, Google Health, Dexcom, WHOOP, Garmin, Fitbit, and other supported
               Connect). Your use of those services is governed by their own terms and privacy
               policies. We are not responsible for the availability, accuracy, or conduct of
               third-party services.

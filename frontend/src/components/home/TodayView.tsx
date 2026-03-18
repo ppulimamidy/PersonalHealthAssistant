@@ -358,13 +358,7 @@ export function TodayView() {
 
   const ouraActive = !!(ouraConnection?.is_active);
 
-  const { data: healthScore, isLoading: scoreLoading } = useQuery({
-    queryKey: ['health-score'],
-    queryFn: healthScoreService.getScore,
-    staleTime: 60_000,
-    enabled: ouraActive,
-  });
-
+  // Check if ANY health data source is available (Oura, Apple Health, Health Connect, etc.)
   const { data: summariesData } = useQuery({
     queryKey: ['health-summaries'],
     queryFn: async () => {
@@ -378,12 +372,23 @@ export function TodayView() {
     staleTime: 5 * 60_000,
   });
 
+  const { data: healthScore, isLoading: scoreLoading } = useQuery({
+    queryKey: ['health-score'],
+    queryFn: healthScoreService.getScore,
+    staleTime: 60_000,
+  });
+
   const { data: timeline, isLoading: timelineLoading } = useQuery({
     queryKey: ['timeline', 1],
     queryFn: () => ouraService.getTimeline(14),
     staleTime: 60_000,
-    enabled: ouraActive,
   });
+
+  // Has health data from any source (Oura, Apple Health, Health Connect, etc.)
+  const hasHealthData = ouraActive
+    || (summariesData != null && Object.keys(summariesData).length > 0)
+    || (healthScore?.score != null);
+
 
   const { data: insights, isLoading: insightsLoading } = useQuery({
     queryKey: ['insights'],
@@ -566,7 +571,7 @@ export function TodayView() {
       />
 
       {/* Health snapshot — rings when summaries available, score rings otherwise */}
-      {(ouraActive || (summariesData && Object.keys(summariesData).length > 0)) ? (
+      {hasHealthData ? (
         <Panel>
           <h2 className="text-sm font-semibold text-[#8B97A8] mb-4">Today&apos;s Health Snapshot</h2>
           {scoreLoading || timelineLoading ? (
@@ -707,7 +712,7 @@ export function TodayView() {
 
       {/* Setup checklist */}
       <SetupChecklist
-        ouraActive={ouraActive}
+        ouraActive={hasHealthData}
         conditionsCount={conditionsCount}
         medsCount={activeMeds.length}
         hasMeal={hasMeal}

@@ -187,8 +187,169 @@ class OuraCallbackRequest(BaseModel):
 
 class SyncResponse(BaseModel):
     synced_records: int
+    normalized_records: int = 0
     last_sync: datetime
     is_sandbox: bool = False
+
+
+def _flatten_oura_day(
+    sleep_entries: list,
+    activity_entries: list,
+    readiness_entries: list,
+    workout_entries: list | None = None,
+) -> dict[str, dict[str, float]]:
+    """
+    Flatten raw Oura API responses into {date_str: {raw_field: value}} dicts
+    matching the field names the OuraAdapter expects.
+    """
+    by_date: dict[str, dict[str, float]] = {}
+
+    for entry in sleep_entries:
+        day = entry.get("day", "")
+        s = entry.get("sleep") or entry
+        if not day:
+            continue
+        row = by_date.setdefault(day, {})
+        if (v := s.get("sleep_score")) is not None:
+            row["sleep_score"] = float(v)
+        if (v := s.get("sleep_efficiency")) is not None:
+            row["sleep_efficiency"] = float(v)
+        if (v := s.get("total_sleep_duration")) is not None:
+            row["total_sleep_hours"] = round(float(v) / 3600, 2)
+        if (v := s.get("deep_sleep_duration")) is not None:
+            row["deep_sleep_hours"] = round(float(v) / 3600, 2)
+        if (v := s.get("temperature_deviation")) is not None:
+            row["temperature_deviation"] = float(v)
+        if (v := s.get("respiratory_rate")) is not None:
+            row["respiratory_rate"] = float(v)
+        if (v := s.get("rmssd")) is not None:
+            row["hrv_sdnn"] = float(v)
+        if (v := (s.get("hr_lowest") or s.get("hr_5min_lowest"))) is not None:
+            row["resting_heart_rate"] = float(v)
+        if (v := s.get("spo2")) is not None:
+            row["spo2"] = float(v)
+
+    for entry in activity_entries:
+        day = entry.get("day", "")
+        a = entry.get("activity") or entry
+        if not day:
+            continue
+        row = by_date.setdefault(day, {})
+        if (v := a.get("steps")) is not None:
+            row["steps"] = float(v)
+        if (v := (a.get("active_calories") or a.get("calories_active"))) is not None:
+            row["active_calories"] = float(v)
+        if (v := (a.get("score") or a.get("activity_score"))) is not None:
+            row["activity_score"] = float(v)
+        med = float(a.get("met_min_medium", 0) or 0)
+        high = float(a.get("met_min_high", 0) or 0)
+        if med + high > 0:
+            row["workout_minutes"] = round(med + high)
+
+    for entry in readiness_entries:
+        day = entry.get("day", "")
+        r = entry.get("readiness") or entry
+        if not day:
+            continue
+        row = by_date.setdefault(day, {})
+        if (v := (r.get("score") or r.get("readiness_score"))) is not None:
+            row["readiness_score"] = float(v)
+        if (v := r.get("hrv_balance")) is not None:
+            row["hrv_balance"] = float(v)
+        if (
+            v := (r.get("score_recovery_index") or r.get("recovery_index"))
+        ) is not None:
+            row["recovery_index"] = float(v)
+        if (v := (r.get("resting_hr") or r.get("resting_heart_rate"))) is not None:
+            row.setdefault("resting_heart_rate", float(v))
+
+    if workout_entries:
+        for entry in workout_entries:
+            day = entry.get("day", "")
+            w = entry.get("workout") or entry
+            if not day:
+                continue
+            row = by_date.setdefault(day, {})
+            dur_s = float(w.get("duration", 0) or 0)
+            if dur_s > 0:
+                row["workout_minutes"] = row.get("workout_minutes", 0) + round(
+                    dur_s / 60
+                )
+
+    return by_date
+
+
+async def _persist_oura_to_normalized(
+    user_id: str, by_date: dict[str, dict[str, float]]
+) -> int:
+    """Run flattened Oura data through canonical normalizer → health_metrics_normalized."""
+    from common.metrics.normalizer import HealthNormalizer
+    from common.metrics.persistence import persist_normalized_metrics
+
+    normalizer = HealthNormalizer()
+    total = 0
+    for date_str, raw_day in by_date.items():
+        if not raw_day:
+            continue
+        metrics = normalizer.normalize(
+            source="oura",
+            raw_day=raw_day,
+            date=date_str,
+            user_baseline={},
+        )
+        if metrics:
+            n = await persist_normalized_metrics(user_id, date_str, metrics)
+            total += n
+    return total
+
+
+async def _persist_oura_to_native(
+    user_id: str, by_date: dict[str, dict[str, float]]
+) -> int:
+    """Persist raw Oura data to native_health_data (raw storage layer)."""
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        return 0
+
+    import json as _json
+    import aiohttp as _aio
+
+    rows = []
+    for date_str, raw_day in by_date.items():
+        for metric_key, value in raw_day.items():
+            rows.append(
+                {
+                    "user_id": user_id,
+                    "source": "oura",
+                    "metric_type": metric_key,
+                    "date": date_str,
+                    "value_json": _json.dumps({"value": value}),
+                }
+            )
+    if not rows:
+        return 0
+
+    try:
+        url = (
+            f"{SUPABASE_URL}/rest/v1/native_health_data"
+            f"?on_conflict=user_id,source,metric_type,date"
+        )
+        headers = {
+            **_supabase_headers(),
+            "Prefer": "resolution=merge-duplicates,return=representation",
+        }
+        async with _aio.ClientSession(
+            connector=_aio.TCPConnector(ssl=_ssl_context()),
+            timeout=_aio.ClientTimeout(total=30),
+        ) as session:
+            async with session.post(url, headers=headers, json=rows) as resp:
+                if resp.status in (200, 201):
+                    data = await resp.json()
+                    return len(data) if isinstance(data, list) else len(rows)
+                logger.warning("Oura native persist failed: %s", await resp.text())
+                return 0
+    except Exception as exc:
+        logger.warning("Oura native persist error: %s", exc)
+        return 0
 
 
 @router.get("/status")
@@ -362,6 +523,7 @@ async def disconnect(current_user: dict = Depends(get_user_optional)):
 async def sync_data(current_user: dict = Depends(get_user_optional)):
     """
     Sync latest data from Oura Ring.
+    Persists to native_health_data (raw) and health_metrics_normalized (canonical).
     In sandbox mode, generates fresh mock data.
     """
     from apps.device_data.services.oura_client import OuraAPIClient
@@ -389,16 +551,40 @@ async def sync_data(current_user: dict = Depends(get_user_optional)):
 
             data = await client.get_all_data(start_date, end_date)
 
-            synced = sum(
-                [
-                    len(data.get("daily_sleep", {}).get("data", [])),
-                    len(data.get("daily_activity", {}).get("data", [])),
-                    len(data.get("daily_readiness", {}).get("data", [])),
-                ]
+            sleep_entries = (data.get("daily_sleep") or {}).get("data", [])
+            activity_entries = (data.get("daily_activity") or {}).get("data", [])
+            readiness_entries = (data.get("daily_readiness") or {}).get("data", [])
+            workout_entries = (data.get("workout") or {}).get("data", [])
+
+            synced = len(sleep_entries) + len(activity_entries) + len(readiness_entries)
+
+            # Flatten into per-day dicts matching OuraAdapter field names
+            by_date = _flatten_oura_day(
+                sleep_entries,
+                activity_entries,
+                readiness_entries,
+                workout_entries,
+            )
+
+            user_id = current_user["id"]
+
+            # Persist raw data to native_health_data
+            await _persist_oura_to_native(user_id, by_date)
+
+            # Persist canonical data to health_metrics_normalized
+            normalized_count = await _persist_oura_to_normalized(user_id, by_date)
+
+            logger.info(
+                "Oura sync: user=%s days=%d raw=%d normalized=%d",
+                user_id,
+                len(by_date),
+                synced,
+                normalized_count,
             )
 
             return SyncResponse(
                 synced_records=synced,
+                normalized_records=normalized_count,
                 last_sync=datetime.utcnow(),
                 is_sandbox=USE_SANDBOX,
             )

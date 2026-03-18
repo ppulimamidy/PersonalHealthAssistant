@@ -761,7 +761,7 @@ async def _build_health_daily(
     normalized_dates = set(health_daily.keys())
 
     # 2. Oura timeline fallback for dates not yet in health_metrics_normalized
-    oura_raw = _extract_oura_daily(timeline)
+    oura_raw = _extract_wearable_daily(timeline)
     if oura_raw:
         sources_seen.add("oura")
         for date_str, oura_metrics in oura_raw.items():
@@ -891,7 +891,7 @@ async def _fetch_nutrition_daily(
     return daily
 
 
-def _extract_oura_daily(timeline: list) -> Dict[str, Dict[str, float]]:
+def _extract_wearable_daily(timeline: list) -> Dict[str, Dict[str, float]]:
     """
     Flatten timeline entries into {date_str: {metric: value, ...}} dict.
     """
@@ -2127,11 +2127,15 @@ async def _get_cached_results(
     user_id: str, period_days: int
 ) -> Optional[Dict[str, Any]]:
     """Check Supabase cache for fresh correlation results."""
-    now = datetime.now(timezone.utc).isoformat()
+    # Use Z suffix instead of +00:00 to avoid URL encoding issues with PostgREST
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     rows = await _supabase_get(
         "correlation_results",
         f"user_id=eq.{user_id}&period_days=eq.{period_days}"
         f"&expires_at=gt.{now}&select=*&limit=1",
+    )
+    logger.info(
+        f"Cache check: user={user_id} period={period_days} now={now} rows={len(rows) if rows else 0}"
     )
     if rows and isinstance(rows, list):
         return rows[0]
@@ -2170,6 +2174,7 @@ async def _save_to_cache(
             "computed_at": now.isoformat(),
             "expires_at": expires.isoformat(),
         },
+        "user_id,period_days",
     )
 
 
@@ -2369,9 +2374,9 @@ async def _compute_and_cache(
 
     user_id = current_user["id"]
 
-    # days=0 means "all history" — fetch without a practical window cap.
+    # days=0 means "all history" — cap at 365 days to keep computation under 30s.
     ALL_HISTORY = period_days == 0
-    fetch_days = 99999 if ALL_HISTORY else period_days
+    fetch_days = 365 if ALL_HISTORY else period_days
 
     # 1. Fetch Oura timeline data
     try:
@@ -2756,8 +2761,8 @@ async def get_causal_graph(
 
     user_id = current_user["id"]
 
-    # days=0 means "all history" — fetch without a practical window cap.
-    fetch_days = 99999 if days == 0 else days
+    # days=0 means "all history" — cap at 365 days to keep computation fast.
+    fetch_days = 365 if days == 0 else days
 
     # Extract bearer token for nutrition service
     bearer = None

@@ -178,7 +178,7 @@ export default function HealthProfilePage() {
               <div className="text-center py-6">
                 <Sparkles className="w-8 h-8 text-slate-300 dark:text-slate-600 mx-auto mb-2" />
                 <p className="text-sm text-slate-500 dark:text-slate-400">
-                  Log more meals and wear your Oura ring to generate personalized recommendations.
+                  Log more meals and sync your wearable device to generate personalized recommendations.
                 </p>
               </div>
             </Card>

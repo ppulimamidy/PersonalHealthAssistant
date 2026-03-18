@@ -37,14 +37,14 @@ const METRICS: MetricConfig[] = [
     label: 'Steps',
     icon: 'footsteps-outline',
     color: '#6EE7B7',
-    autoHeuristic: 'Prefers Apple Health — wrist-worn step counting is generally more accurate than a ring.',
+    autoHeuristic: 'Prefers Apple Health or Garmin — wrist-worn step counting is generally more accurate than a ring.',
   },
   {
     key: 'sleep',
     label: 'Sleep',
     icon: 'moon-outline',
     color: '#818CF8',
-    autoHeuristic: 'Prefers Oura — detailed sleep staging (light/deep/REM) and dedicated sleep sensors.',
+    autoHeuristic: 'Prefers Oura or WHOOP — detailed sleep staging (light/deep/REM) and dedicated sleep sensors.',
   },
   {
     key: 'hrv',
@@ -86,15 +86,40 @@ const METRICS: MetricConfig[] = [
     label: 'VO₂ Max',
     icon: 'speedometer-outline',
     color: '#34D399',
-    autoHeuristic: 'Prefers Apple Health — Apple Watch estimates VO₂ max during outdoor runs and walks.',
+    autoHeuristic: 'Prefers Apple Health or Garmin — both estimate VO₂ max during outdoor runs and walks.',
+  },
+  {
+    key: 'glucose',
+    label: 'Glucose',
+    icon: 'water-outline',
+    color: '#F472B6',
+    autoHeuristic: 'Prefers Dexcom — most accurate dedicated CGM with continuous 5-minute interval readings.',
+  },
+  {
+    key: 'strain_recovery',
+    label: 'Strain / Recovery',
+    icon: 'fitness-outline',
+    color: '#FBBF24',
+    autoHeuristic: 'Prefers WHOOP — dedicated recovery tracker with proprietary strain and recovery scores.',
+  },
+  {
+    key: 'body_battery',
+    label: 'Body Battery',
+    icon: 'battery-half-outline',
+    color: '#22D3EE',
+    autoHeuristic: 'Garmin only — Body Battery is a proprietary Garmin metric combining HRV, stress, and activity.',
   },
 ];
 
 const SOURCE_OPTIONS: Array<{ value: SourceOption; label: string; sub: string }> = [
-  { value: 'auto',           label: 'Auto',                 sub: 'Smart default — see note below' },
-  { value: 'oura',           label: 'Oura Ring',            sub: 'Always use Oura when available' },
-  { value: 'healthkit',      label: 'Apple Health',         sub: 'Always use Apple Health / Watch' },
+  { value: 'auto',           label: 'Auto',                  sub: 'Smart default — see note below' },
+  { value: 'oura',           label: 'Oura Ring',             sub: 'Always use Oura when available' },
+  { value: 'healthkit',      label: 'Apple Health',          sub: 'Always use Apple Health / Watch' },
   { value: 'health_connect', label: 'Google Health Connect', sub: 'Always use Android Health Connect' },
+  { value: 'dexcom',         label: 'Dexcom CGM',            sub: 'Use Dexcom for glucose metrics' },
+  { value: 'whoop',          label: 'WHOOP',                 sub: 'Use WHOOP for strain and recovery' },
+  { value: 'garmin',         label: 'Garmin',                sub: 'Use Garmin for activity and body battery' },
+  { value: 'fitbit',         label: 'Fitbit',                sub: 'Use Fitbit for activity and sleep' },
 ];
 
 // ─── Metric Card ──────────────────────────────────────────────────────────────

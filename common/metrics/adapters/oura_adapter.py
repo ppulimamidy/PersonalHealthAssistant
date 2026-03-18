@@ -1,10 +1,10 @@
 """
 Oura Ring adapter.
 
-Maps the flat dict produced by ``_extract_oura_daily()`` in
+Maps the flat dict produced by ``_extract_wearable_daily()`` in
 ``correlations.py`` to canonical metric names.
 
-Raw input keys (produced by _extract_oura_daily)
+Raw input keys (produced by _extract_wearable_daily)
 -------------------------------------------------
 Sleep:
   sleep_score           0–100

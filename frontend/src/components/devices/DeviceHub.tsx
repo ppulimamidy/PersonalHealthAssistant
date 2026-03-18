@@ -353,7 +353,7 @@ export function DeviceHub() {
       // Immediately clear the cache so the UI reflects disconnected state now
       queryClient.setQueryData(['oura-connection'], null);
       setOuraConnection(null);
-      toast.success('Oura Ring disconnected');
+      toast.success('Oura Ring disconnected successfully');
     },
     onError: () => {
       toast.error('Failed to disconnect');
@@ -377,13 +377,13 @@ export function DeviceHub() {
     try {
       const response = await ouraService.getAuthUrl();
       if (response.sandbox_mode) {
-        toast.success('Connected to Oura (Sandbox Mode)');
+        toast.success('Connected to Oura Ring (Sandbox Mode)');
         setOuraConnection({ id: 'sandbox', user_id: 'sandbox', is_active: true, is_sandbox: true });
         refetch();
       } else if (response.auth_url) {
         globalThis.location.href = response.auth_url;
       } else {
-        toast.error('Oura integration not configured');
+        toast.error('Oura Ring integration not configured');
         setIsConnecting(false);
       }
     } catch {

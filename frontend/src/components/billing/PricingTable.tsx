@@ -28,7 +28,7 @@ const tiers: PricingTier[] = [
     description: 'Get started with basic health tracking',
     cta: 'Get Started Free',
     features: [
-      { text: 'Oura Ring data sync', included: true },
+      { text: 'Wearable device data sync', included: true },
       { text: 'Health timeline view', included: true },
       { text: '3 AI insights per week', included: true },
       { text: '5 meal photo scans per week', included: true },

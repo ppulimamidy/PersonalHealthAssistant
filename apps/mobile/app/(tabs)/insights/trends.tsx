@@ -51,10 +51,14 @@ const SOURCE_BADGE: Record<string, { label: string; color: string }> = {
   oura: { label: '⊙', color: '#818CF8' },
   healthkit: { label: '🍎', color: '#F87171' },
   health_connect: { label: '💚', color: '#34D399' },
+  dexcom: { label: '📊', color: '#F5A623' },
+  whoop: { label: 'W', color: '#00D4AA' },
+  garmin: { label: 'G', color: '#0096D6' },
+  fitbit: { label: 'F', color: '#00B0B9' },
 };
 
 const METRICS: MetricConfig[] = [
-  // ── Core (from Oura or computed) ──
+  // ── Core (from wearable or computed) ──
   {
     label: 'Sleep Score',
     key: (e) => e.sleep?.sleep_score,

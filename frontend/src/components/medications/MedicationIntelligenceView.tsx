@@ -278,7 +278,7 @@ export function MedicationIntelligenceView() {
                 No Correlations Yet
               </h3>
               <p className="text-slate-600 dark:text-slate-400 mb-4">
-                We need at least 5 days of medication adherence data and Oura vitals to detect
+                We need at least 5 days of medication adherence data and wearable vitals to detect
                 correlations
               </p>
               <p className="text-sm text-slate-500 dark:text-slate-400">

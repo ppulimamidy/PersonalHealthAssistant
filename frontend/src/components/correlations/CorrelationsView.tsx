@@ -183,7 +183,7 @@ export function CorrelationsView() {
                 const label =
                   d === 0
                     ? days === 0 && data
-                      ? `All · ${data.period_days}d`
+                      ? `All · ${data.days_with_data || data.oura_days_available || ''}d`
                       : 'All'
                     : `${d}d`;
                 return (

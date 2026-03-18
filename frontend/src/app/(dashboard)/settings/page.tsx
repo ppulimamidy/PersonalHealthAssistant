@@ -43,7 +43,7 @@ const ALL_PERMISSIONS: { key: SharePermission; label: string }[] = [
 
 // ── Data Sources Card ─────────────────────────────────────────────────────────
 
-type SourceOption = 'auto' | 'oura' | 'healthkit';
+type SourceOption = 'auto' | 'oura' | 'healthkit' | 'dexcom' | 'whoop' | 'garmin' | 'fitbit';
 
 interface DataSourcePrefs {
   steps: SourceOption;
@@ -57,15 +57,19 @@ const DS_KEY = 'vitalix_data_source_prefs';
 
 const DS_METRICS: Array<{ key: keyof DataSourcePrefs; label: string; hint: string }> = [
   { key: 'steps',      label: 'Steps',              hint: 'Auto prefers Apple Health — wrist step counting is typically more accurate.' },
-  { key: 'sleep',      label: 'Sleep',              hint: 'Auto prefers Oura — richer sleep staging and dedicated sleep sensors.' },
-  { key: 'hrv',        label: 'HRV',                hint: 'Auto prefers Oura — overnight HRV from a ring has less motion artifact.' },
-  { key: 'heart_rate', label: 'Resting Heart Rate', hint: 'Auto prefers Oura — overnight resting HR is more stable.' },
+  { key: 'sleep',      label: 'Sleep',              hint: 'Auto picks the best connected source — ring sensors offer richer sleep staging.' },
+  { key: 'hrv',        label: 'HRV',                hint: 'Auto picks the best connected source — overnight HRV from a ring has less motion artifact.' },
+  { key: 'heart_rate', label: 'Resting Heart Rate', hint: 'Auto picks the best connected source — overnight resting HR is more stable.' },
 ];
 
 const DS_OPTIONS: Array<{ value: SourceOption; label: string }> = [
   { value: 'auto',      label: 'Auto (recommended)' },
   { value: 'oura',      label: 'Oura Ring' },
   { value: 'healthkit', label: 'Apple Health' },
+  { value: 'dexcom',    label: 'Dexcom' },
+  { value: 'whoop',     label: 'WHOOP' },
+  { value: 'garmin',    label: 'Garmin' },
+  { value: 'fitbit',    label: 'Fitbit' },
 ];
 
 function DataSourcesCard() {

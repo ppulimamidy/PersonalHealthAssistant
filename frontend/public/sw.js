@@ -1,5 +1,5 @@
-// Health Assistant Service Worker
-const CACHE_NAME = 'health-assistant-v1';
+// Health Assistant Service Worker v2 — force update
+const CACHE_NAME = 'health-assistant-v2';
 const STATIC_ASSETS = ['/', '/manifest.json'];
 
 // Install: cache static assets
@@ -24,8 +24,7 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
   if (url.pathname.startsWith('/api/')) {
-    // Always network for API
-    event.respondWith(fetch(event.request));
+    // Always network for API — don't intercept, let browser handle directly
     return;
   }
   event.respondWith(

@@ -865,8 +865,8 @@ def _fallback_summary(patterns: List[PatternDetection]) -> str:
 async def _get_recent_data(
     current_user: dict, bearer: Optional[str]
 ) -> Tuple[Dict[str, Dict[str, float]], Dict[str, Dict[str, float]]]:
-    """Fetch recent Oura + nutrition data for pattern detection."""
-    from .correlations import _extract_oura_daily, _fetch_nutrition_daily
+    """Fetch recent wearable + nutrition data for pattern detection."""
+    from .correlations import _extract_wearable_daily, _fetch_nutrition_daily
     from .timeline import get_timeline
 
     try:
@@ -875,10 +875,10 @@ async def _get_recent_data(
         logger.error("Failed to fetch timeline for recommendations: %s", exc)
         timeline = []
 
-    oura_daily = _extract_oura_daily(timeline)
+    wearable_daily = _extract_wearable_daily(timeline)
     nutrition_daily = await _fetch_nutrition_daily(bearer, 14)
 
-    return oura_daily, nutrition_daily
+    return wearable_daily, nutrition_daily
 
 
 # ---------------------------------------------------------------------------

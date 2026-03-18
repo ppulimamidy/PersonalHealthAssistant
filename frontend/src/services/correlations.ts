@@ -5,7 +5,7 @@ export type CorrelationDays = 14 | 30 | 0; // 0 = all history
 
 export const correlationsService = {
   getCorrelations: async (days: CorrelationDays = 0): Promise<CorrelationResults> => {
-    const response = await api.get('/api/v1/correlations', { params: { days } });
+    const response = await api.get('/api/v1/correlations', { params: { days }, timeout: 120000 });
     return response.data;
   },
 

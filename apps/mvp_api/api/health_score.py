@@ -1,6 +1,7 @@
 """
 Daily Health Score API
-Computes a weighted composite score from Oura sleep, activity, and readiness data.
+Computes a weighted composite score from wearable sleep, activity, and readiness data.
+Sources: any connected device via the canonical pipeline (Oura, Apple Health, Health Connect, etc.).
 """
 
 import os
@@ -86,7 +87,7 @@ async def get_health_score(current_user: dict = Depends(get_user_optional)):
 
 
 def _native_sleep_score(sleep_entry) -> float | None:
-    """Estimate a 0–100 sleep quality score from raw sleep duration (no Oura data)."""
+    """Estimate a 0–100 sleep quality score from raw sleep duration when native score unavailable."""
     duration_sec = getattr(sleep_entry, "total_sleep_duration", 0) or 0
     if duration_sec <= 0:
         return None
@@ -106,7 +107,7 @@ def _native_sleep_score(sleep_entry) -> float | None:
 
 
 def _native_activity_score(activity_entry) -> float | None:
-    """Estimate a 0–100 activity score from step count (no Oura data)."""
+    """Estimate a 0–100 activity score from step count when native score unavailable."""
     steps = getattr(activity_entry, "steps", 0) or 0
     if steps <= 0:
         return None
@@ -138,7 +139,7 @@ def _compute_score(entry) -> tuple:
         getattr(activity_entry, "activity_score", None) if activity_entry else None
     )
 
-    # Fall back to native-derived scores when Oura scores are absent or zero
+    # Fall back to native-derived scores when device scores are absent or zero
     if (sleep_score is None or sleep_score == 0) and sleep_entry:
         sleep_score = _native_sleep_score(sleep_entry)
 

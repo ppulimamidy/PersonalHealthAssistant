@@ -45,9 +45,13 @@ function fmtShortDate(dateStr: string): string {
 }
 
 const SOURCE_LABELS: Record<string, { label: string; color: string }> = {
-  oura:           { label: '⊙ Oura',           color: '#818CF8' },
+  oura:           { label: '⊙ Oura Ring',       color: '#818CF8' },
   healthkit:      { label: '🍎 Apple Health',   color: '#F87171' },
   health_connect: { label: '💚 Health Connect', color: '#34D399' },
+  dexcom:         { label: '📊 Dexcom',         color: '#1E88E5' },
+  whoop:          { label: '🟢 WHOOP',          color: '#2DD4BF' },
+  garmin:         { label: '🔵 Garmin',         color: '#0EA5E9' },
+  fitbit:         { label: '💙 Fitbit',         color: '#6366F1' },
 };
 
 const RING_COLORS = {

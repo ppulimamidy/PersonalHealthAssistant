@@ -524,7 +524,7 @@ async def get_insights(
                 type=InsightType.RECOMMENDATION,
                 category=InsightCategory.GENERAL,
                 title="Connect Your Device",
-                summary="Connect your Oura Ring to start receiving personalized insights.",
+                summary="Connect a wearable device to start receiving personalized insights.",
                 explanation="We analyze your sleep, activity, and readiness data to provide actionable recommendations. Once you connect your device and sync a few days of data, we'll generate insights tailored to your health patterns.",
                 confidence=1.0,
                 data_points=[],
@@ -644,7 +644,7 @@ async def get_insights(
                 f"avg duration ~{avg_hours:.1f}h, efficiency ~{int(avg_eff)}%."
             )
             explanation = (
-                "This insight is derived directly from your Oura sleep metrics (sleep score, duration, and efficiency) "
+                "This insight is derived directly from your sleep metrics (sleep score, duration, and efficiency) "
                 "over the last 14 days. We compare the last 3 days to the prior week to detect changes, and otherwise "
                 "summarize your baseline. If you're feeling off despite stable scores, consider tracking stress, travel, "
                 "illness symptoms, caffeine/alcohol timing, and bedtime consistency."
@@ -770,7 +770,7 @@ async def get_insights(
                 category=InsightCategory.GENERAL,
                 title="Track Consistently for Better Insights",
                 summary="Wearing your ring consistently helps us provide more accurate insights.",
-                explanation="The more complete your data, the better we can identify patterns and trends in your health. Try to wear your Oura Ring during sleep and throughout the day for the most comprehensive analysis.",
+                explanation="The more complete your data, the better we can identify patterns and trends in your health. Try to wear your device during sleep and throughout the day for the most comprehensive analysis.",
                 confidence=0.95,
                 data_points=[],
                 created_at=datetime.utcnow(),
@@ -854,7 +854,7 @@ async def _gather_correlated_context(current_user: dict) -> dict:
         "weight_kg": user_metadata.get("weight_kg"),
     }
 
-    # Timeline + wearable (Oura: HRV, resting heart rate, physical activity, sleep)
+    # Timeline + wearable (HRV, resting heart rate, physical activity, sleep)
     try:
         from .timeline import get_timeline
 
@@ -868,7 +868,7 @@ async def _gather_correlated_context(current_user: dict) -> dict:
                 f"{len(readiness_entries)} readiness days."
             )
 
-            # Wearable (Oura) metrics for correlation/causation insights
+            # Wearable metrics for correlation/causation insights
             wearable_parts = []
             if readiness_entries:
                 hrv = [
@@ -959,7 +959,7 @@ async def _gather_correlated_context(current_user: dict) -> dict:
                     avg_hrs = (sum(total) / len(total)) / 3600
                     wearable_parts.append("Total sleep (avg): %.1f h" % avg_hrs)
             if wearable_parts:
-                context["wearable_summary"] = "Wearable (Oura) data: " + "; ".join(
+                context["wearable_summary"] = "Wearable data: " + "; ".join(
                     wearable_parts
                 )
     except Exception as e:
@@ -1189,7 +1189,7 @@ async def _gather_correlated_context(current_user: dict) -> dict:
     except Exception as e:
         logger.warning("On-demand research for correlated insights: %s", e)
 
-    # Symptom–nutrition and symptom–Oura correlations (e.g. headaches vs deep sleep, digestive vs high-fat)
+    # Symptom–nutrition and symptom–wearable correlations (e.g. headaches vs deep sleep, digestive vs high-fat)
     try:
         from datetime import datetime as _dt, timezone as _tz
 
@@ -1270,7 +1270,7 @@ async def _generate_correlated_insights_ai(context: dict) -> List[dict]:
         "Profile (use for context): age=%s, gender=%s, weight_kg=%s"
         % (profile.get("age"), profile.get("gender"), profile.get("weight_kg")),
         "Timeline: %s" % (context.get("timeline_summary") or "No timeline data"),
-        "Wearable (Oura) metrics — use these for physical activity, HRV, resting heart rate, sleep when relevant: %s"
+        "Wearable metrics — use these for physical activity, HRV, resting heart rate, sleep when relevant: %s"
         % (context.get("wearable_summary") or "No wearable data"),
         "Correlation summary: %s" % (context.get("correlation_summary") or "None"),
         "Causal/lag detail (from correlation engine): %s"
@@ -1298,7 +1298,7 @@ async def _generate_correlated_insights_ai(context: dict) -> List[dict]:
 
     prompt = (
         "Using ONLY the following aggregated health data, produce 3-5 short insights. "
-        "Use EVERY available signal: profile, wearable (Oura), medications (dosage, timing, frequency), supplements, symptoms (severity, duration, triggers), health conditions, labs, goals, doctor/condition notes, saved research, on-demand research, symptom correlations (e.g. headache↔deep sleep), medication–vitals (e.g. HRV drops within 2h of medication). "
+        "Use EVERY available signal: profile, wearable, medications (dosage, timing, frequency), supplements, symptoms (severity, duration, triggers), health conditions, labs, goals, doctor/condition notes, saved research, on-demand research, symptom correlations (e.g. headache↔deep sleep), medication–vitals (e.g. HRV drops within 2h of medication). "
         "When mentioning medications and side effects: users can track side effects as symptoms in the symptom journal; correlate with medication timing when data exists. For drug–nutrient insights (e.g. Metformin and B12) cite a study when possible. "
         "When you HAVE relevant personal data for an insight: start the recommendation with 'Given your [specific data, e.g. labs/conditions/meds]...' and be specific. "
         "When you do NOT have relevant personal data for that topic: start with 'We don't have enough personal data in this area; here is general guidance:' then give generic, evidence-based advice and be explicit it is general. "
@@ -1640,7 +1640,7 @@ class InsightFollowUp(BaseModel):
     delta: Optional[float]
     direction: str  # "better" | "worse" | "stable" | "unknown"
     label: str  # human-readable e.g. "Sleep Score"
-    source: str = "oura"  # "oura" | "app_data"
+    source: str = "wearable"  # "wearable" | "app_data"
 
 
 @router.get("/followups", response_model=List[InsightFollowUp])
@@ -1648,7 +1648,7 @@ async def get_insight_followups(
     current_user: dict = Depends(get_current_user),
 ):
     """
-    Return insights from 28–42 days ago paired with current Oura timeline values.
+    Return insights from 28–42 days ago paired with current wearable timeline values.
     Provides the "what changed since?" comparison loop.
     """
     from ..dependencies.usage_gate import _supabase_get as _get
@@ -1694,8 +1694,8 @@ async def get_insight_followups(
         clean = [v for v in vals if v is not None]
         return sum(clean) / len(clean) if clean else None
 
-    # Map metric_key → current value getter (Oura-based)
-    _oura_current_map = {
+    # Map metric_key → current value getter (wearable-based)
+    _wearable_current_map = {
         "sleep_score": _tl_avg("sleep.sleep_score"),
         "avg_sleep_score_(14d)": _tl_avg("sleep.sleep_score"),
         "steps": _tl_avg("activity.steps"),
@@ -1705,7 +1705,7 @@ async def get_insight_followups(
         "model_confidence": None,
     }
 
-    # Compute app-data current values for non-Oura metrics
+    # Compute app-data current values for non-wearable metrics
     thirty_ago = (today - _td(days=30)).isoformat()
 
     async def _current_symptom_severity() -> Optional[float]:
@@ -1794,9 +1794,9 @@ async def get_insight_followups(
         # Determine source and current value
         is_app_data = mk in _app_current_map
         current_val = (
-            _app_current_map.get(mk) if is_app_data else _oura_current_map.get(mk)
+            _app_current_map.get(mk) if is_app_data else _wearable_current_map.get(mk)
         )
-        source = "app_data" if is_app_data else "oura"
+        source = "app_data" if is_app_data else "wearable"
 
         delta: Optional[float] = None
         direction = "unknown"

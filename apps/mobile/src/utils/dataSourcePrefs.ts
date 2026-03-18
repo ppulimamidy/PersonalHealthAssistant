@@ -6,7 +6,7 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-export type SourceOption = 'auto' | 'oura' | 'healthkit' | 'health_connect';
+export type SourceOption = 'auto' | 'oura' | 'healthkit' | 'health_connect' | 'dexcom' | 'whoop' | 'garmin' | 'fitbit';
 
 export interface DataSourcePrefs {
   steps: SourceOption;
@@ -17,6 +17,9 @@ export interface DataSourcePrefs {
   active_calories: SourceOption;
   workouts: SourceOption;
   vo2_max: SourceOption;
+  glucose: SourceOption;
+  strain_recovery: SourceOption;
+  body_battery: SourceOption;
 }
 
 export const DEFAULT_PREFS: DataSourcePrefs = {
@@ -28,6 +31,9 @@ export const DEFAULT_PREFS: DataSourcePrefs = {
   active_calories: 'auto',
   workouts: 'auto',
   vo2_max: 'auto',
+  glucose: 'auto',
+  strain_recovery: 'auto',
+  body_battery: 'auto',
 };
 
 const STORAGE_KEY = '@vitalix/data_source_prefs';

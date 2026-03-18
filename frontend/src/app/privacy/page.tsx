@@ -140,6 +140,30 @@ export default function PrivacyPolicy() {
                 link="https://ouraring.com/privacy-policy"
               />
               <ThirdParty
+                name="Dexcom"
+                purpose="If you connect a Dexcom CGM, we receive your glucose data via Dexcom's API"
+                location="United States"
+                link="https://www.dexcom.com/privacy-policy"
+              />
+              <ThirdParty
+                name="WHOOP"
+                purpose="If you connect a WHOOP band, we receive your recovery and strain data via WHOOP's API"
+                location="United States"
+                link="https://www.whoop.com/privacy/"
+              />
+              <ThirdParty
+                name="Garmin"
+                purpose="If you connect a Garmin device, we receive your fitness data via Garmin's API"
+                location="United States"
+                link="https://www.garmin.com/en-US/privacy/connect/"
+              />
+              <ThirdParty
+                name="Fitbit"
+                purpose="If you connect a Fitbit device, we receive your health data via Fitbit's API"
+                location="United States"
+                link="https://www.fitbit.com/legal/privacy-policy"
+              />
+              <ThirdParty
                 name="Stripe"
                 purpose="Payment processing and subscription management"
                 location="United States"

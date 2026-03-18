@@ -402,7 +402,7 @@ export function InsightsView() {
           <span>
             AI insights require wearable data.{' '}
             <Link href="/devices" className="text-primary-600 dark:text-primary-400 hover:underline">
-              Connect your Oura Ring →
+              Connect a Wearable Device →
             </Link>
           </span>
         </div>

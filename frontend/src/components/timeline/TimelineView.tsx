@@ -28,9 +28,13 @@ function formatDelta(delta: number, unit: string) {
 }
 
 const SOURCE_LABELS: Record<string, string> = {
-  oura: 'Oura',
+  oura: 'Oura Ring',
   healthkit: 'Apple Health',
   health_connect: 'Health Connect',
+  dexcom: 'Dexcom',
+  whoop: 'WHOOP',
+  garmin: 'Garmin',
+  fitbit: 'Fitbit',
 };
 
 function TimelineCard({ entry }: Readonly<{ entry: TimelineEntry }>) {
@@ -332,7 +336,7 @@ export function TimelineView() {
         <EmptyState
           icon={Cpu}
           title="Connect a device to see your timeline"
-          description="Link your Oura Ring or another wearable to unlock daily health scores, sleep data, and readiness trends."
+          description="Link a wearable device to unlock daily health scores, sleep data, and readiness trends."
           actionLabel="Connect →"
           actionHref="/devices"
         />

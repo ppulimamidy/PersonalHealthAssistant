@@ -260,7 +260,7 @@ function OnboardingContent() {
     try {
       const response = await ouraService.getAuthUrl();
       if (response.sandbox_mode) {
-        toast.success('Connected to Oura (Sandbox Mode)');
+        toast.success('Connected to Oura Ring (Sandbox Mode)');
         setOuraConnection({
           id: 'sandbox',
           user_id: 'sandbox',
@@ -271,11 +271,11 @@ function OnboardingContent() {
       } else if (response.auth_url) {
         globalThis.location.href = response.auth_url;
       } else {
-        toast.error('Oura integration not configured');
+        toast.error('Oura Ring integration not configured');
         setIsConnecting(false);
       }
     } catch {
-      toast.error('Failed to initiate Oura connection');
+      toast.error('Failed to initiate device connection');
       setIsConnecting(false);
     }
   };
@@ -347,7 +347,7 @@ function OnboardingContent() {
   const titles: Record<number, string> = {
     1: roleParam === 'caregiver' ? 'What are your health goals?' : 'What are your health goals?',
     2: roleParam === 'caregiver' ? 'Any health conditions to track?' : 'Any health conditions to track?',
-    3: 'Connect your Oura Ring',
+    3: 'Connect a Wearable Device',
     4: "You're all set!",
   };
 
@@ -571,7 +571,7 @@ function OnboardingContent() {
               </div>
 
               <Button onClick={handleConnectOura} className="w-full" isLoading={isConnecting}>
-                Connect Oura Ring
+                Connect Wearable Device
                 <ArrowRight className="w-5 h-5 ml-2" />
               </Button>
 

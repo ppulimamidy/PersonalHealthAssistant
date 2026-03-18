@@ -1,7 +1,6 @@
 /**
  * Health Devices screen.
- * YOUR DEVICES: Apple Health (live sync) + Oura Ring (coming soon)
- * ADD A WEARABLE: grid of coming-soon devices
+ * Unified device list: platform health source, Oura, and coming-soon wearables.
  */
 
 import { useState, useCallback } from 'react';
@@ -74,6 +73,28 @@ const METRICS: SyncMetric[] = [
   { label: 'Active Calories',  icon: 'flame-outline',       unit: 'kcal',       color: '#FB923C', metricType: 'active_calories',    valueKey: 'kcal',       format: (v) => Math.round(v) + ' kcal' },
   { label: 'Workouts',         icon: 'barbell-outline',     unit: 'min',        color: '#F59E0B', metricType: 'workout',            valueKey: 'minutes',    format: (v) => Math.round(v) + ' min' },
   { label: 'VO₂ Max',          icon: 'speedometer-outline', unit: 'mL/kg/min',  color: '#34D399', metricType: 'vo2_max',            valueKey: 'ml_kg_min',  format: (v) => v.toFixed(1) + ' mL/kg/min' },
+];
+
+// ─── Device configurations ────────────────────────────────────────────────────
+
+interface DeviceConfig {
+  id: string;
+  name: string;
+  icon: React.ComponentProps<typeof Ionicons>['name'];
+  color: string;
+  platform?: 'ios' | 'android';
+  status: 'available' | 'coming_soon';
+  metrics: string;
+}
+
+const DEVICE_CONFIGS: DeviceConfig[] = [
+  { id: 'healthkit', name: 'Apple Health', icon: 'fitness-outline', color: '#F87171', platform: 'ios', status: 'available', metrics: 'Steps, Sleep, Heart Rate, Workouts, VO2 Max' },
+  { id: 'health_connect', name: 'Health Connect', icon: 'fitness-outline', color: '#34D399', platform: 'android', status: 'available', metrics: 'Steps, Sleep, Heart Rate, Workouts, VO2 Max' },
+  { id: 'oura', name: 'Oura Ring', icon: 'ellipse-outline', color: '#818CF8', status: 'available', metrics: 'Sleep Score, Readiness, HRV, Temp, Activity' },
+  { id: 'dexcom', name: 'Dexcom CGM', icon: 'analytics-outline', color: '#F5A623', status: 'coming_soon', metrics: 'Glucose, Time in Range' },
+  { id: 'whoop', name: 'WHOOP', icon: 'pulse-outline', color: '#00D4AA', status: 'coming_soon', metrics: 'Strain, Recovery, Sleep' },
+  { id: 'garmin', name: 'Garmin', icon: 'watch-outline', color: '#0096D6', status: 'coming_soon', metrics: 'Steps, HR, VO2 Max, Body Battery' },
+  { id: 'fitbit', name: 'Fitbit', icon: 'watch-outline', color: '#00B0B9', status: 'coming_soon', metrics: 'Steps, Sleep, HR, SpO2' },
 ];
 
 // ─── Batched upload helper ─────────────────────────────────────────────────────
@@ -646,37 +667,7 @@ function MetricRow({
 function ComingSoonBadge() {
   return (
     <View className="bg-[#1E2A3B] rounded-full px-2 py-0.5">
-      <Text className="text-[#526380] text-[10px] font-sansMedium">Soon</Text>
-    </View>
-  );
-}
-
-// ─── Wearable Grid Tile ───────────────────────────────────────────────────────
-
-function WearableTile({
-  icon,
-  label,
-  iconColor,
-}: {
-  icon: React.ComponentProps<typeof Ionicons>['name'];
-  label: string;
-  iconColor: string;
-}) {
-  return (
-    <View
-      className="bg-surface-raised border border-surface-border rounded-2xl items-center justify-center py-4"
-      style={{ width: '30%' }}
-    >
-      <View
-        className="w-10 h-10 rounded-xl items-center justify-center mb-2"
-        style={{ backgroundColor: `${iconColor}15` }}
-      >
-        <Ionicons name={icon} size={20} color={iconColor} />
-      </View>
-      <Text className="text-[#E8EDF5] text-xs font-sansMedium text-center">{label}</Text>
-      <View className="mt-1.5">
-        <ComingSoonBadge />
-      </View>
+      <Text className="text-[#526380] text-[10px] font-sansMedium">Coming Soon</Text>
     </View>
   );
 }
@@ -907,134 +898,142 @@ export default function DevicesScreen() {
 
       <View className="px-6 pt-6">
 
-        {/* ── YOUR DEVICES ─────────────────────────────────────────────────── */}
-        <Text className="text-[#526380] text-xs uppercase tracking-wider mb-3">Your Devices</Text>
+        {/* ── HEALTH DATA SOURCES ──────────────────────────────────────────── */}
+        <Text className="text-[#526380] text-xs uppercase tracking-wider mb-3">Health Data Sources</Text>
 
-        {/* Apple Health / Health Connect card */}
-        <View className="bg-surface-raised border border-surface-border rounded-2xl p-4 mb-3">
-          {/* Device row */}
-          <View className="flex-row items-center mb-4">
-            <View className="w-12 h-12 rounded-xl items-center justify-center mr-3" style={{ backgroundColor: '#F8717120' }}>
-              <Ionicons name="heart" size={24} color="#F87171" />
-            </View>
-            <View className="flex-1">
-              <Text className="text-[#E8EDF5] font-sansMedium text-base">{platformName}</Text>
-              <Text className="text-[#526380] text-xs mt-0.5">
-                {nativeConnected
-                  ? (lastSyncTs ? `Last synced ${format(new Date(lastSyncTs), 'MMM d, h:mm a')}` : 'Synced')
-                  : 'Not connected'}
-              </Text>
-            </View>
-            <View className="flex-row items-center gap-1.5">
-              <View className="w-2 h-2 rounded-full" style={{ backgroundColor: nativeConnected ? '#6EE7B7' : '#3A4A5C' }} />
-              <Text className="text-xs font-sansMedium" style={{ color: nativeConnected ? '#6EE7B7' : '#526380' }}>
-                {nativeConnected ? 'Connected' : 'Not linked'}
-              </Text>
-            </View>
-          </View>
-
-          {/* Sync result banner */}
-          {lastResult && (
-            <View className="bg-primary-500/10 border border-primary-500/30 rounded-xl px-3 py-2.5 mb-3">
-              <Text className="text-primary-500 text-sm font-sansMedium">
-                {lastResult.message ?? `Synced ${lastResult.accepted} data points`}
-                {!lastResult.message && lastResult.skipped > 0
-                  ? ` (${lastResult.skipped} already up to date)`
-                  : ''}
-              </Text>
-            </View>
-          )}
-
-          {nativeConnected ? (
-            <>
-              <View className="flex-row gap-2">
-                <TouchableOpacity
-                  onPress={handleSync}
-                  disabled={syncing || isDisconnecting}
-                  className="flex-1 bg-primary-500 rounded-xl py-3 items-center"
-                  activeOpacity={0.8}
-                >
-                  {syncing ? (
-                    <View className="flex-row items-center gap-2">
-                      <ActivityIndicator size="small" color="#080B10" />
-                      <Text className="text-obsidian-900 font-sansMedium text-sm">{progress}</Text>
-                    </View>
-                  ) : (
-                    <Text className="text-obsidian-900 font-sansMedium text-sm">Sync Now</Text>
-                  )}
-                </TouchableOpacity>
-                <TouchableOpacity
-                  onPress={handleHealthDisconnect}
-                  disabled={syncing || isDisconnecting}
-                  className="px-4 rounded-xl py-3 items-center"
-                  style={{ backgroundColor: 'rgba(255,255,255,0.04)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)' }}
-                  activeOpacity={0.8}
-                >
-                  {isDisconnecting
-                    ? <ActivityIndicator size="small" color="#526380" />
-                    : <Text className="text-[#526380] font-sansMedium text-sm">Disconnect</Text>
-                  }
-                </TouchableOpacity>
+        {/* Platform health source (Apple Health / Health Connect) */}
+        {DEVICE_CONFIGS.filter((d) =>
+          (d.id === 'healthkit' && Platform.OS === 'ios') ||
+          (d.id === 'health_connect' && Platform.OS === 'android'),
+        ).map((device) => (
+          <View key={device.id} className="bg-surface-raised border border-surface-border rounded-2xl p-4 mb-3">
+            {/* Device row */}
+            <View className="flex-row items-center mb-2">
+              <View className="w-12 h-12 rounded-xl items-center justify-center mr-3" style={{ backgroundColor: `${device.color}20` }}>
+                <Ionicons name={device.icon} size={24} color={device.color} />
               </View>
-              <TouchableOpacity
-                onPress={handleFullSync}
-                disabled={syncing}
-                className="mt-2 items-center"
-                activeOpacity={0.7}
-              >
-                <Text className="text-[#526380] text-xs underline">
-                  {Platform.OS === 'ios' ? 'Sync full history (up to 3 years)' : 'Sync full history (up to 30 days)'}
+              <View className="flex-1">
+                <Text className="text-[#E8EDF5] font-sansMedium text-base">{device.name}</Text>
+                <Text className="text-[#526380] text-xs mt-0.5">
+                  {nativeConnected
+                    ? (lastSyncTs ? `Last synced ${format(new Date(lastSyncTs), 'MMM d, h:mm a')}` : 'Synced')
+                    : 'Not connected'}
                 </Text>
-              </TouchableOpacity>
-            </>
-          ) : (
-            /* Not connected — show Connect & Sync */
-            <TouchableOpacity
-              onPress={handleSync}
-              disabled={syncing}
-              className="bg-primary-500 rounded-xl py-3 items-center"
-              activeOpacity={0.8}
-            >
-              {syncing ? (
-                <View className="flex-row items-center gap-2">
-                  <ActivityIndicator size="small" color="#080B10" />
-                  <Text className="text-obsidian-900 font-sansMedium text-sm">{progress}</Text>
-                </View>
-              ) : (
-                <Text className="text-obsidian-900 font-sansMedium text-sm">Connect & Sync</Text>
-              )}
-            </TouchableOpacity>
-          )}
-
-          {/* Metric rows — shown after first sync */}
-          {hasValues && (
-            <View className="mt-4 pt-4 border-t border-surface-border">
-              <View className="flex-row items-center mb-2">
-                <Ionicons name="heart" size={12} color="#F87171" />
-                <Text className="text-[#526380] text-xs ml-1.5">{platformName}</Text>
               </View>
-              {METRICS.map((m) => (
-                <MetricRow
-                  key={m.metricType}
-                  metric={m}
-                  value={latestValues[m.metricType] ?? null}
-                  summary={summaries?.[m.metricType]}
-                />
-              ))}
+              <View className="flex-row items-center gap-1.5">
+                <View className="w-2 h-2 rounded-full" style={{ backgroundColor: nativeConnected ? '#6EE7B7' : '#3A4A5C' }} />
+                <Text className="text-xs font-sansMedium" style={{ color: nativeConnected ? '#6EE7B7' : '#526380' }}>
+                  {nativeConnected ? 'Connected' : 'Not linked'}
+                </Text>
+              </View>
             </View>
-          )}
-        </View>
+
+            {/* Metrics provided */}
+            <Text className="text-[#526380] text-[10px] ml-15 mb-3">{device.metrics}</Text>
+
+            {/* Sync result banner */}
+            {lastResult && (
+              <View className="bg-primary-500/10 border border-primary-500/30 rounded-xl px-3 py-2.5 mb-3">
+                <Text className="text-primary-500 text-sm font-sansMedium">
+                  {lastResult.message ?? `Synced ${lastResult.accepted} data points`}
+                  {!lastResult.message && lastResult.skipped > 0
+                    ? ` (${lastResult.skipped} already up to date)`
+                    : ''}
+                </Text>
+              </View>
+            )}
+
+            {nativeConnected ? (
+              <>
+                <View className="flex-row gap-2">
+                  <TouchableOpacity
+                    onPress={handleSync}
+                    disabled={syncing || isDisconnecting}
+                    className="flex-1 bg-primary-500 rounded-xl py-3 items-center"
+                    activeOpacity={0.8}
+                  >
+                    {syncing ? (
+                      <View className="flex-row items-center gap-2">
+                        <ActivityIndicator size="small" color="#080B10" />
+                        <Text className="text-obsidian-900 font-sansMedium text-sm">{progress}</Text>
+                      </View>
+                    ) : (
+                      <Text className="text-obsidian-900 font-sansMedium text-sm">Sync Now</Text>
+                    )}
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={handleHealthDisconnect}
+                    disabled={syncing || isDisconnecting}
+                    className="px-4 rounded-xl py-3 items-center"
+                    style={{ backgroundColor: 'rgba(255,255,255,0.04)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)' }}
+                    activeOpacity={0.8}
+                  >
+                    {isDisconnecting
+                      ? <ActivityIndicator size="small" color="#526380" />
+                      : <Text className="text-[#526380] font-sansMedium text-sm">Disconnect</Text>
+                    }
+                  </TouchableOpacity>
+                </View>
+                <TouchableOpacity
+                  onPress={handleFullSync}
+                  disabled={syncing}
+                  className="mt-2 items-center"
+                  activeOpacity={0.7}
+                >
+                  <Text className="text-[#526380] text-xs underline">
+                    {Platform.OS === 'ios' ? 'Sync full history (up to 3 years)' : 'Sync full history (up to 30 days)'}
+                  </Text>
+                </TouchableOpacity>
+              </>
+            ) : (
+              /* Not connected — show Connect & Sync */
+              <TouchableOpacity
+                onPress={handleSync}
+                disabled={syncing}
+                className="bg-primary-500 rounded-xl py-3 items-center"
+                activeOpacity={0.8}
+              >
+                {syncing ? (
+                  <View className="flex-row items-center gap-2">
+                    <ActivityIndicator size="small" color="#080B10" />
+                    <Text className="text-obsidian-900 font-sansMedium text-sm">{progress}</Text>
+                  </View>
+                ) : (
+                  <Text className="text-obsidian-900 font-sansMedium text-sm">Connect & Sync</Text>
+                )}
+              </TouchableOpacity>
+            )}
+
+            {/* Metric rows — shown after first sync */}
+            {hasValues && (
+              <View className="mt-4 pt-4 border-t border-surface-border">
+                <View className="flex-row items-center mb-2">
+                  <Ionicons name={device.icon} size={12} color={device.color} />
+                  <Text className="text-[#526380] text-xs ml-1.5">{device.name}</Text>
+                </View>
+                {METRICS.map((m) => (
+                  <MetricRow
+                    key={m.metricType}
+                    metric={m}
+                    value={latestValues[m.metricType] ?? null}
+                    summary={summaries?.[m.metricType]}
+                  />
+                ))}
+              </View>
+            )}
+          </View>
+        ))}
 
         {/* Oura Ring card */}
-        <View className="bg-surface-raised border border-surface-border rounded-2xl p-4 mb-6">
-          <View className="flex-row items-center mb-4">
+        <View className="bg-surface-raised border border-surface-border rounded-2xl p-4 mb-3">
+          <View className="flex-row items-center mb-2">
             <View className="w-12 h-12 rounded-xl items-center justify-center mr-3" style={{ backgroundColor: '#818CF820' }}>
-              <Ionicons name="radio-button-on-outline" size={24} color="#818CF8" />
+              <Ionicons name="ellipse-outline" size={24} color="#818CF8" />
             </View>
             <View className="flex-1">
               <Text className="text-[#E8EDF5] font-sansMedium text-base">Oura Ring</Text>
               <Text className="text-[#526380] text-xs mt-0.5">
-                {ouraConnected ? 'Sleep, HRV & readiness syncing' : 'Track sleep, HRV & readiness'}
+                {ouraConnected ? 'Connected and syncing' : 'Not connected'}
               </Text>
             </View>
             <View className="flex-row items-center gap-1.5">
@@ -1044,6 +1043,9 @@ export default function DevicesScreen() {
               </Text>
             </View>
           </View>
+
+          {/* Metrics provided */}
+          <Text className="text-[#526380] text-[10px] ml-15 mb-3">Sleep Score, Readiness, HRV, Temp, Activity</Text>
 
           {ouraResult && (
             <View className="bg-primary-500/10 border border-primary-500/30 rounded-xl px-3 py-2.5 mb-3">
@@ -1091,16 +1093,24 @@ export default function DevicesScreen() {
           )}
         </View>
 
-        {/* ── ADD A WEARABLE ────────────────────────────────────────────────── */}
-        <Text className="text-[#526380] text-xs uppercase tracking-wider mb-3">Add a Wearable</Text>
-        <View className="flex-row flex-wrap gap-3 mb-6">
-          <WearableTile icon="watch-outline"          label="Garmin"   iconColor="#00D4AA" />
-          <WearableTile icon="fitness-outline"        label="Whoop"    iconColor="#F5A623" />
-          <WearableTile icon="body-outline"           label="Fitbit"   iconColor="#60A5FA" />
-          <WearableTile icon="phone-portrait-outline" label="Samsung"  iconColor="#6EE7B7" />
-          <WearableTile icon="pulse-outline"          label="Polar"    iconColor="#F87171" />
-          <WearableTile icon="add-circle-outline"     label="More"     iconColor="#818CF8" />
-        </View>
+        {/* Coming-soon devices */}
+        {DEVICE_CONFIGS.filter((d) => d.status === 'coming_soon').map((device) => (
+          <View key={device.id} className="bg-surface-raised border border-surface-border rounded-2xl p-4 mb-3">
+            <View className="flex-row items-center mb-2">
+              <View className="w-12 h-12 rounded-xl items-center justify-center mr-3" style={{ backgroundColor: `${device.color}20` }}>
+                <Ionicons name={device.icon} size={24} color={device.color} />
+              </View>
+              <View className="flex-1">
+                <Text className="text-[#E8EDF5] font-sansMedium text-base">{device.name}</Text>
+                <Text className="text-[#526380] text-xs mt-0.5">{device.metrics}</Text>
+              </View>
+              <ComingSoonBadge />
+            </View>
+          </View>
+        ))}
+
+        {/* Spacer before privacy note */}
+        <View className="mb-3" />
 
         {/* Privacy note */}
         <View className="bg-surface border border-surface-border rounded-xl px-4 py-3 flex-row gap-3">

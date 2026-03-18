@@ -314,41 +314,41 @@ async def _build_intelligence_indicators(
 ) -> Optional[HealthIntelligenceIndicators]:
     """Build health intelligence indicators from timeline + nutrition data."""
     try:
-        from .correlations import _extract_oura_daily, _fetch_nutrition_daily
+        from .correlations import _extract_wearable_daily, _fetch_nutrition_daily
 
-        oura_daily = _extract_oura_daily(timeline)
+        wearable_daily = _extract_wearable_daily(timeline)
         nutrition_daily = await _fetch_nutrition_daily(bearer, days)
 
-        if not oura_daily:
+        if not wearable_daily:
             return None
 
-        dates = sorted(oura_daily.keys())
+        dates = sorted(wearable_daily.keys())
         half = len(dates) // 2
         recent_dates = dates[half:]
         older_dates = dates[:half]
 
         # Trends
         sleep_recent = [
-            oura_daily[d].get("sleep_score", 0)
+            wearable_daily[d].get("sleep_score", 0)
             for d in recent_dates
-            if oura_daily[d].get("sleep_score")
+            if wearable_daily[d].get("sleep_score")
         ]
         sleep_older = [
-            oura_daily[d].get("sleep_score", 0)
+            wearable_daily[d].get("sleep_score", 0)
             for d in older_dates
-            if oura_daily[d].get("sleep_score")
+            if wearable_daily[d].get("sleep_score")
         ]
         sleep_trend = _compute_trend(sleep_recent, sleep_older)
 
         hrv_recent = [
-            oura_daily[d].get("hrv_balance", 0)
+            wearable_daily[d].get("hrv_balance", 0)
             for d in recent_dates
-            if oura_daily[d].get("hrv_balance")
+            if wearable_daily[d].get("hrv_balance")
         ]
         hrv_older = [
-            oura_daily[d].get("hrv_balance", 0)
+            wearable_daily[d].get("hrv_balance", 0)
             for d in older_dates
-            if oura_daily[d].get("hrv_balance")
+            if wearable_daily[d].get("hrv_balance")
         ]
         hrv_trend = _compute_trend(hrv_recent, hrv_older)
 
@@ -357,14 +357,14 @@ async def _build_intelligence_indicators(
 
         # Inflammation risk
         temp_vals = [
-            oura_daily[d].get("temperature_deviation", 0)
+            wearable_daily[d].get("temperature_deviation", 0)
             for d in dates
-            if "temperature_deviation" in oura_daily[d]
+            if "temperature_deviation" in wearable_daily[d]
         ]
         hrv_vals = [
-            oura_daily[d].get("hrv_balance", 0)
+            wearable_daily[d].get("hrv_balance", 0)
             for d in dates
-            if oura_daily[d].get("hrv_balance")
+            if wearable_daily[d].get("hrv_balance")
         ]
         sugar_vals = [
             nutrition_daily[d].get("total_sugar_g", 0)
@@ -372,9 +372,9 @@ async def _build_intelligence_indicators(
             if d in nutrition_daily and nutrition_daily[d].get("total_sugar_g")
         ]
         rhr_vals = [
-            oura_daily[d].get("resting_heart_rate", 0)
+            wearable_daily[d].get("resting_heart_rate", 0)
             for d in dates
-            if oura_daily[d].get("resting_heart_rate")
+            if wearable_daily[d].get("resting_heart_rate")
         ]
         inflammation = _compute_inflammation_risk(
             temp_vals, hrv_vals, sugar_vals, rhr_vals
@@ -382,9 +382,9 @@ async def _build_intelligence_indicators(
 
         # Stress index
         sleep_eff_vals = [
-            oura_daily[d].get("sleep_efficiency", 0)
+            wearable_daily[d].get("sleep_efficiency", 0)
             for d in dates
-            if oura_daily[d].get("sleep_efficiency")
+            if wearable_daily[d].get("sleep_efficiency")
         ]
         stress = _compute_stress_index(hrv_vals, sleep_eff_vals, rhr_vals)
 
@@ -393,7 +393,7 @@ async def _build_intelligence_indicators(
         try:
             from .recommendations import _detect_patterns
 
-            patterns = _detect_patterns(oura_daily, nutrition_daily)
+            patterns = _detect_patterns(wearable_daily, nutrition_daily)
             for p in patterns[:3]:
                 actions.append(
                     f"Address {p.label.lower()}: {p.signals[0] if p.signals else ''}"

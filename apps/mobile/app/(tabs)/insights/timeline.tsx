@@ -103,9 +103,15 @@ function DayCard({ entry }: Readonly<{ entry: TimelineEntry }>) {
   if (activity == null || activity >= 60) activityColor = '#F5A623';
 
   const sourceLabels: Record<string, string> = {
-    oura: 'Oura',
+    oura: 'Oura Ring',
     healthkit: 'Apple Health',
     health_connect: 'Health Connect',
+    dexcom: 'Dexcom CGM',
+    whoop: 'WHOOP',
+    garmin: 'Garmin',
+    fitbit: 'Fitbit',
+    polar: 'Polar',
+    samsung: 'Samsung Health',
   };
 
   return (

@@ -11,13 +11,43 @@ export const api = axios.create({
   },
 });
 
-// Add auth token to every outgoing request
+// Add auth token to every outgoing request.
+// Cache the getSession() promise so concurrent requests share one call
+// instead of each awaiting separately (causes Supabase client serialization delays).
+let _sessionPromise: Promise<string | null> | null = null;
+let _cachedToken: string | null = null;
+let _cacheTs = 0;
+
+function _getTokenOnce(): Promise<string | null> {
+  const now = Date.now();
+  // Use cached token for 30 seconds
+  if (_cachedToken && now - _cacheTs < 30_000) {
+    return Promise.resolve(_cachedToken);
+  }
+  // Share one inflight getSession() call across all concurrent requests
+  if (!_sessionPromise) {
+    _sessionPromise = supabase.auth.getSession()
+      .then(({ data: { session } }) => {
+        _cachedToken = session?.access_token ?? null;
+        _cacheTs = Date.now();
+        return _cachedToken;
+      })
+      .catch(() => null)
+      .finally(() => { _sessionPromise = null; });
+  }
+  return _sessionPromise;
+}
+
+// Keep token updated when auth state changes (login, logout, refresh)
+supabase.auth.onAuthStateChange((_event, session) => {
+  _cachedToken = session?.access_token ?? null;
+  _cacheTs = Date.now();
+});
+
 api.interceptors.request.use(async (config) => {
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  if (session?.access_token) {
-    config.headers.Authorization = `Bearer ${session.access_token}`;
+  const token = await _getTokenOnce();
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
   }
   return config;
 });

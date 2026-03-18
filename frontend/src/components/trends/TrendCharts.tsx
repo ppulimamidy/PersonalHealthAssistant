@@ -243,7 +243,7 @@ export function TrendCharts() {
   if (data.length === 0) {
     return (
       <div className="text-center py-20 text-slate-500 dark:text-slate-400">
-        No data available. Connect your Oura Ring and sync to see trends.
+        No data available. Connect a wearable device and sync to see trends.
       </div>
     );
   }
@@ -269,9 +269,13 @@ export function TrendCharts() {
         const allSources = new Set(data.flatMap((d) => d.sources ?? []));
         if (allSources.size === 0) return null;
         const BADGES: Record<string, { label: string; color: string }> = {
-          oura: { label: '⊙ Oura', color: '#818CF8' },
+          oura: { label: '⊙ Oura Ring', color: '#818CF8' },
           healthkit: { label: '🍎 Apple Health', color: '#F87171' },
           health_connect: { label: '💚 Health Connect', color: '#34D399' },
+          dexcom: { label: '📊 Dexcom', color: '#1E88E5' },
+          whoop: { label: '🟢 WHOOP', color: '#2DD4BF' },
+          garmin: { label: '🔵 Garmin', color: '#0EA5E9' },
+          fitbit: { label: '💙 Fitbit', color: '#6366F1' },
         };
         return (
           <div className="flex items-center gap-3 text-xs">

@@ -113,8 +113,8 @@ const demoSteps = [
     label: 'Set Up',
     time: '0–60 s',
     title: 'Sign up, connect your device, start logging',
-    description: 'Create your account in 30 seconds. Connect your Oura Ring or log manually. Your personalised dashboard is ready instantly.',
-    ctas: ['Connect Oura', 'Log a meal', 'Log a symptom'],
+    description: 'Create your account in 30 seconds. Connect your wearable device or log manually. Your personalised dashboard is ready instantly.',
+    ctas: ['Connect Device', 'Log a meal', 'Log a symptom'],
   },
   {
     label: 'Insights',
@@ -571,7 +571,7 @@ export function LandingPage() {
           <div className="space-y-10">
             {[
               { n: '1', title: 'Sign Up & Choose Your Role', body: 'Create your account in 30 seconds and tell us who you are — patient, caregiver, or healthcare provider. Each role gets a tailored dashboard from the start.', badge: '30 seconds' },
-              { n: '2', title: 'Connect & Start Logging', body: 'Link your Oura Ring or start logging manually. Add medications, health conditions, and log meals by photo. It all feeds a single, unified health picture.', badge: '1 minute' },
+              { n: '2', title: 'Connect & Start Logging', body: 'Link your wearable device or start logging manually. Add medications, health conditions, and log meals by photo. It all feeds a single, unified health picture.', badge: '1 minute' },
               { n: '3', title: 'Get Insights & Prep for Visits', body: 'We surface 3 high-signal insights: what changed, why it might matter, and what questions to ask your doctor. Share your full record with your care team in one click.', badge: '2 minutes' },
             ].map(({ n, title, body, badge }) => (
               <div key={n} className="flex items-start gap-6">
