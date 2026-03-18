@@ -29,6 +29,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 
 from common.middleware.auth import get_current_user
+from common.metrics.normalizer import SOURCE_PRIORITY as _SOURCE_PRIORITY
 from common.utils.logging import get_logger
 from ..dependencies.usage_gate import (
     UsageGate,
@@ -76,36 +77,39 @@ _NUTRITION_VARS: frozenset = frozenset(
         "fat_pct",
     }
 )
-_OURA_VARS: frozenset = frozenset(
+_HEALTH_VARS: frozenset = frozenset(
     {
+        # Sleep
         "sleep_score",
-        "sleep_efficiency",
-        "deep_sleep_hours",
-        "total_sleep_hours",
+        "sleep_efficiency_pct",
+        "deep_sleep_min",
+        "sleep_duration_min",
+        # Recovery
         "hrv_balance",
-        "resting_heart_rate",
+        "hrv_ms",
+        "resting_hr_bpm",
         "readiness_score",
         "recovery_index",
-        "temperature_deviation",
+        "body_temp_deviation_c",
+        # Activity
         "steps",
         "activity_score",
-        "active_calories",
-        # Native wearable metrics (Apple Health, Health Connect, Tier 1–2 devices)
-        "respiratory_rate",
-        "spo2",
-        "workout_minutes",
+        "active_calories_kcal",
+        "active_min",
         "vo2_max",
-        "hrv_sdnn",
+        # Wearable
+        "respiratory_rate_bpm",
+        "spo2_pct",
         # Tier 2 wearables (Whoop, Garmin, etc.)
         "whoop_strain",
         "whoop_recovery",
         "garmin_stress",
         "garmin_body_battery",
         # Tier 3 / medical devices
-        "blood_glucose",
-        "blood_pressure_systolic",
-        "blood_pressure_diastolic",
-        "body_temperature",
+        "avg_glucose_mgdl",
+        "blood_pressure_systolic_mmhg",
+        "blood_pressure_diastolic_mmhg",
+        "body_temperature_c",
         "weight_kg",
         "body_fat_pct",
         # Symptom outcomes
@@ -113,28 +117,35 @@ _OURA_VARS: frozenset = frozenset(
         "symptom_count",
     }
 )
+# Backward-compat alias for learned_priors stored with old metric names
+_OURA_VARS = _HEALTH_VARS
 
 # Map native_health_data metric_type → internal metric key used by correlation engine
 _NATIVE_METRIC_MAP: Dict[str, str] = {
     "steps": "steps",
-    "sleep": "total_sleep_hours",
-    "resting_heart_rate": "resting_heart_rate",
-    "hrv_sdnn": "hrv_sdnn",
-    "spo2": "spo2",
-    "respiratory_rate": "respiratory_rate",
-    "active_calories": "active_calories",
-    "workout": "workout_minutes",
+    "sleep": "sleep_duration_min",
+    "resting_heart_rate": "resting_hr_bpm",
+    "hrv_sdnn": "hrv_ms",
+    "spo2": "spo2_pct",
+    "respiratory_rate": "respiratory_rate_bpm",
+    "active_calories": "active_calories_kcal",
+    "workout": "active_min",
     "vo2_max": "vo2_max",
-    "blood_glucose": "blood_glucose",
-    "blood_pressure_systolic": "blood_pressure_systolic",
-    "blood_pressure_diastolic": "blood_pressure_diastolic",
-    "body_temperature": "body_temperature",
+    "blood_glucose": "avg_glucose_mgdl",
+    "blood_pressure_systolic": "blood_pressure_systolic_mmhg",
+    "blood_pressure_diastolic": "blood_pressure_diastolic_mmhg",
+    "body_temperature": "body_temperature_c",
     "weight": "weight_kg",
     "body_fat": "body_fat_pct",
     "strain": "whoop_strain",
     "recovery": "whoop_recovery",
     "readiness": "readiness_score",
-    "skin_temperature": "body_temperature",
+    "skin_temperature": "body_temperature_c",
+}
+
+# Unit conversions applied when extracting from native_health_data.value_json
+_NATIVE_SCALE: Dict[str, float] = {
+    "sleep": 60.0,  # hours → minutes (canonical: sleep_duration_min)
 }
 
 # primary value key inside native_health_data.value_json, per metric_type
@@ -181,16 +192,16 @@ _SOURCE_DISPLAY_NAMES: Dict[str, str] = {
 # Which native metrics pair naturally against nutrition inputs (as outcomes)
 _NATIVE_OUTCOME_METRICS: frozenset = frozenset(
     {
-        "total_sleep_hours",
-        "hrv_sdnn",
-        "spo2",
-        "respiratory_rate",
-        "workout_minutes",
+        "sleep_duration_min",
+        "hrv_ms",
+        "spo2_pct",
+        "respiratory_rate_bpm",
+        "active_min",
         "vo2_max",
-        "blood_glucose",
-        "blood_pressure_systolic",
-        "blood_pressure_diastolic",
-        "body_temperature",
+        "avg_glucose_mgdl",
+        "blood_pressure_systolic_mmhg",
+        "blood_pressure_diastolic_mmhg",
+        "body_temperature_c",
         "weight_kg",
         "body_fat_pct",
         "whoop_strain",
@@ -271,6 +282,7 @@ class CausalGraph(BaseModel):
     computed_at: str
     confidence_threshold: float
     data_sources_used: List[str] = []
+    days_with_data: int = 0  # actual days analyzed (useful when days=0 / all-history)
 
 
 # ---------------------------------------------------------------------------
@@ -327,6 +339,25 @@ METRIC_LABELS: Dict[str, str] = {
     "symptom_count": "Symptom Count",
     # Medications
     "medication_adherence": "Medication Adherence",
+    # Canonical metric names (device-agnostic)
+    "sleep_efficiency_pct": "Sleep Efficiency %",
+    "sleep_duration_min": "Sleep Duration (min)",
+    "deep_sleep_min": "Deep Sleep (min)",
+    "resting_hr_bpm": "Resting Heart Rate (bpm)",
+    "active_calories_kcal": "Active Calories (kcal)",
+    "active_min": "Active Minutes",
+    "hrv_ms": "HRV (ms)",
+    "spo2_pct": "Blood Oxygen (SpO₂%)",
+    "respiratory_rate_bpm": "Respiratory Rate (bpm)",
+    "body_temp_deviation_c": "Body Temp Deviation (°C)",
+    "body_temperature_c": "Body Temperature (°C)",
+    "avg_glucose_mgdl": "Avg Blood Glucose (mg/dL)",
+    "peak_glucose_mgdl": "Peak Blood Glucose (mg/dL)",
+    "time_in_range_pct": "Time in Range (%)",
+    "glucose_variability_cv": "Glucose Variability (CV%)",
+    "glucose_spikes_count": "Glucose Spikes",
+    "blood_pressure_systolic_mmhg": "Systolic BP (mmHg)",
+    "blood_pressure_diastolic_mmhg": "Diastolic BP (mmHg)",
 }
 
 # Track 1 — Health-self pairs (wearable vs wearable, no nutrition required).
@@ -336,13 +367,13 @@ METRIC_LABELS: Dict[str, str] = {
 HEALTH_SELF_PAIRS: List[Tuple[str, str, str, int]] = [
     ("sleep_score", "hrv_balance", "nutrition_readiness", 1),
     ("sleep_score", "readiness_score", "nutrition_readiness", 1),
-    ("deep_sleep_hours", "hrv_balance", "nutrition_sleep", 1),
+    ("deep_sleep_min", "hrv_balance", "nutrition_sleep", 1),
     ("steps", "sleep_score", "nutrition_sleep", 1),
     ("steps", "readiness_score", "nutrition_activity", 1),
-    ("active_calories", "hrv_balance", "nutrition_readiness", 1),
-    ("resting_heart_rate", "readiness_score", "nutrition_readiness", 1),
+    ("active_calories_kcal", "hrv_balance", "nutrition_readiness", 1),
+    ("resting_hr_bpm", "readiness_score", "nutrition_readiness", 1),
     ("hrv_balance", "readiness_score", "nutrition_readiness", 0),
-    ("sleep_efficiency", "resting_heart_rate", "nutrition_sleep", 1),
+    ("sleep_efficiency_pct", "resting_hr_bpm", "nutrition_sleep", 1),
 ]
 
 # Key pairs for multi-lag analysis (1 to MAX_LAG_DAYS): (nutrition_metric, oura_metric, category)
@@ -359,32 +390,32 @@ KEY_PAIRS_MULTILAG: List[Tuple[str, str, str]] = [
 CORRELATION_PAIRS: List[Tuple[str, str, str, int]] = [
     # Nutrition → Sleep (next-day effect)
     ("total_carbs_g", "sleep_score", "nutrition_sleep", 1),
-    ("total_carbs_g", "sleep_efficiency", "nutrition_sleep", 1),
-    ("total_carbs_g", "deep_sleep_hours", "nutrition_sleep", 1),
+    ("total_carbs_g", "sleep_efficiency_pct", "nutrition_sleep", 1),
+    ("total_carbs_g", "deep_sleep_min", "nutrition_sleep", 1),
     ("total_sugar_g", "sleep_score", "nutrition_sleep", 1),
-    ("total_sugar_g", "sleep_efficiency", "nutrition_sleep", 1),
+    ("total_sugar_g", "sleep_efficiency_pct", "nutrition_sleep", 1),
     ("total_calories", "sleep_score", "nutrition_sleep", 1),
     ("last_meal_hour", "sleep_score", "nutrition_sleep", 0),
-    ("last_meal_hour", "sleep_efficiency", "nutrition_sleep", 0),
-    ("total_protein_g", "deep_sleep_hours", "nutrition_sleep", 1),
+    ("last_meal_hour", "sleep_efficiency_pct", "nutrition_sleep", 0),
+    ("total_protein_g", "deep_sleep_min", "nutrition_sleep", 1),
     ("total_fat_g", "sleep_score", "nutrition_sleep", 1),
-    ("total_fiber_g", "sleep_efficiency", "nutrition_sleep", 1),
+    ("total_fiber_g", "sleep_efficiency_pct", "nutrition_sleep", 1),
     ("glycemic_load_est", "sleep_score", "nutrition_sleep", 1),
     ("glycemic_load_est", "hrv_balance", "nutrition_sleep", 1),
     # Nutrition → Readiness/Recovery
     ("total_protein_g", "readiness_score", "nutrition_readiness", 1),
     ("total_protein_g", "recovery_index", "nutrition_readiness", 1),
     ("total_carbs_g", "hrv_balance", "nutrition_readiness", 1),
-    ("total_carbs_g", "resting_heart_rate", "nutrition_readiness", 1),
+    ("total_carbs_g", "resting_hr_bpm", "nutrition_readiness", 1),
     ("total_sugar_g", "hrv_balance", "nutrition_readiness", 1),
-    ("total_sodium_mg", "resting_heart_rate", "nutrition_readiness", 1),
+    ("total_sodium_mg", "resting_hr_bpm", "nutrition_readiness", 1),
     ("total_calories", "readiness_score", "nutrition_readiness", 1),
     ("total_protein_g", "hrv_balance", "nutrition_readiness", 0),
     # Nutrition → Activity
     ("total_calories", "steps", "nutrition_activity", 0),
-    ("total_calories", "active_calories", "nutrition_activity", 0),
+    ("total_calories", "active_calories_kcal", "nutrition_activity", 0),
     ("total_protein_g", "activity_score", "nutrition_activity", 0),
-    ("total_carbs_g", "active_calories", "nutrition_activity", 0),
+    ("total_carbs_g", "active_calories_kcal", "nutrition_activity", 0),
 ]
 
 
@@ -601,6 +632,136 @@ def _ols_rss(X_rows: List[List[float]], y: List[float]) -> Optional[float]:
 # Data fetching helpers
 # ---------------------------------------------------------------------------
 
+# Mapping from Oura-format metric names → canonical metric names
+_OURA_TO_CANONICAL: Dict[str, str] = {
+    "sleep_score": "sleep_score",
+    "sleep_efficiency": "sleep_efficiency_pct",
+    "total_sleep_hours": "sleep_duration_min",
+    "deep_sleep_hours": "deep_sleep_min",
+    "hrv_balance": "hrv_balance",
+    "resting_heart_rate": "resting_hr_bpm",
+    "readiness_score": "readiness_score",
+    "recovery_index": "recovery_index",
+    "temperature_deviation": "body_temp_deviation_c",
+    "steps": "steps",
+    "activity_score": "activity_score",
+    "active_calories": "active_calories_kcal",
+    "respiratory_rate": "respiratory_rate_bpm",
+    "spo2": "spo2_pct",
+    "workout_minutes": "active_min",
+    "vo2_max": "vo2_max",
+}
+
+# Scale factors for Oura metrics when remapping to canonical (hours → minutes etc.)
+_OURA_SCALE: Dict[str, float] = {
+    "total_sleep_hours": 60.0,
+    "deep_sleep_hours": 60.0,
+}
+
+
+def _oura_to_canonical(oura_metrics: Dict[str, float]) -> Dict[str, float]:
+    """Remap Oura-format metric dict to canonical metric names."""
+    canonical: Dict[str, float] = {}
+    for oura_key, value in oura_metrics.items():
+        canon_key = _OURA_TO_CANONICAL.get(oura_key)
+        if canon_key is not None:
+            scale = _OURA_SCALE.get(oura_key, 1.0)
+            canonical[canon_key] = value * scale
+    return canonical
+
+
+async def _build_health_daily(
+    user_id: str,
+    fetch_days: int,
+    timeline: list,
+) -> Tuple[Dict[str, Dict[str, float]], List[str]]:
+    """
+    Build the device-agnostic health_daily dict from all connected sources.
+
+    Data priority per date:
+    1. health_metrics_normalized (canonical names, all sources via Session 2+)
+    2. Oura timeline data (remapped to canonical via _oura_to_canonical)
+    3. native_health_data fallback for dates not yet in health_metrics_normalized
+
+    Returns (health_daily, display_source_names).
+    """
+    from datetime import date as _date
+
+    health_daily: Dict[str, Dict[str, float]] = {}
+    sources_seen: Set[str] = set()
+
+    # 1. Query health_metrics_normalized for canonical data from all devices
+    start_d = (_date.today() - timedelta(days=fetch_days)).isoformat()
+    norm_rows: list = []
+    try:
+        norm_rows = await _supabase_get(
+            "health_metrics_normalized",
+            f"user_id=eq.{user_id}&date=gte.{start_d}"
+            f"&select=date,canonical_metric,value,source,confidence"
+            f"&order=date.asc,confidence.desc",
+        )
+    except Exception as exc:  # pylint: disable=broad-except
+        logger.warning("Could not fetch health_metrics_normalized: %s", exc)
+
+    # Track best priority per (date, metric) to handle multi-source deduplication
+    _best_priority: Dict[Tuple[str, str], int] = {}
+
+    for row in norm_rows or []:
+        date_str = str(row.get("date", ""))[:10]
+        metric = row.get("canonical_metric", "")
+        value = row.get("value")
+        source = row.get("source", "")
+        if not date_str or not metric or value is None:
+            continue
+        try:
+            val = float(value)
+        except (TypeError, ValueError):
+            continue
+
+        src_prio = _SOURCE_PRIORITY.get(source, 0)
+        key = (date_str, metric)
+        if src_prio > _best_priority.get(key, -1):
+            health_daily.setdefault(date_str, {})[metric] = val
+            _best_priority[key] = src_prio
+            sources_seen.add(source)
+
+    normalized_dates = set(health_daily.keys())
+
+    # 2. Oura timeline fallback for dates not yet in health_metrics_normalized
+    oura_raw = _extract_oura_daily(timeline)
+    if oura_raw:
+        sources_seen.add("oura")
+        for date_str, oura_metrics in oura_raw.items():
+            canonical = _oura_to_canonical(oura_metrics)
+            if not canonical:
+                continue
+            day = health_daily.setdefault(date_str, {})
+            for metric, val in canonical.items():
+                # health_metrics_normalized takes priority; Oura fills gaps
+                if date_str not in normalized_dates or metric not in day:
+                    day[metric] = val
+
+    # 3. native_health_data fallback (for dates not yet normalized)
+    native_daily, native_source_names = await _fetch_native_health_data(
+        user_id, fetch_days
+    )
+    for date_str, native_metrics in native_daily.items():
+        if date_str in normalized_dates:
+            continue  # Already covered by health_metrics_normalized
+        day = health_daily.setdefault(date_str, {})
+        for metric, val in native_metrics.items():
+            if metric not in day:
+                day[metric] = val
+    # Merge source names (already display-formatted)
+    for name in native_source_names:
+        # Reverse lookup from display name to source key for sources_seen
+        sources_seen.update(k for k, v in _SOURCE_DISPLAY_NAMES.items() if v == name)
+
+    display_names = [
+        _SOURCE_DISPLAY_NAMES.get(s, s.capitalize()) for s in sorted(sources_seen)
+    ]
+    return health_daily, display_names
+
 
 async def _fetch_nutrition_daily(
     bearer: Optional[str], days: int
@@ -806,12 +967,12 @@ async def _fetch_native_health_data(
         if val is None:
             continue
         try:
-            val = float(val)
+            val = float(val) * _NATIVE_SCALE.get(metric_type, 1.0)
         except (TypeError, ValueError):
             continue
         if val == 0 and internal_key not in (
-            "body_temperature",
-            "blood_pressure_diastolic",
+            "body_temperature_c",
+            "blood_pressure_diastolic_mmhg",
         ):
             continue
 
@@ -1052,18 +1213,18 @@ async def _fetch_conditions_context(user_id: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _infer_category(nutr_metric: str, oura_metric: str) -> str:
+def _infer_category(nutr_metric: str, health_metric: str) -> str:
     """Derive a correlation category string from the metric names."""
-    sleep_oura = {
+    sleep_metrics = {
         "sleep_score",
-        "sleep_efficiency",
-        "deep_sleep_hours",
-        "total_sleep_hours",
+        "sleep_efficiency_pct",
+        "deep_sleep_min",
+        "sleep_duration_min",
     }
-    activity_oura = {"steps", "activity_score", "active_calories"}
-    if oura_metric in sleep_oura:
+    activity_metrics = {"steps", "activity_score", "active_calories_kcal", "active_min"}
+    if health_metric in sleep_metrics:
         return "nutrition_sleep"
-    if oura_metric in activity_oura:
+    if health_metric in activity_metrics:
         return "nutrition_activity"
     return "nutrition_readiness"
 
@@ -1080,7 +1241,7 @@ def _build_dynamic_native_pairs(
     already_paired = {(a, b) for a, b, _cat, _lag in CORRELATION_PAIRS}
 
     for outcome in _NATIVE_OUTCOME_METRICS & available_health_metrics:
-        if outcome in _OURA_VARS - _NATIVE_OUTCOME_METRICS:
+        if outcome in _HEALTH_VARS - _NATIVE_OUTCOME_METRICS:
             # Already covered by standard CORRELATION_PAIRS
             continue
         for nutr in _NUTRITION_VARS:
@@ -1091,17 +1252,17 @@ def _build_dynamic_native_pairs(
                 1
                 if outcome
                 in {
-                    "hrv_sdnn",
-                    "blood_glucose",
-                    "blood_pressure_systolic",
-                    "blood_pressure_diastolic",
+                    "hrv_ms",
+                    "avg_glucose_mgdl",
+                    "blood_pressure_systolic_mmhg",
+                    "blood_pressure_diastolic_mmhg",
                     "symptom_severity_avg",
                 }
                 else 0
             )
             cat = (
                 "nutrition_glucose"
-                if outcome == "blood_glucose"
+                if outcome == "avg_glucose_mgdl"
                 else "nutrition_bp"
                 if "blood_pressure" in outcome
                 else "nutrition_symptom"
@@ -1122,7 +1283,7 @@ def _one_correlation(
     lag: int,
     all_dates: List[str],
     nutrition_daily: Dict[str, Dict[str, float]],
-    oura_daily: Dict[str, Dict[str, float]],
+    health_daily: Dict[str, Dict[str, float]],
     use_spearman: bool = False,
     min_r: float = 0.4,
     max_p: float = 0.10,
@@ -1137,10 +1298,15 @@ def _one_correlation(
             continue
         oura_date = all_dates[i + lag] if lag > 0 else d
         nutr = nutrition_daily.get(d)
-        oura = oura_daily.get(oura_date)
-        if not nutr or not oura or nutr_metric not in nutr or oura_metric not in oura:
+        health = health_daily.get(oura_date)
+        if (
+            not nutr
+            or not health
+            or nutr_metric not in nutr
+            or oura_metric not in health
+        ):
             continue
-        x, y = nutr[nutr_metric], oura[oura_metric]
+        x, y = nutr[nutr_metric], health[oura_metric]
         if x == 0 and nutr_metric not in ("last_meal_hour", "temperature_deviation"):
             continue
         if y == 0 and oura_metric not in ("temperature_deviation",):
@@ -1193,14 +1359,14 @@ def _one_health_correlation(
     category: str,
     lag: int,
     all_dates: List[str],
-    oura_daily: Dict[str, Dict[str, float]],
+    health_daily: Dict[str, Dict[str, float]],
     use_spearman: bool = False,
     min_r: float = 0.4,
     max_p: float = 0.10,
 ) -> Optional[Dict[str, Any]]:
     """
     Correlation between two health/wearable metrics (Track 1 — no nutrition needed).
-    Both metric_a and metric_b are looked up from oura_daily.
+    Both metric_a and metric_b are looked up from health_daily.
     """
     x_vals: List[float] = []
     y_vals: List[float] = []
@@ -1210,8 +1376,8 @@ def _one_health_correlation(
         if lag > 0 and i + lag >= len(all_dates):
             continue
         target_date = all_dates[i + lag] if lag > 0 else d
-        src = oura_daily.get(d)
-        tgt = oura_daily.get(target_date)
+        src = health_daily.get(d)
+        tgt = health_daily.get(target_date)
         if not src or not tgt or metric_a not in src or metric_b not in tgt:
             continue
         x, y = src[metric_a], tgt[metric_b]
@@ -1261,7 +1427,7 @@ def _one_health_correlation(
 
 def _compute_correlations(
     nutrition_daily: Dict[str, Dict[str, float]],
-    oura_daily: Dict[str, Dict[str, float]],
+    health_daily: Dict[str, Dict[str, float]],
     condition_vars: Optional[List[str]] = None,
     learned_priors: Optional[List[Dict[str, Any]]] = None,
     dynamic_native_pairs: Optional[List[Tuple[str, str, str, int]]] = None,
@@ -1279,8 +1445,8 @@ def _compute_correlations(
 
     Returns list of significant correlation dicts sorted by |r| descending.
     """
-    all_dates = sorted(set(nutrition_daily.keys()) | set(oura_daily.keys()))
-    health_dates = sorted(oura_daily.keys())  # Track 1 only needs health data
+    all_dates = sorted(set(nutrition_daily.keys()) | set(health_daily.keys()))
+    health_dates = sorted(health_daily.keys())  # Track 1 only needs health data
     best_by_pair: Dict[Tuple[str, str], Dict[str, Any]] = {}
 
     # 0) Track 1: Health-self pairs — wearable vs wearable, no nutrition needed.
@@ -1296,7 +1462,7 @@ def _compute_correlations(
                 category,
                 lag,
                 health_dates,
-                oura_daily,
+                health_daily,
                 use_spearman=use_spearman,
             )
             if c and (
@@ -1323,7 +1489,7 @@ def _compute_correlations(
                 lag,
                 all_dates,
                 nutrition_daily,
-                oura_daily,
+                health_daily,
                 use_spearman=use_spearman,
             )
             if c and (
@@ -1355,7 +1521,7 @@ def _compute_correlations(
                         lag,
                         all_dates,
                         nutrition_daily,
-                        oura_daily,
+                        health_daily,
                         use_spearman=use_spearman,
                     )
                     if c and abs(c["correlation_coefficient"]) > best_r:
@@ -1392,7 +1558,7 @@ def _compute_correlations(
                             lag,
                             all_dates,
                             nutrition_daily,
-                            oura_daily,
+                            health_daily,
                             use_spearman=use_spearman,
                             min_r=CONDITION_MIN_R,
                             max_p=CONDITION_MAX_P,
@@ -1431,7 +1597,7 @@ def _compute_correlations(
                         lag,
                         all_dates,
                         nutrition_daily,
-                        oura_daily,
+                        health_daily,
                         use_spearman=use_spearman,
                         min_r=PRIOR_MIN_R,
                         max_p=PRIOR_MAX_P,
@@ -1460,7 +1626,7 @@ def _compute_correlations(
                     lag,
                     all_dates,
                     nutrition_daily,
-                    oura_daily,
+                    health_daily,
                     use_spearman=use_spearman,
                 )
                 if c and abs(c["correlation_coefficient"]) > best_r:
@@ -1594,13 +1760,13 @@ def _compute_ar_with_exog_residuals(
 def _compute_causal_graph(
     correlations: List[Dict[str, Any]],
     nutrition_daily: Dict[str, Dict[str, float]],
-    oura_daily: Dict[str, Dict[str, float]],
+    health_daily: Dict[str, Dict[str, float]],
 ) -> Dict[str, Any]:
     """
     Build causal graph from correlations using Granger causality tests.
     Returns dict with nodes and edges for visualization.
     """
-    all_dates = sorted(set(nutrition_daily.keys()) | set(oura_daily.keys()))
+    all_dates = sorted(set(nutrition_daily.keys()) | set(health_daily.keys()))
 
     nodes = {}
     edges = []
@@ -1654,11 +1820,11 @@ def _compute_causal_graph(
 
         for d in all_dates:
             nutr = nutrition_daily.get(d)
-            oura = oura_daily.get(d)
+            health = health_daily.get(d)
 
-            if nutr and oura and metric_a in nutr and metric_b in oura:
+            if nutr and health and metric_a in nutr and metric_b in health:
                 x_vals.append(nutr[metric_a])
-                y_vals.append(oura[metric_b])
+                y_vals.append(health[metric_b])
 
         if len(x_vals) < 7:
             continue
@@ -1985,89 +2151,82 @@ async def _compute_and_cache(
 
     user_id = current_user["id"]
 
+    # days=0 means "all history" — fetch without a practical window cap.
+    ALL_HISTORY = period_days == 0
+    fetch_days = 99999 if ALL_HISTORY else period_days
+
     # 1. Fetch Oura timeline data
     try:
-        timeline = await get_timeline(days=period_days, current_user=current_user)
+        timeline = await get_timeline(days=fetch_days, current_user=current_user)
     except Exception as exc:
         logger.error("Failed to fetch timeline for correlations: %s", exc)
         timeline = []
 
-    oura_daily = _extract_oura_daily(timeline)
-    data_sources_used: List[str] = []
-    if oura_daily:
-        data_sources_used.append("Oura Ring")
-
-    # 2. Fetch native health data from ALL connected devices
-    #    (Apple Health, Google Health, Whoop, Dexcom, Garmin, etc.)
-    native_daily, native_sources = await _fetch_native_health_data(user_id, period_days)
-    data_sources_used.extend(s for s in native_sources if s not in data_sources_used)
-
-    # Merge native device data into oura_daily: native fills gaps + adds new metrics
-    for date_str, native_metrics in native_daily.items():
-        if date_str not in oura_daily:
-            oura_daily[date_str] = {}
-        for metric, val in native_metrics.items():
-            # For metrics already in oura_daily, keep the higher value (prefer richer source)
-            existing = oura_daily[date_str].get(metric, 0.0)
-            if val > existing or existing == 0:
-                oura_daily[date_str][metric] = val
+    # 2. Build canonical health_daily from all connected devices
+    health_daily, device_sources = await _build_health_daily(
+        user_id, fetch_days, timeline
+    )
+    data_sources_used: List[str] = list(
+        dict.fromkeys(device_sources)
+    )  # preserve order, dedupe
 
     # 3. Fetch nutrition data
-    nutrition_daily = await _fetch_nutrition_daily(bearer, period_days)
+    nutrition_daily = await _fetch_nutrition_daily(bearer, fetch_days)
     if nutrition_daily:
         data_sources_used.append("Nutrition Logs")
 
     # 4. Fetch symptom data and merge as health outcome metrics
-    symptoms_daily = await _fetch_symptoms_daily(user_id, period_days)
+    symptoms_daily = await _fetch_symptoms_daily(user_id, fetch_days)
     if symptoms_daily:
         data_sources_used.append("Symptom Journal")
         for date_str, symp_metrics in symptoms_daily.items():
-            if date_str not in oura_daily:
-                oura_daily[date_str] = {}
-            oura_daily[date_str].update(symp_metrics)
+            if date_str not in health_daily:
+                health_daily[date_str] = {}
+            health_daily[date_str].update(symp_metrics)
 
     # 4b. Fetch medications + supplements: adherence as daily variable + context for AI
     (
         adherence_daily,
         meds_context,
         med_sources,
-    ) = await _fetch_medications_supplements_context(user_id, period_days)
+    ) = await _fetch_medications_supplements_context(user_id, fetch_days)
     data_sources_used.extend(s for s in med_sources if s not in data_sources_used)
     for date_str, adh_metrics in adherence_daily.items():
-        oura_daily.setdefault(date_str, {}).update(adh_metrics)
+        health_daily.setdefault(date_str, {}).update(adh_metrics)
 
     # 4c. Fetch lab biomarkers: time-series for stats + context for AI
-    lab_daily, lab_context = await _fetch_lab_biomarkers_daily(user_id, period_days)
+    lab_daily, lab_context = await _fetch_lab_biomarkers_daily(user_id, fetch_days)
     if lab_daily:
         data_sources_used.append("Lab Results")
         for date_str, lab_metrics in lab_daily.items():
-            oura_daily.setdefault(date_str, {}).update(lab_metrics)
+            health_daily.setdefault(date_str, {}).update(lab_metrics)
 
     # 4d. Active conditions context for AI (variable prioritisation already handled in step 6)
     conditions_context = await _fetch_conditions_context(user_id)
 
     # 5. Compute data quality
-    oura_days = len(oura_daily)
+    health_days = len(health_daily)
     nutrition_days = len(nutrition_daily)
-    all_dates_union = set(oura_daily.keys()) | set(nutrition_daily.keys())
-    overlap_dates = set(oura_daily.keys()) & set(nutrition_daily.keys())
+    all_dates_union = set(health_daily.keys()) | set(nutrition_daily.keys())
+    overlap_dates = set(health_daily.keys()) & set(nutrition_daily.keys())
     overlap_count = len(overlap_dates)
     days_with_data = len(all_dates_union)
 
+    # For "all history" (period_days==0) use actual days found as the reference window.
+    actual_period_days = days_with_data if ALL_HISTORY else period_days
+
     # Data quality is based on health data availability (Track 1 minimum),
     # boosted when nutrition overlap is also sufficient (Track 2).
-    if oura_days >= MIN_OVERLAPPING_DAYS:
-        data_quality = min(
-            1.0,
-            (oura_days * 0.5 + overlap_count * 0.5) / max(period_days * 0.7, 1),
-        )
+    ref = max(actual_period_days * 0.7, 1)
+    if health_days >= MIN_OVERLAPPING_DAYS:
+        data_quality = min(1.0, (health_days * 0.5 + overlap_count * 0.5) / ref)
     else:
-        data_quality = min(1.0, oura_days / max(period_days * 0.7, 1))
+        data_quality = min(1.0, health_days / ref)
 
     now_str = datetime.now(timezone.utc).isoformat()
 
     # Hard gate: need at least MIN_OVERLAPPING_DAYS of health data to find any pattern.
-    if oura_days < MIN_OVERLAPPING_DAYS:
+    if health_days < MIN_OVERLAPPING_DAYS:
         src_note = (
             f" Connected sources: {', '.join(data_sources_used)}."
             if data_sources_used
@@ -2077,15 +2236,15 @@ async def _compute_and_cache(
             correlations=[],
             summary=(
                 f"Need at least {MIN_OVERLAPPING_DAYS} days of health data. "
-                f"Currently have {oura_days} day(s) of wearable data.{src_note}"
+                f"Currently have {health_days} day(s) of wearable data.{src_note}"
             ),
             data_quality_score=data_quality,
-            oura_days_available=oura_days,
+            oura_days_available=health_days,
             nutrition_days_available=nutrition_days,
             days_with_data=days_with_data,
             data_sources_used=data_sources_used,
             computed_at=now_str,
-            period_days=period_days,
+            period_days=actual_period_days,
         )
         return result
 
@@ -2160,7 +2319,7 @@ async def _compute_and_cache(
 
     # 7. Build dynamic pairs for native device / symptom metrics
     available_health_metrics: Set[str] = set()
-    for day_metrics in oura_daily.values():
+    for day_metrics in health_daily.values():
         available_health_metrics.update(day_metrics.keys())
     dynamic_native_pairs = _build_dynamic_native_pairs(available_health_metrics)
     if dynamic_native_pairs:
@@ -2173,7 +2332,7 @@ async def _compute_and_cache(
     # 8. Compute correlations
     raw_correlations = _compute_correlations(
         nutrition_daily,
-        oura_daily,
+        health_daily,
         condition_vars,
         learned_priors,
         dynamic_native_pairs,
@@ -2194,7 +2353,7 @@ async def _compute_and_cache(
         period_days,
         data_sources_used,
         user_context,
-        oura_days=oura_days,
+        oura_days=health_days,
         nutrition_days=nutrition_days,
     )
 
@@ -2205,7 +2364,7 @@ async def _compute_and_cache(
         correlations,
         summary or "",
         data_quality,
-        oura_days,
+        health_days,
         nutrition_days,
         data_sources_used,
         days_with_data,
@@ -2215,12 +2374,12 @@ async def _compute_and_cache(
         correlations=[Correlation(**c) for c in correlations],
         summary=summary,
         data_quality_score=data_quality,
-        oura_days_available=oura_days,
+        oura_days_available=health_days,
         nutrition_days_available=nutrition_days,
         days_with_data=days_with_data,
         data_sources_used=data_sources_used,
         computed_at=now_str,
-        period_days=period_days,
+        period_days=actual_period_days,
     )
 
 
@@ -2232,7 +2391,7 @@ async def _compute_and_cache(
 @router.get("", response_model=CorrelationResults)
 async def get_correlations(
     request: Request,
-    days: int = Query(default=14, ge=7, le=30),
+    days: int = Query(default=0, ge=0, le=99999),
     current_user: dict = Depends(UsageGate("correlations")),
 ):
     """
@@ -2255,6 +2414,7 @@ async def get_correlations(
                 raw_sources = __import__("json").loads(raw_sources)
             except Exception:
                 raw_sources = []
+        cached_period = cached.get("days_with_data", 0) if days == 0 else days
         return CorrelationResults(
             correlations=[Correlation(**c) for c in corr_data],
             summary=cached.get("summary"),
@@ -2264,7 +2424,7 @@ async def get_correlations(
             days_with_data=cached.get("days_with_data", 0),
             data_sources_used=raw_sources or [],
             computed_at=cached.get("computed_at", ""),
-            period_days=days,
+            period_days=cached_period,
         )
 
     bearer = request.headers.get("Authorization")
@@ -2274,7 +2434,7 @@ async def get_correlations(
 @router.post("/refresh", response_model=CorrelationResults)
 async def refresh_correlations(
     request: Request,
-    days: int = Query(default=14, ge=7, le=30),
+    days: int = Query(default=0, ge=0, le=99999),
     current_user: dict = Depends(UsageGate("correlations")),
 ):
     """Force recompute correlations (ignores cache)."""
@@ -2348,7 +2508,7 @@ async def get_correlation_summary(
 async def get_causal_graph(
     request: Request,
     current_user: dict = Depends(UsageGate("correlations")),
-    days: int = Query(default=14, ge=7, le=30),
+    days: int = Query(default=0, ge=0, le=99999),
 ) -> CausalGraph:
     """
     Get causal graph showing directional relationships between nutrition and health metrics.
@@ -2359,6 +2519,9 @@ async def get_causal_graph(
 
     user_id = current_user["id"]
 
+    # days=0 means "all history" — fetch without a practical window cap.
+    fetch_days = 99999 if days == 0 else days
+
     # Extract bearer token for nutrition service
     bearer = None
     auth_header = request.headers.get("authorization", "")
@@ -2367,55 +2530,48 @@ async def get_causal_graph(
 
     # Fetch Oura timeline data
     try:
-        timeline = await get_timeline(days=days, current_user=current_user)
+        timeline = await get_timeline(days=fetch_days, current_user=current_user)
     except Exception as exc:
         logger.error("Failed to fetch timeline for causal graph: %s", exc)
         timeline = []
 
-    oura_daily = _extract_oura_daily(timeline)
-
-    # Track all connected data sources
-    causal_sources: List[str] = []
-    if oura_daily:
-        causal_sources.append("Oura Ring")
-
-    # Supplement with native health data (all connected devices)
-    native_daily, native_src = await _fetch_native_health_data(user_id, days)
-    causal_sources.extend(s for s in native_src if s not in causal_sources)
-    for date_str, native_metrics in native_daily.items():
-        if date_str not in oura_daily:
-            oura_daily[date_str] = {}
-        for metric, val in native_metrics.items():
-            existing = oura_daily[date_str].get(metric, 0.0)
-            if val > existing or existing == 0:
-                oura_daily[date_str][metric] = val
+    # Build canonical health_daily from all connected devices
+    health_daily, device_sources = await _build_health_daily(
+        user_id, fetch_days, timeline
+    )
+    causal_sources: List[str] = list(
+        dict.fromkeys(device_sources)
+    )  # preserve order, dedupe
 
     # Merge symptom data as outcome variables
-    symptoms_daily = await _fetch_symptoms_daily(user_id, days)
+    symptoms_daily = await _fetch_symptoms_daily(user_id, fetch_days)
     if symptoms_daily:
         causal_sources.append("Symptom Journal")
     for date_str, symp_metrics in symptoms_daily.items():
-        oura_daily.setdefault(date_str, {}).update(symp_metrics)
+        health_daily.setdefault(date_str, {}).update(symp_metrics)
 
     # Merge medication adherence as outcome variable + track source
     adherence_daily, _, med_src = await _fetch_medications_supplements_context(
-        user_id, days
+        user_id, fetch_days
     )
     causal_sources.extend(s for s in med_src if s not in causal_sources)
     for date_str, adh_metrics in adherence_daily.items():
-        oura_daily.setdefault(date_str, {}).update(adh_metrics)
+        health_daily.setdefault(date_str, {}).update(adh_metrics)
 
     # Merge lab biomarker draws (>= 2 draws required for statistical use)
-    lab_daily, _ = await _fetch_lab_biomarkers_daily(user_id, days)
+    lab_daily, _ = await _fetch_lab_biomarkers_daily(user_id, fetch_days)
     if lab_daily:
         causal_sources.append("Lab Results")
     for date_str, lab_metrics in lab_daily.items():
-        oura_daily.setdefault(date_str, {}).update(lab_metrics)
+        health_daily.setdefault(date_str, {}).update(lab_metrics)
 
     # Fetch nutrition data
-    nutrition_daily = await _fetch_nutrition_daily(bearer, days)
+    nutrition_daily = await _fetch_nutrition_daily(bearer, fetch_days)
     if nutrition_daily:
         causal_sources.append("Nutrition Logs")
+
+    # Actual days found (used in response so UI can show "All · Xd")
+    causal_days_with_data = len(set(health_daily.keys()) | set(nutrition_daily.keys()))
 
     # Fetch condition variables so condition-specific pairs are included in the graph
     try:
@@ -2427,14 +2583,14 @@ async def get_causal_graph(
 
     # Build dynamic native pairs
     available_health_metrics: Set[str] = set()
-    for day_metrics in oura_daily.values():
+    for day_metrics in health_daily.values():
         available_health_metrics.update(day_metrics.keys())
     dynamic_native_pairs = _build_dynamic_native_pairs(available_health_metrics)
 
     # Compute correlations (with condition-aware + native device pairs)
     correlations = _compute_correlations(
         nutrition_daily,
-        oura_daily,
+        health_daily,
         condition_vars,
         dynamic_native_pairs=dynamic_native_pairs,
     )
@@ -2446,10 +2602,11 @@ async def get_causal_graph(
             computed_at=datetime.now(timezone.utc).isoformat(),
             confidence_threshold=0.5,
             data_sources_used=causal_sources,
+            days_with_data=causal_days_with_data,
         )
 
     # Compute causal graph
-    graph_data = _compute_causal_graph(correlations, nutrition_daily, oura_daily)
+    graph_data = _compute_causal_graph(correlations, nutrition_daily, health_daily)
 
     return CausalGraph(
         nodes=graph_data["nodes"],
@@ -2457,4 +2614,5 @@ async def get_causal_graph(
         computed_at=graph_data["computed_at"],
         confidence_threshold=graph_data["confidence_threshold"],
         data_sources_used=causal_sources,
+        days_with_data=causal_days_with_data,
     )
