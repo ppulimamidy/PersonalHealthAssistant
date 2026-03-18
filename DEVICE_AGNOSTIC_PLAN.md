@@ -1,7 +1,7 @@
 # Device-Agnostic Health Analytics — Implementation Plan
 
 > Created: 2026-03-18
-> Status: Sessions 1–6 complete (2026-03-18). Session 7 deferred.
+> Status: Sessions 1–6 + Session 4 deferred item complete (2026-03-18). Session 7 deferred.
 
 ---
 
@@ -238,7 +238,10 @@ returns identical results (nothing reads from new table yet)
 - [x] CausalGraphView.tsx: day picker expanded to [14,30,0], removed unused Button import
 - [x] correlations.ts: CorrelationDays type updated to 14|30|0
 - [x] types/index.ts: days_with_data? added to CausalGraph interface
-- Note: CorrelationCard derived/computed_composite badge deferred (minor visual polish)
+- [x] CorrelationCard + mobile: derived/computed_composite badge (commit 813e0cb)
+  - `_ESTIMATED_METRICS` frozenset in engine; `is_estimated: bool` on Correlation model
+  - Web: amber "computed" pill with FlaskConical icon + tooltip
+  - Mobile: amber "~est" pill before strength badge
 
 ### ✅ Session 5 — Track B: Postprandial Module (DONE — commit 6a5e966)
 - [x] `common/metrics/postprandial.py` — PostprandialAnalyzer (pure computation, no I/O)
