@@ -288,7 +288,7 @@ export default function HomeScreen() {
       });
       return resp;
     },
-    staleTime: 5 * 60 * 1000,
+    staleTime: 30_000, // 30s — health score may change after sync/experiment
   });
 
   const { data: checkinStatus } = useQuery({
