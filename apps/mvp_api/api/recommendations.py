@@ -502,45 +502,56 @@ def _safe_avg(vals: List[float]) -> float:
 
 
 def _detect_patterns(
-    oura_daily: Dict[str, Dict[str, float]],
+    canonical: Dict[str, float],
     nutrition_daily: Dict[str, Dict[str, float]],
     condition_names: Optional[List[str]] = None,
 ) -> List[PatternDetection]:
-    """Detect metabolic patterns from recent data."""
-    if not oura_daily:
-        return []
+    """
+    Detect metabolic patterns from canonical scores + nutrition data.
 
-    dates = sorted(oura_daily.keys())
-    recent_dates = dates[-7:] if len(dates) >= 7 else dates
-    recent_oura = [oura_daily[d] for d in recent_dates]
-    recent_nutrition = [nutrition_daily.get(d, {}) for d in recent_dates]
+    Device-agnostic: reads canonical 0-100 scores from health_metric_summaries.
+    Works identically for Oura, Apple Health, Whoop, or any data source.
+    """
+    if not canonical:
+        return []
 
     patterns: List[PatternDetection] = []
 
-    # 1. Overtraining: HRV↓ + sleep↓ + activity↑
-    hrv_vals = [d.get("hrv_balance", 0) for d in recent_oura if d.get("hrv_balance")]
-    sleep_scores = [
-        d.get("sleep_score", 0) for d in recent_oura if d.get("sleep_score")
-    ]
-    activity_scores = [
-        d.get("activity_score", 0) for d in recent_oura if d.get("activity_score")
-    ]
+    # Extract canonical scores (all 0-100 unless noted)
+    sleep_quality = canonical.get("sleep_quality")
+    hrv_health = canonical.get("hrv_health")
+    recovery = canonical.get("recovery")
+    activity_level = canonical.get("activity_level")
+    cardiac_stress = canonical.get("cardiac_stress")
+    temp_trend = canonical.get("temp_trend")  # 50=normal, >65=elevated
+    sleep_efficiency = canonical.get("sleep_efficiency")
+    glucose_stability = canonical.get("glucose_stability")
+    time_in_range = canonical.get("time_in_range")
 
-    if len(hrv_vals) >= 3 and len(sleep_scores) >= 3 and len(activity_scores) >= 3:
-        hrv_avg = _safe_avg(hrv_vals)
-        sleep_avg = _safe_avg(sleep_scores)
-        activity_avg = _safe_avg(activity_scores)
+    # Nutrition aggregates (from daily logs)
+    dates = sorted(nutrition_daily.keys()) if nutrition_daily else []
+    recent_nutrition = [nutrition_daily[d] for d in dates[-7:]] if dates else []
+    sugar_vals = [
+        d.get("total_sugar_g", 0) for d in recent_nutrition if d.get("total_sugar_g")
+    ]
+    meal_hour_vals = [
+        d.get("last_meal_hour", 0) for d in recent_nutrition if d.get("last_meal_hour")
+    ]
+    sugar_avg = _safe_avg(sugar_vals) if sugar_vals else 0
+    meal_hour_avg = _safe_avg(meal_hour_vals) if meal_hour_vals else 0
 
-        signals = []
+    # 1. Overtraining: low HRV + low sleep + high activity
+    if hrv_health is not None and sleep_quality is not None:
+        signals: List[str] = []
         score = 0
-        if hrv_avg < 55:
-            signals.append(f"HRV balance low ({hrv_avg:.0f})")
+        if hrv_health < 60:
+            signals.append(f"HRV health low ({hrv_health:.0f}/100)")
             score += 1
-        if sleep_avg < 70:
-            signals.append(f"Sleep score below average ({sleep_avg:.0f})")
+        if sleep_quality < 70:
+            signals.append(f"Sleep quality below average ({sleep_quality:.0f}/100)")
             score += 1
-        if activity_avg > 75:
-            signals.append(f"High activity level ({activity_avg:.0f})")
+        if activity_level is not None and activity_level > 75:
+            signals.append(f"High activity level ({activity_level:.0f}/100)")
             score += 1
 
         if score >= 2:
@@ -558,28 +569,18 @@ def _detect_patterns(
                 )
             )
 
-    # 2. Inflammation: temp_deviation↑ + HRV↓ + high sugar
-    temp_vals = [
-        d.get("temperature_deviation", 0)
-        for d in recent_oura
-        if "temperature_deviation" in d
-    ]
-    sugar_vals = [
-        d.get("total_sugar_g", 0) for d in recent_nutrition if d.get("total_sugar_g")
-    ]
-
-    if temp_vals and hrv_vals:
+    # 2. Inflammation: elevated temp + low HRV + high sugar
+    if hrv_health is not None:
         signals = []
         score = 0
-        temp_avg = _safe_avg(temp_vals)
-        if temp_avg > 0.3:
-            signals.append(f"Elevated body temperature (+{temp_avg:.2f}°C)")
+        if temp_trend is not None and temp_trend > 65:  # >1σ above normal
+            signals.append(f"Elevated body temperature (trend {temp_trend:.0f}/100)")
             score += 1
-        if hrv_vals and _safe_avg(hrv_vals) < 50:
-            signals.append(f"Low HRV balance ({_safe_avg(hrv_vals):.0f})")
+        if hrv_health < 55:
+            signals.append(f"Low HRV health ({hrv_health:.0f}/100)")
             score += 1
-        if sugar_vals and _safe_avg(sugar_vals) > 60:
-            signals.append(f"High sugar intake ({_safe_avg(sugar_vals):.0f}g/day)")
+        if sugar_avg > 60:
+            signals.append(f"High sugar intake ({sugar_avg:.0f}g/day)")
             score += 1
 
         if score >= 2:
@@ -597,30 +598,18 @@ def _detect_patterns(
                 )
             )
 
-    # 3. Poor Recovery: readiness↓ + RHR↑
-    readiness_vals = [
-        d.get("readiness_score", 0) for d in recent_oura if d.get("readiness_score")
-    ]
-    rhr_vals = [
-        d.get("resting_heart_rate", 0)
-        for d in recent_oura
-        if d.get("resting_heart_rate")
-    ]
-
-    if readiness_vals and rhr_vals:
+    # 3. Poor Recovery: low recovery + high cardiac stress + low HRV
+    if recovery is not None or cardiac_stress is not None:
         signals = []
         score = 0
-        readiness_avg = _safe_avg(readiness_vals)
-        rhr_avg = _safe_avg(rhr_vals)
-
-        if readiness_avg < 65:
-            signals.append(f"Low readiness score ({readiness_avg:.0f})")
+        if recovery is not None and recovery < 65:
+            signals.append(f"Low recovery score ({recovery:.0f}/100)")
             score += 1
-        if rhr_avg > 68:
-            signals.append(f"Elevated resting heart rate ({rhr_avg:.0f} bpm)")
+        if cardiac_stress is not None and cardiac_stress > 55:
+            signals.append(f"Elevated cardiac stress ({cardiac_stress:.0f}/100)")
             score += 1
-        if hrv_vals and _safe_avg(hrv_vals) < 55:
-            signals.append(f"Below-average HRV ({_safe_avg(hrv_vals):.0f})")
+        if hrv_health is not None and hrv_health < 60:
+            signals.append(f"Below-average HRV health ({hrv_health:.0f}/100)")
             score += 1
 
         if score >= 2:
@@ -638,29 +627,18 @@ def _detect_patterns(
                 )
             )
 
-    # 4. Sleep Disruption: sleep_efficiency↓ + late meals
-    eff_vals = [
-        d.get("sleep_efficiency", 0) for d in recent_oura if d.get("sleep_efficiency")
-    ]
-    meal_hour_vals = [
-        d.get("last_meal_hour", 0) for d in recent_nutrition if d.get("last_meal_hour")
-    ]
-
-    if eff_vals:
+    # 4. Sleep Disruption: low efficiency + late meals + low sleep quality
+    if sleep_efficiency is not None or sleep_quality is not None:
         signals = []
         score = 0
-        eff_avg = _safe_avg(eff_vals)
-
-        if eff_avg < 85:
-            signals.append(f"Low sleep efficiency ({eff_avg:.0f}%)")
+        if sleep_efficiency is not None and sleep_efficiency < 85:
+            signals.append(f"Low sleep efficiency ({sleep_efficiency:.0f}%)")
             score += 1
-        if meal_hour_vals and _safe_avg(meal_hour_vals) >= 20:
-            signals.append(
-                f"Late meals (avg last meal at {_safe_avg(meal_hour_vals):.0f}:00)"
-            )
+        if meal_hour_avg >= 20:
+            signals.append(f"Late meals (avg last meal at {meal_hour_avg:.0f}:00)")
             score += 1
-        if sleep_scores and _safe_avg(sleep_scores) < 70:
-            signals.append(f"Below-average sleep score ({_safe_avg(sleep_scores):.0f})")
+        if sleep_quality is not None and sleep_quality < 70:
+            signals.append(f"Below-average sleep quality ({sleep_quality:.0f}/100)")
             score += 1
 
         if score >= 2:
@@ -672,6 +650,101 @@ def _detect_patterns(
                 PatternDetection(
                     pattern="sleep_disruption",
                     label="Sleep Disruption",
+                    severity=severity,
+                    signals=signals,
+                    food_suggestions=[FoodSuggestion(**f) for f in foods],
+                )
+            )
+
+    # 5. Glucose Instability (CGM users only)
+    if glucose_stability is not None or time_in_range is not None:
+        signals = []
+        score = 0
+        if glucose_stability is not None and glucose_stability < 60:
+            signals.append(f"Unstable glucose ({glucose_stability:.0f}/100)")
+            score += 1
+        if time_in_range is not None and time_in_range < 70:
+            signals.append(f"Low time-in-range ({time_in_range:.0f}%)")
+            score += 1
+
+        if score >= 1:  # single signal enough for glucose
+            severity = "high" if score >= 2 else "moderate"
+            glucose_foods = [
+                {
+                    "name": "Legumes (lentils, chickpeas)",
+                    "reason": "Low GI, high fiber — slow glucose absorption",
+                    "category": "nutrition",
+                },
+                {
+                    "name": "Cinnamon",
+                    "reason": "May improve insulin sensitivity",
+                    "category": "anti_inflammatory",
+                },
+                {
+                    "name": "Leafy greens",
+                    "reason": "Low carb, high nutrient density",
+                    "category": "nutrition",
+                },
+                {
+                    "name": "Nuts (almonds, walnuts)",
+                    "reason": "Healthy fats slow glucose absorption",
+                    "category": "nutrition",
+                },
+            ]
+            foods = _apply_condition_filters(glucose_foods, condition_names or [])
+            patterns.append(
+                PatternDetection(
+                    pattern="glucose_instability",
+                    label="Glucose Instability",
+                    severity=severity,
+                    signals=signals,
+                    food_suggestions=[FoodSuggestion(**f) for f in foods],
+                )
+            )
+
+    # 6. Cardiac Strain (for cardiac condition users)
+    if cardiac_stress is not None and recovery is not None:
+        signals = []
+        score = 0
+        if cardiac_stress > 70:
+            signals.append(f"High cardiac stress ({cardiac_stress:.0f}/100)")
+            score += 1
+        if recovery < 55:
+            signals.append(f"Very low recovery ({recovery:.0f}/100)")
+            score += 1
+        if hrv_health is not None and hrv_health < 50:
+            signals.append(f"Low HRV health ({hrv_health:.0f}/100)")
+            score += 1
+
+        if score >= 2:
+            severity = "high" if score >= 3 else "moderate"
+            cardiac_foods = [
+                {
+                    "name": "Fatty fish (salmon, sardines)",
+                    "reason": "Omega-3 supports heart health",
+                    "category": "anti_inflammatory",
+                },
+                {
+                    "name": "Beets",
+                    "reason": "Nitrates support healthy blood pressure",
+                    "category": "anti_inflammatory",
+                },
+                {
+                    "name": "Oats",
+                    "reason": "Soluble fiber supports cholesterol",
+                    "category": "nutrition",
+                },
+                {
+                    "name": "Berries",
+                    "reason": "Antioxidants support vascular health",
+                    "category": "anti_inflammatory",
+                },
+            ]
+            foods = _apply_condition_filters(cardiac_foods, condition_names or [])
+            patterns.append(
+                PatternDetection(
+                    pattern="cardiac_strain",
+                    label="Cardiac Strain",
                     severity=severity,
                     signals=signals,
                     food_suggestions=[FoodSuggestion(**f) for f in foods],
@@ -896,48 +969,46 @@ def _fallback_summary(patterns: List[PatternDetection]) -> str:
 
 async def _get_recent_data(
     current_user: dict, bearer: Optional[str]
-) -> Tuple[Dict[str, Dict[str, float]], Dict[str, Dict[str, float]]]:
-    """Fetch recent wearable + nutrition data for pattern detection."""
-    from .correlations import _extract_wearable_daily, _fetch_nutrition_daily
-    from .timeline import get_timeline
+) -> Tuple[Dict[str, float], Dict[str, Dict[str, float]]]:
+    """
+    Fetch canonical scores + nutrition data for pattern detection.
 
+    Returns:
+        (canonical_scores, nutrition_daily)
+        canonical_scores: {canonical_metric: score} from health_metric_summaries
+        nutrition_daily: {date: {nutrient: value}} from meal logs
+    """
+    from .correlations import _fetch_nutrition_daily
+
+    user_id = current_user["id"]
+
+    # Primary path: read canonical scores from health_metric_summaries
+    canonical: Dict[str, float] = {}
     try:
-        timeline = await get_timeline(days=14, current_user=current_user)
-    except Exception as exc:
-        logger.error("Failed to fetch timeline for recommendations: %s", exc)
-        timeline = []
+        rows = await _supabase_get(
+            "health_metric_summaries",
+            f"user_id=eq.{user_id}&select=metric_type,canonical_metric,canonical_score,latest_value,personal_baseline,baseline_stddev",
+        )
+        if rows:
+            # Use pre-computed canonical scores if available
+            for r in rows:
+                cm = r.get("canonical_metric")
+                cs = r.get("canonical_score")
+                if cm and cs is not None:
+                    canonical[cm] = float(cs)
 
-    wearable_daily = _extract_wearable_daily(timeline)
+            # If no canonical scores computed yet, compute on-the-fly
+            if not canonical:
+                from common.metrics.canonical_scores import get_canonical_summary
+
+                canonical = get_canonical_summary(rows)
+    except Exception as exc:
+        logger.error("Failed to fetch canonical scores: %s", exc)
+
+    # Nutrition data (unchanged — works with any device)
     nutrition_daily = await _fetch_nutrition_daily(bearer, 14)
 
-    # Fallback: if Oura/timeline yielded nothing, try health_metric_summaries
-    # (covers Apple Health and other non-Oura sources)
-    if not wearable_daily:
-        user_id = current_user["id"]
-        try:
-            rows = await _supabase_get(
-                "health_metric_summaries",
-                f"user_id=eq.{user_id}&select=metric_type,latest_value,latest_date,avg_7d",
-            )
-            if rows:
-                from datetime import date as _date
-
-                synthetic: Dict[str, float] = {}
-                latest_date_str = str(_date.today())
-                for r in rows:
-                    metric = r.get("metric_type", "")
-                    val = r.get("latest_value") or r.get("avg_7d")
-                    if val is not None:
-                        synthetic[metric] = float(val)
-                    d = r.get("latest_date")
-                    if d:
-                        latest_date_str = str(d)
-                if synthetic:
-                    wearable_daily = {latest_date_str: synthetic}
-        except Exception as exc:
-            logger.debug("Summaries fallback failed: %s", exc)
-
-    return wearable_daily, nutrition_daily
+    return canonical, nutrition_daily
 
 
 # ---------------------------------------------------------------------------
@@ -1127,9 +1198,9 @@ async def get_recommendations(
     Analyzes recent Oura + nutrition data for metabolic patterns.
     """
     bearer = request.headers.get("Authorization")
-    oura_daily, nutrition_daily = await _get_recent_data(current_user, bearer)
+    canonical, nutrition_daily = await _get_recent_data(current_user, bearer)
 
-    if not oura_daily:
+    if not canonical:
         return RecommendationsResponse(
             patterns_detected=[],
             recommendations=[],
@@ -1139,7 +1210,7 @@ async def get_recommendations(
         )
 
     data_quality = (
-        "good" if len(oura_daily) >= 7 and len(nutrition_daily) >= 5 else "limited"
+        "good" if len(canonical) >= 3 and len(nutrition_daily) >= 5 else "limited"
     )
 
     # Get user profile + conditions first (needed for condition-aware food lists)
@@ -1151,7 +1222,7 @@ async def get_recommendations(
     ]
 
     # Detect patterns with condition-aware food filtering
-    patterns = _detect_patterns(oura_daily, nutrition_daily, condition_names)
+    patterns = _detect_patterns(canonical, nutrition_daily, condition_names)
 
     # Generate AI-enhanced recommendations
     recommendations, ai_summary = await _generate_ai_recommendations(
@@ -1176,7 +1247,7 @@ async def get_recovery_plan(
     Generate an AI recovery nutrition plan based on detected patterns.
     """
     bearer = request.headers.get("Authorization")
-    oura_daily, nutrition_daily = await _get_recent_data(current_user, bearer)
+    canonical, nutrition_daily = await _get_recent_data(current_user, bearer)
 
     user_id = current_user["id"]
     profile = await _get_user_health_profile(user_id)
@@ -1185,7 +1256,7 @@ async def get_recovery_plan(
         c.get("condition_name", "") for c in conditions if c.get("condition_name")
     ]
 
-    patterns = _detect_patterns(oura_daily, nutrition_daily, condition_names)
+    patterns = _detect_patterns(canonical, nutrition_daily, condition_names)
 
     plan = await _generate_recovery_plan(patterns, profile, conditions)
     return plan
@@ -1224,6 +1295,20 @@ PATTERN_EXPERIMENTS: Dict[str, Dict[str, Any]] = {
         "expected_improvement": "Sleep efficiency and sleep score often improve 8-15% with consistent meal timing.",
         "category": "timing",
     },
+    "glucose_instability": {
+        "title": "Glucose stabilization for 10 days",
+        "description": "Focus on low-GI foods, fiber with every meal, and post-meal walks. Track glucose response to identify your personal triggers.",
+        "suggested_duration": 10,
+        "expected_improvement": "Time-in-range and glucose variability typically improve within 7-10 days of dietary changes.",
+        "category": "nutrition",
+    },
+    "cardiac_strain": {
+        "title": "Heart-healthy recovery for 7 days",
+        "description": "Emphasize omega-3 rich foods, reduce sodium, and prioritize sleep. Light walking only — no intense exercise.",
+        "suggested_duration": 7,
+        "expected_improvement": "Resting heart rate and HRV typically respond within 5-7 days of reduced cardiac load.",
+        "category": "nutrition",
+    },
 }
 
 
@@ -1260,15 +1345,15 @@ async def get_top_recommendation(
 
     # Detect current patterns
     bearer = request.headers.get("Authorization")
-    oura_daily, nutrition_daily = await _get_recent_data(current_user, bearer)
-    if not oura_daily:
+    canonical, nutrition_daily = await _get_recent_data(current_user, bearer)
+    if not canonical:
         return None
 
     conditions = await _get_user_conditions(user_id)
     condition_names = [
         c.get("condition_name", "") for c in conditions if c.get("condition_name")
     ]
-    patterns = _detect_patterns(oura_daily, nutrition_daily, condition_names)
+    patterns = _detect_patterns(canonical, nutrition_daily, condition_names)
     if not patterns:
         return None
 
@@ -1314,7 +1399,7 @@ async def get_top_recommendation(
     evidence: Dict[str, Any] = {
         "signals": best.signals,
         "severity": best.severity,
-        "data_points": len(oura_daily),
+        "data_points": len(canonical),
     }
 
     # Build personal history for this pattern
@@ -1450,15 +1535,15 @@ async def get_next_experiment(
 
     # Detect current patterns
     bearer = request.headers.get("Authorization")
-    oura_daily, nutrition_daily = await _get_recent_data(current_user, bearer)
+    canonical, nutrition_daily = await _get_recent_data(current_user, bearer)
 
     conditions = await _get_user_conditions(user_id)
     condition_names = [
         c.get("condition_name", "") for c in conditions if c.get("condition_name")
     ]
     patterns = (
-        _detect_patterns(oura_daily, nutrition_daily, condition_names)
-        if oura_daily
+        _detect_patterns(canonical, nutrition_daily, condition_names)
+        if canonical
         else []
     )
     detected_set = {p.pattern for p in patterns}

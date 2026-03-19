@@ -139,68 +139,96 @@ class ActiveIntervention(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Health metrics extraction (source-agnostic)
+# Health metrics extraction — device-agnostic via canonical scores
 # ---------------------------------------------------------------------------
 
-# Key metrics to snapshot at baseline/outcome.
-# When Apple Health or Google Health are integrated, their data will be
-# normalised through the same get_timeline() → _extract_metrics() path.
-TRACKED_METRICS = [
-    "sleep_score",
+# Canonical metrics (0-100 scores from any device)
+TRACKED_CANONICAL = [
+    "sleep_quality",
+    "hrv_health",
+    "recovery",
+    "activity_level",
+    "cardiac_stress",
     "sleep_efficiency",
-    "deep_sleep_hours",
-    "hrv_balance",
-    "resting_heart_rate",
-    "readiness_score",
-    "recovery_index",
-    "temperature_deviation",
+    "deep_sleep_pct",
+    "temp_trend",
+]
+
+# Raw universal metrics (available from most devices)
+TRACKED_RAW = [
     "steps",
-    "activity_score",
-    # Native wearable metrics (Apple Health, Health Connect, any Tier 1/2 device)
-    "respiratory_rate",
-    "spo2",
     "active_calories",
     "workout_minutes",
     "vo2_max",
+    "spo2",
+    "respiratory_rate",
+    "resting_heart_rate",
 ]
+
+TRACKED_METRICS = TRACKED_CANONICAL + TRACKED_RAW
+
+
+async def _extract_metrics_from_summaries(user_id: str) -> Dict[str, Optional[float]]:
+    """
+    Extract current health metrics from health_metric_summaries.
+    Device-agnostic: reads canonical scores + raw universal metrics.
+    """
+    rows = await _supabase_get(
+        "health_metric_summaries",
+        f"user_id=eq.{user_id}&select=metric_type,canonical_metric,canonical_score,latest_value",
+    )
+    if not rows:
+        return {m: None for m in TRACKED_METRICS}
+
+    result: Dict[str, Optional[float]] = {m: None for m in TRACKED_METRICS}
+
+    for row in rows:
+        # Canonical scores (preferred)
+        cm = row.get("canonical_metric")
+        cs = row.get("canonical_score")
+        if cm and cs is not None and cm in result:
+            result[cm] = round(float(cs), 2)
+
+        # Raw metrics
+        mt = row.get("metric_type", "")
+        val = row.get("latest_value")
+        if mt in TRACKED_RAW and val is not None and result.get(mt) is None:
+            result[mt] = round(float(val), 2)
+
+    return result
 
 
 def _extract_metrics(timeline: list) -> Dict[str, Optional[float]]:
     """
-    Extract a rolling 3-day average of key health metrics from a timeline.
-    Source-agnostic: timeline entries may originate from Oura, Apple Health,
-    Google Health, or any other wearable. The field names are normalised by
-    the timeline aggregator.
+    Legacy sync extractor — reads from timeline entries.
+    Kept for backward compat with code that passes timeline lists.
+    For new code, use _extract_metrics_from_summaries() instead.
     """
-    # Collect up to last 3 days worth of data
     recent = timeline[-3:] if len(timeline) >= 3 else timeline
     if not recent:
         return {m: None for m in TRACKED_METRICS}
 
     aggregated: Dict[str, List[float]] = {m: [] for m in TRACKED_METRICS}
     for entry in recent:
+        if not isinstance(entry, dict):
+            continue
         oura = entry.get("oura", {}) or {}
         sleep = oura.get("sleep") or {}
         readiness = oura.get("readiness") or {}
         activity = oura.get("activity") or {}
-
-        # Also check native_health_data fields surfaced by the timeline aggregator
         native = entry.get("native", {}) or {}
 
         metric_map = {
-            "sleep_score": sleep.get("score"),
+            "sleep_quality": sleep.get("score"),
             "sleep_efficiency": sleep.get("efficiency"),
-            "deep_sleep_hours": (sleep.get("deep") or 0) / 3600
-            if sleep.get("deep")
-            else None,
-            "hrv_balance": readiness.get("hrv_balance"),
+            "deep_sleep_pct": None,
+            "hrv_health": readiness.get("hrv_balance"),
             "resting_heart_rate": readiness.get("resting_heart_rate"),
-            "readiness_score": readiness.get("score"),
-            "recovery_index": readiness.get("recovery_index"),
-            "temperature_deviation": readiness.get("temperature_deviation"),
+            "recovery": readiness.get("score"),
+            "cardiac_stress": None,
+            "temp_trend": readiness.get("temperature_deviation"),
             "steps": activity.get("steps"),
-            "activity_score": activity.get("score"),
-            # Native wearable metrics — populated from Apple Health / Health Connect
+            "activity_level": activity.get("score"),
             "respiratory_rate": native.get("respiratory_rate"),
             "spo2": native.get("spo2"),
             "active_calories": native.get("active_calories")
@@ -208,7 +236,6 @@ def _extract_metrics(timeline: list) -> Dict[str, Optional[float]]:
             "workout_minutes": native.get("workout_minutes"),
             "vo2_max": native.get("vo2_max"),
         }
-        # Also check top-level normalised fields (future Apple/Google sources)
         for m in TRACKED_METRICS:
             val = metric_map.get(m)
             if val is None:
@@ -415,10 +442,9 @@ async def start_intervention(
 
     user_id = current_user["id"]
 
-    # Capture baseline from current timeline (source-agnostic)
+    # Capture baseline from canonical summaries (device-agnostic)
     try:
-        timeline = await get_timeline(days=7, current_user=current_user)
-        baseline = _extract_metrics(timeline)
+        baseline = await _extract_metrics_from_summaries(user_id)
     except Exception as exc:
         logger.warning("Could not capture baseline metrics: %s", exc)
         baseline = {}
@@ -551,10 +577,9 @@ async def complete_intervention(
     if intervention["status"] not in ("active", "completed"):
         raise HTTPException(status_code=400, detail="Intervention is not active")
 
-    # Capture outcome metrics from timeline (source-agnostic)
+    # Capture outcome metrics from canonical summaries (device-agnostic)
     try:
-        timeline = await get_timeline(days=7, current_user=current_user)
-        outcome_metrics = _extract_metrics(timeline)
+        outcome_metrics = await _extract_metrics_from_summaries(user_id)
     except Exception as exc:
         logger.warning("Could not capture outcome metrics: %s", exc)
         outcome_metrics = {}
@@ -606,25 +631,30 @@ async def complete_intervention(
 
 # Friendly labels for metric names
 _METRIC_LABELS: Dict[str, str] = {
-    "sleep_score": "Sleep Score",
+    # Canonical scores
+    "sleep_quality": "Sleep Quality",
+    "hrv_health": "HRV Health",
+    "recovery": "Recovery",
+    "activity_level": "Activity Level",
+    "cardiac_stress": "Cardiac Stress",
     "sleep_efficiency": "Sleep Efficiency",
-    "deep_sleep_hours": "Deep Sleep",
-    "hrv_balance": "HRV Balance",
-    "resting_heart_rate": "Resting HR",
-    "readiness_score": "Readiness",
-    "recovery_index": "Recovery",
-    "temperature_deviation": "Temp Deviation",
+    "deep_sleep_pct": "Deep Sleep %",
+    "temp_trend": "Temp Trend",
+    # Raw universal metrics
     "steps": "Steps",
-    "activity_score": "Activity",
-    "respiratory_rate": "Respiratory Rate",
-    "spo2": "SpO2",
     "active_calories": "Active Calories",
     "workout_minutes": "Workout Minutes",
     "vo2_max": "VO2 Max",
+    "spo2": "SpO2",
+    "respiratory_rate": "Respiratory Rate",
+    "resting_heart_rate": "Resting HR",
+    # CGM metrics
+    "glucose_stability": "Glucose Stability",
+    "time_in_range": "Time in Range",
 }
 
-# Which metrics are "higher is better" vs "lower is better"
-_LOWER_IS_BETTER = {"resting_heart_rate", "temperature_deviation"}
+# Higher value = WORSE for these metrics
+_LOWER_IS_BETTER = {"cardiac_stress", "temp_trend", "resting_heart_rate"}
 
 
 @router.get("/active", response_model=Optional[ActiveIntervention])
@@ -696,7 +726,9 @@ async def get_active_intervention(
         )
         # Convert Pydantic models to dicts if needed
         timeline = [
-            e.model_dump() if hasattr(e, "model_dump") else (e.dict() if hasattr(e, "dict") else e)
+            e.model_dump()
+            if hasattr(e, "model_dump")
+            else (e.dict() if hasattr(e, "dict") else e)
             for e in raw_timeline
         ]
     except Exception as exc:
@@ -756,35 +788,17 @@ async def get_active_intervention(
 
 
 def _pattern_focus_metrics(pattern: str) -> List[str]:
-    """Return the metrics most relevant to a given pattern."""
+    """Return the canonical metrics most relevant to a given pattern."""
     mapping = {
-        "overtraining": [
-            "hrv_balance",
-            "sleep_score",
-            "readiness_score",
-            "resting_heart_rate",
-        ],
-        "inflammation": [
-            "hrv_balance",
-            "temperature_deviation",
-            "sleep_score",
-            "readiness_score",
-        ],
-        "poor_recovery": [
-            "readiness_score",
-            "resting_heart_rate",
-            "hrv_balance",
-            "sleep_score",
-        ],
-        "sleep_disruption": [
-            "sleep_score",
-            "sleep_efficiency",
-            "deep_sleep_hours",
-            "hrv_balance",
-        ],
+        "overtraining": ["hrv_health", "sleep_quality", "recovery", "cardiac_stress"],
+        "inflammation": ["hrv_health", "temp_trend", "sleep_quality", "recovery"],
+        "poor_recovery": ["recovery", "cardiac_stress", "hrv_health", "sleep_quality"],
+        "sleep_disruption": ["sleep_quality", "sleep_efficiency", "deep_sleep_pct", "hrv_health"],
+        "glucose_instability": ["glucose_stability", "time_in_range"],
+        "cardiac_strain": ["cardiac_stress", "recovery", "hrv_health"],
     }
     return mapping.get(
-        pattern, ["sleep_score", "hrv_balance", "readiness_score", "steps"]
+        pattern, ["sleep_quality", "hrv_health", "recovery", "steps"]
     )
 
 
@@ -812,10 +826,9 @@ async def start_from_recommendation(
             status_code=409, detail="An active intervention already exists"
         )
 
-    # Capture baseline
+    # Capture baseline from canonical summaries (device-agnostic)
     try:
-        timeline = await get_timeline(days=7, current_user=current_user)
-        baseline = _extract_metrics(timeline)
+        baseline = await _extract_metrics_from_summaries(user_id)
     except Exception as exc:
         logger.warning("Could not capture baseline metrics: %s", exc)
         baseline = {}
@@ -908,13 +921,10 @@ async def _auto_complete_intervention(
     Complete an expired intervention: capture outcome, compute delta,
     generate summary, write learned pattern, update DB.
     """
-    from .timeline import get_timeline
-
     user_id = intervention["user_id"]
 
     try:
-        timeline = await get_timeline(days=7, current_user=current_user)
-        outcome_metrics = _extract_metrics(timeline)
+        outcome_metrics = await _extract_metrics_from_summaries(user_id)
     except Exception as exc:
         logger.warning("Auto-complete: could not capture outcome: %s", exc)
         outcome_metrics = {}
