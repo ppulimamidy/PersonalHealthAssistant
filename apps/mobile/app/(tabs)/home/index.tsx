@@ -309,11 +309,15 @@ export default function HomeScreen() {
           api.get('/api/v1/adherence/today'),
         ]);
         const todayMeds = todayResp.data?.medications ?? [];
-        const total = todayMeds.length;
-        const taken = todayMeds.filter(
-          (m: { logs?: Array<{ was_taken?: boolean }> }) =>
-            Array.isArray(m.logs) && m.logs.some((l) => l.was_taken),
-        ).length;
+        const total = todayMeds.reduce(
+          (sum: number, m: { doses_today?: number }) => sum + (m.doses_today || 1), 0,
+        );
+        const taken = todayMeds.reduce(
+          (sum: number, m: { logs?: Array<{ was_taken?: boolean }>; doses_today?: number }) => {
+            const loggedCount = Array.isArray(m.logs) ? m.logs.filter((l) => l.was_taken).length : 0;
+            return sum + Math.min(loggedCount, m.doses_today || 1);
+          }, 0,
+        );
         return {
           taken,
           total,
