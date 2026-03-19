@@ -26,6 +26,7 @@ const ACTION_HREFS: Record<string, string> = {
   nutrition: '/nutrition',
   symptoms: '/symptoms',
   chat: '/agents',
+  'health-profile': '/health-profile',
 };
 
 export function SmartPromptCard() {

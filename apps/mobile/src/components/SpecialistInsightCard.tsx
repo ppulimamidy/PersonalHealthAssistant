@@ -55,7 +55,7 @@ export default function SpecialistInsightCard() {
           </Text>
         </View>
         <TouchableOpacity
-          onPress={() => router.push('/(tabs)/chat')}
+          onPress={() => router.push(`/(tabs)/chat?agent=${journey.specialist_agent_id}` as never)}
           className="flex-row items-center gap-1 px-3 py-1.5 rounded-lg"
           style={{ borderWidth: 1, borderColor: 'rgba(0,212,170,0.2)' }}
           activeOpacity={0.7}

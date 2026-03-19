@@ -802,6 +802,18 @@ async def get_smart_prompt(
                 )
             )
 
+    # Add a condition — for exploring users after 7 days
+    if not condition and days_since >= 7 and "add_condition" not in dismissed_recently:
+        prompts.append(
+            SmartPrompt(
+                type="add_condition",
+                title="Add a health condition",
+                body="Get a specialist agent and personalized journey for your specific needs.",
+                action="health-profile",
+                priority=45,
+            )
+        )
+
     # Chat with specialist — show if user has device data but no meals/symptoms yet
     if has_device and not prompts and "chat" not in dismissed_recently:
         prompts.append(

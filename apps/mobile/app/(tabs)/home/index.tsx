@@ -274,6 +274,7 @@ export default function HomeScreen() {
   const { user, profile } = useAuthStore();
   const userRole = profile?.user_role ?? 'patient';
   const [showDailyCheckin, setShowDailyCheckin] = useState(false);
+  const [checkinDismissed, setCheckinDismissed] = useState(false);
 
   useEffect(() => {
     shouldShowDailyCheckin().then((show) => { if (show) setShowDailyCheckin(true); }).catch(() => {});
@@ -530,18 +531,29 @@ export default function HomeScreen() {
       <QuickLogStrip />
 
       {/* Check-in prompt — below quick log */}
-      {checkinStatus?.should_prompt && (
-        <TouchableOpacity
-          onPress={() => router.push('/(tabs)/home/checkin')}
-          className="bg-primary-500/10 border border-primary-500/30 rounded-xl p-4 mb-4"
-          activeOpacity={0.8}
-        >
-          <View className="flex-row items-center gap-2">
-            <Ionicons name="clipboard-outline" size={18} color="#00D4AA" />
-            <Text className="text-primary-500 font-sansMedium">Time for your weekly check-in</Text>
+      {checkinStatus?.should_prompt && !checkinDismissed && (
+        <View className="bg-primary-500/10 border border-primary-500/30 rounded-xl p-4 mb-4">
+          <View className="flex-row items-start justify-between">
+            <TouchableOpacity
+              onPress={() => router.push('/(tabs)/home/checkin')}
+              className="flex-1"
+              activeOpacity={0.8}
+            >
+              <View className="flex-row items-center gap-2">
+                <Ionicons name="clipboard-outline" size={18} color="#00D4AA" />
+                <Text className="text-primary-500 font-sansMedium">Time for your weekly check-in</Text>
+              </View>
+              <Text className="text-[#526380] text-sm mt-1 ml-7">Rate your mood, energy, and pain levels</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => setCheckinDismissed(true)}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              className="ml-2 mt-0.5"
+            >
+              <Ionicons name="close" size={16} color="#526380" />
+            </TouchableOpacity>
           </View>
-          <Text className="text-[#526380] text-sm mt-1 ml-7">Rate your mood, energy, and pain levels</Text>
-        </TouchableOpacity>
+        </View>
       )}
 
       {/* Adherence Strip */}

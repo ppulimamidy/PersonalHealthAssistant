@@ -292,12 +292,13 @@ function EditMedicationModal({ med, onClose, onSaved }: EditModalProps) {
 
 interface AdherenceRowProps {
   med: Medication;
+  logged: boolean;
   onLog: (id: string, taken: boolean) => void;
   onEdit: (med: Medication) => void;
   onDelete: (med: Medication) => void;
 }
 
-function AdherenceRow({ med, onLog, onEdit, onDelete }: AdherenceRowProps) {
+function AdherenceRow({ med, logged, onLog, onEdit, onDelete }: AdherenceRowProps) {
   return (
     <View className="bg-surface-raised border border-surface-border rounded-xl p-4 mb-3">
       {/* Top row: name + actions */}
@@ -328,15 +329,23 @@ function AdherenceRow({ med, onLog, onEdit, onDelete }: AdherenceRowProps) {
 
       {/* Bottom row: Taken / Skip */}
       <View className="flex-row gap-2">
-        <TouchableOpacity
-          onPress={() => onLog(med.id, true)}
-          className="flex-1 bg-primary-500/20 border border-primary-500/50 rounded-lg py-2 items-center"
-        >
-          <Text className="text-primary-500 text-sm font-sansMedium">Taken</Text>
-        </TouchableOpacity>
+        {logged ? (
+          <View className="flex-1 bg-primary-500/10 border border-primary-500/30 rounded-lg py-2 flex-row items-center justify-center gap-1">
+            <Ionicons name="checkmark-circle" size={16} color="#00D4AA" />
+            <Text className="text-primary-500 text-sm font-sansMedium">Taken</Text>
+          </View>
+        ) : (
+          <TouchableOpacity
+            onPress={() => onLog(med.id, true)}
+            className="flex-1 bg-primary-500/20 border border-primary-500/50 rounded-lg py-2 items-center"
+          >
+            <Text className="text-primary-500 text-sm font-sansMedium">Taken</Text>
+          </TouchableOpacity>
+        )}
         <TouchableOpacity
           onPress={() => onLog(med.id, false)}
-          className="flex-1 bg-surface border border-surface-border rounded-lg py-2 items-center"
+          disabled={logged}
+          className={`flex-1 bg-surface border border-surface-border rounded-lg py-2 items-center ${logged ? 'opacity-40' : ''}`}
         >
           <Text className="text-[#526380] text-sm">Skip</Text>
         </TouchableOpacity>
@@ -350,6 +359,8 @@ function AdherenceRow({ med, onLog, onEdit, onDelete }: AdherenceRowProps) {
 export default function MedicationsScreen() {
   const queryClient = useQueryClient();
   const [editingMed, setEditingMed] = useState<Medication | null>(null);
+  const [loggedMeds, setLoggedMeds] = useState<Set<string>>(new Set());
+  const [saveError, setSaveError] = useState('');
 
   const { data: medications, isLoading, refetch } = useQuery({
     queryKey: ['medications'],
@@ -393,9 +404,18 @@ export default function MedicationsScreen() {
         was_taken: wasTaken,
         taken_at: new Date().toISOString(),
       });
+      if (wasTaken) {
+        setLoggedMeds((prev) => new Set(prev).add(medicationId));
+      }
+      setSaveError('');
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       queryClient.invalidateQueries({ queryKey: ['adherence'] });
+      queryClient.invalidateQueries({ queryKey: ['adherence-today'] });
+      queryClient.invalidateQueries({ queryKey: ['adherence', 'today'] });
+      queryClient.invalidateQueries({ queryKey: ['batch', 'home'] });
     } catch {
-      // Silent fail — non-critical
+      setSaveError('Failed to log medication. Please try again.');
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     }
   }
 
@@ -452,6 +472,12 @@ export default function MedicationsScreen() {
           contentContainerStyle={{ padding: 16, paddingTop: 4, paddingBottom: 40 }}
           refreshControl={<RefreshControl refreshing={isLoading} onRefresh={refetch} tintColor="#00D4AA" />}
         >
+          {saveError ? (
+            <View className="bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-3 mb-3">
+              <Text className="text-red-400 text-sm">{saveError}</Text>
+            </View>
+          ) : null}
+
           {medsList.length === 0 && (
             <View className="items-center py-12">
               <Ionicons name="medical-outline" size={48} color="#526380" />
@@ -474,6 +500,7 @@ export default function MedicationsScreen() {
                 <AdherenceRow
                   key={med.id}
                   med={med}
+                  logged={loggedMeds.has(med.id)}
                   onLog={handleLog}
                   onEdit={setEditingMed}
                   onDelete={handleDelete}
@@ -491,6 +518,7 @@ export default function MedicationsScreen() {
                 <AdherenceRow
                   key={med.id}
                   med={med}
+                  logged={loggedMeds.has(med.id)}
                   onLog={handleLog}
                   onEdit={setEditingMed}
                   onDelete={handleDelete}

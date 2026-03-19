@@ -73,7 +73,7 @@ export function SpecialistInsightCard() {
           )}
         </div>
         <Link
-          href="/agents"
+          href={`/agents?agent=${journey.specialist_agent_id}`}
           className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium text-[#00D4AA] transition-colors hover:bg-[#00D4AA]/10"
           style={{ border: '1px solid rgba(0,212,170,0.2)' }}
         >

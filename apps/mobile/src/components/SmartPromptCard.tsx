@@ -25,6 +25,7 @@ const ACTION_ROUTES: Record<string, string> = {
   nutrition: '/(tabs)/log',
   symptoms: '/(tabs)/log/new-symptom',
   chat: '/(tabs)/chat',
+  'health-profile': '/(tabs)/profile/health',
 };
 
 export default function SmartPromptCard() {

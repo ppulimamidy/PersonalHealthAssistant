@@ -289,11 +289,26 @@ export default function OnboardingScreen() {
         journey_template_key: journeyProposal?.key,
       });
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setLoading(false);
+      router.replace('/(tabs)/home');
     } catch {
-      try { await api.post('/api/v1/onboarding/complete', { skipped_journey: false }); } catch {}
+      setLoading(false);
+      Alert.alert(
+        'Could not start journey',
+        'Tap to try again or continue to Home.',
+        [
+          { text: 'Try Again', onPress: () => handleStartJourney() },
+          {
+            text: 'Continue',
+            style: 'cancel',
+            onPress: async () => {
+              try { await api.post('/api/v1/onboarding/complete', { skipped_journey: false }); } catch {}
+              router.replace('/(tabs)/home');
+            },
+          },
+        ],
+      );
     }
-    setLoading(false);
-    router.replace('/(tabs)/home');
   }
 
   async function handleSkip() {
