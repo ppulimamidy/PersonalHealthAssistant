@@ -395,14 +395,18 @@ export default function HomeScreen() {
 
       {/* Health Rings + Score */}
       {summaries && Object.keys(summaries).length > 0 ? (() => {
-        // Use canonical scores when available, raw summaries as display values for rings
+        // Ring display values (raw — human-readable)
         const sleepVal = summaries.sleep?.latest_value ?? 0;
         const hrvVal = summaries.hrv_sdnn?.latest_value ?? 0;
         const stepsVal = summaries.steps?.latest_value ?? 0;
         const hrvGoal = Math.max((summaries.hrv_sdnn?.avg_30d ?? 50) * 1.1, 50);
 
-        // Health score from API (canonical-based) — single source of truth
-        const score = healthScore ?? null;
+        // Health score: API canonical score (preferred) → client-side fallback
+        const sleepPct = Math.min(sleepVal / 8, 1);
+        const hrvPct = Math.min(hrvVal / hrvGoal, 1);
+        const stepsPct = Math.min(stepsVal / 8000, 1);
+        const clientScore = Math.round(sleepPct * 35 + hrvPct * 30 + stepsPct * 25 + 10);
+        const score = healthScore ?? (clientScore > 10 ? clientScore : null);
         const recoveryVal = score ?? 0;
 
         return (
