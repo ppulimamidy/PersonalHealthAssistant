@@ -405,7 +405,7 @@ def _enrich_intervention(row: Dict[str, Any]) -> Dict[str, Any]:
 async def start_intervention(
     body: StartInterventionRequest,
     request: Request,
-    current_user: dict = Depends(UsageGate("interventions")),
+    current_user: dict = Depends(get_current_user),
 ):
     """
     Accept a recommendation as a timed trial intervention.
@@ -787,7 +787,7 @@ def _pattern_focus_metrics(pattern: str) -> List[str]:
 async def start_from_recommendation(
     body: StartFromRecommendationRequest,
     request: Request,
-    current_user: dict = Depends(UsageGate("interventions")),
+    current_user: dict = Depends(get_current_user),
 ):
     """
     One-tap start: create an intervention directly from a recommendation card.
