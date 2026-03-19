@@ -574,12 +574,9 @@ async def get_today_adherence(
         return TodayAdherenceResponse(medications=[])
 
     today = date.today()
-    day_start = datetime(
-        today.year, today.month, today.day, 0, 0, 0, tzinfo=timezone.utc
-    ).isoformat()
-    day_end = datetime(
-        today.year, today.month, today.day, 23, 59, 59, tzinfo=timezone.utc
-    ).isoformat()
+    # Use naive datetime strings (no +00:00) to avoid URL encoding issues with '+'
+    day_start = f"{today}T00:00:00"
+    day_end = f"{today}T23:59:59"
 
     logs = (
         await _supabase_get(
