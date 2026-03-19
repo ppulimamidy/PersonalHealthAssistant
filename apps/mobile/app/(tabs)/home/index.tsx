@@ -301,6 +301,7 @@ export default function HomeScreen() {
 
   const { data: adherenceData } = useQuery({
     queryKey: ['adherence', 'today'],
+    staleTime: 10_000, // 10s — refetch quickly after med logging
     queryFn: async () => {
       try {
         const [streakResp, medsResp, todayResp] = await Promise.all([

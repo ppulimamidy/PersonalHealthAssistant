@@ -73,6 +73,7 @@ function AppStateListener() {
         if (nextState === 'active') {
           queryClient.invalidateQueries({ queryKey: ['batch'] });
           queryClient.invalidateQueries({ queryKey: ['oura-connection'] });
+          queryClient.invalidateQueries({ queryKey: ['adherence'] });
         }
       }
     );
