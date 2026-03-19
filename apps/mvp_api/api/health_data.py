@@ -101,6 +101,7 @@ from common.utils.logging import get_logger
 from ..dependencies.usage_gate import (
     _supabase_get,
     _supabase_upsert,
+    _supabase_patch,
     SUPABASE_URL,
     SUPABASE_SERVICE_KEY,
     _supabase_headers,
@@ -691,8 +692,43 @@ async def recompute_summaries(user_id: str) -> None:
                 )
 
         logger.info("Summaries recomputed user=%s metrics=%d", user_id, len(summaries))
+
+        # Compute canonical scores from updated summaries
+        await _compute_canonical_scores_for_user(user_id)
+
     except Exception as exc:  # pylint: disable=broad-except
         logger.error("recompute_summaries failed user=%s: %s", user_id, exc)
+
+
+async def _compute_canonical_scores_for_user(user_id: str) -> None:
+    """Compute canonical 0-100 scores from health_metric_summaries and upsert back."""
+    try:
+        from common.metrics.canonical_scores import compute_canonical_scores
+
+        rows = await _supabase_get(
+            "health_metric_summaries",
+            f"user_id=eq.{user_id}&select=metric_type,latest_value,personal_baseline,baseline_stddev",
+        )
+        if not rows:
+            return
+
+        updates = compute_canonical_scores(rows)
+        for u in updates:
+            await _supabase_patch(
+                "health_metric_summaries",
+                f"user_id=eq.{user_id}&metric_type=eq.{u['metric_type']}",
+                {
+                    "canonical_metric": u["canonical_metric"],
+                    "canonical_score": u["canonical_score"],
+                },
+            )
+        logger.info(
+            "Canonical scores computed user=%s scores=%d",
+            user_id,
+            len(updates),
+        )
+    except Exception as exc:
+        logger.warning("Canonical score computation failed user=%s: %s", user_id, exc)
 
 
 # ---------------------------------------------------------------------------
