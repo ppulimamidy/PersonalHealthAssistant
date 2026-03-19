@@ -303,13 +303,16 @@ export default function HomeScreen() {
     queryKey: ['adherence', 'today'],
     queryFn: async () => {
       try {
-        const [streakResp, medsResp] = await Promise.all([
+        const [streakResp, medsResp, todayResp] = await Promise.all([
           api.get('/api/v1/adherence/streaks'),
           api.get('/api/v1/medications'),
+          api.get('/api/v1/adherence/today'),
         ]);
         const meds = (medsResp.data?.medications ?? medsResp.data ?? []) as Array<{ is_active: boolean }>;
+        const todayMeds = (todayResp.data?.medications ?? []) as Array<{ logs: Array<{ was_taken: boolean }> }>;
+        const takenCount = todayMeds.filter((m) => m.logs.some((l) => l.was_taken)).length;
         return {
-          taken: 0, // today's log not separately exposed — show total active as total
+          taken: takenCount,
           total: meds.filter((m) => m.is_active).length,
           streak: streakResp.data?.current_streak ?? 0,
         };
