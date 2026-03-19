@@ -691,9 +691,14 @@ async def get_active_intervention(
             intervention["started_at"].replace("Z", "+00:00")
         )
         days_elapsed = max(1, (datetime.now(timezone.utc) - started).days + 1)
-        timeline = await get_timeline(
+        raw_timeline = await get_timeline(
             days=min(days_elapsed, 30), current_user=current_user
         )
+        # Convert Pydantic models to dicts if needed
+        timeline = [
+            e.model_dump() if hasattr(e, "model_dump") else (e.dict() if hasattr(e, "dict") else e)
+            for e in raw_timeline
+        ]
     except Exception as exc:
         logger.warning("Could not fetch timeline for metric trend: %s", exc)
         timeline = []
