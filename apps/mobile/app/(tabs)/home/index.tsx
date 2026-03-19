@@ -301,20 +301,22 @@ export default function HomeScreen() {
 
   const { data: adherenceData } = useQuery({
     queryKey: ['adherence', 'today'],
-    staleTime: 0, // always refetch — adherence changes frequently
+    staleTime: 0,
     queryFn: async () => {
       try {
-        const [streakResp, medsResp, todayResp] = await Promise.all([
+        const [streakResp, todayResp] = await Promise.all([
           api.get('/api/v1/adherence/streaks'),
-          api.get('/api/v1/medications'),
           api.get('/api/v1/adherence/today'),
         ]);
-        const meds = (medsResp.data?.medications ?? medsResp.data ?? []) as Array<{ is_active: boolean }>;
-        const todayMeds = (todayResp.data?.medications ?? []) as Array<{ logs: Array<Record<string, unknown>> }>;
-        const takenCount = todayMeds.filter((m) => m.logs && m.logs.length > 0 && m.logs.some((l) => l.was_taken === true)).length;
+        const todayMeds = todayResp.data?.medications ?? [];
+        const total = todayMeds.length;
+        const taken = todayMeds.filter(
+          (m: { logs?: Array<{ was_taken?: boolean }> }) =>
+            Array.isArray(m.logs) && m.logs.some((l) => l.was_taken),
+        ).length;
         return {
-          taken: takenCount,
-          total: meds.filter((m) => m.is_active).length,
+          taken,
+          total,
           streak: streakResp.data?.current_streak ?? 0,
         };
       } catch {
