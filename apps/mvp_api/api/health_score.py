@@ -45,9 +45,28 @@ async def get_health_score(current_user: dict = Depends(get_user_optional)):
     """
     Get today's composite health score.
 
-    Weights: sleep 40%, readiness 35%, activity 25%.
-    Returns breakdown per component, trend vs yesterday, and the composite score.
+    Primary: reads canonical scores from health_metric_summaries (device-agnostic).
+    Fallback: reads from Oura timeline (legacy).
+
+    Weights: sleep 35%, recovery 30%, activity 25%, cardiac 10%.
     """
+    user_id = current_user["id"]
+
+    # Primary: canonical scores from summaries
+    try:
+        canonical_score, canonical_breakdown = await _compute_score_from_canonical(user_id)
+        if canonical_score is not None:
+            return {
+                "score": round(canonical_score, 1),
+                "breakdown": canonical_breakdown,
+                "trend": "stable",  # TODO: compare with previous day's canonical scores
+                "change_from_yesterday": 0,
+                "date": str(__import__("datetime").date.today()),
+            }
+    except Exception as exc:
+        logger.debug("Canonical health score failed, trying timeline: %s", exc)
+
+    # Fallback: Oura timeline
     from .timeline import get_timeline
 
     try:
@@ -84,6 +103,54 @@ async def get_health_score(current_user: dict = Depends(get_user_optional)):
         "change_from_yesterday": change,
         "date": getattr(today, "date", None),
     }
+
+
+async def _compute_score_from_canonical(user_id: str):
+    """Compute health score from canonical scores in health_metric_summaries."""
+    rows = await _supabase_get(
+        "health_metric_summaries",
+        f"user_id=eq.{user_id}&canonical_metric=not.is.null&select=canonical_metric,canonical_score",
+    )
+    if not rows:
+        return None, {}
+
+    scores = {r["canonical_metric"]: r["canonical_score"] for r in rows if r.get("canonical_score") is not None}
+
+    sleep_q = scores.get("sleep_quality")
+    recovery = scores.get("recovery")
+    activity = scores.get("activity_level")
+    cardiac = scores.get("cardiac_stress")
+
+    components = []
+    breakdown = {}
+
+    if sleep_q is not None:
+        w = 0.35
+        components.append(sleep_q * w)
+        breakdown["sleep"] = {"score": sleep_q, "weight": w, "weighted": round(sleep_q * w, 1)}
+
+    if recovery is not None:
+        w = 0.30
+        components.append(recovery * w)
+        breakdown["recovery"] = {"score": recovery, "weight": w, "weighted": round(recovery * w, 1)}
+
+    if activity is not None:
+        w = 0.25
+        components.append(activity * w)
+        breakdown["activity"] = {"score": activity, "weight": w, "weighted": round(activity * w, 1)}
+
+    if cardiac is not None:
+        w = 0.10
+        inverted = 100 - cardiac  # lower stress = higher health
+        components.append(inverted * w)
+        breakdown["cardiac"] = {"score": round(inverted, 1), "weight": w, "weighted": round(inverted * w, 1)}
+
+    if not components:
+        return None, breakdown
+
+    total_weight = sum(b["weight"] for b in breakdown.values())
+    score = sum(components) / total_weight if total_weight > 0 else 0
+    return score, breakdown
 
 
 def _native_sleep_score(sleep_entry) -> float | None:
