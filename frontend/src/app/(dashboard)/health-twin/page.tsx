@@ -128,6 +128,30 @@ export default function HealthTwinPage() {
 
   return (
     <div>
+      {/* Coming Soon banner */}
+      <div
+        className="flex items-center gap-3 px-4 py-3 rounded-xl mb-5"
+        style={{
+          backgroundColor: 'rgba(129,140,248,0.08)',
+          border: '1px solid rgba(129,140,248,0.20)',
+        }}
+      >
+        <div
+          className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
+          style={{ backgroundColor: 'rgba(129,140,248,0.15)' }}
+        >
+          <Brain className="w-4 h-4" style={{ color: '#818CF8' }} />
+        </div>
+        <div>
+          <p className="text-xs font-semibold" style={{ color: '#818CF8' }}>
+            Coming Soon — Preview Mode
+          </p>
+          <p className="text-[11px] mt-0.5" style={{ color: '#526380' }}>
+            Health Twin simulations are under development. Below is a preview of how it will look with your data.
+          </p>
+        </div>
+      </div>
+
       {/* Header */}
       <div className="mb-6">
         <h1 className="text-2xl font-bold mb-1" style={{ color: '#E8EDF5' }}>

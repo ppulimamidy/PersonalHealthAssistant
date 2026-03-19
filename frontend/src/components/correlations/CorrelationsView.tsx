@@ -10,7 +10,7 @@ import { correlationsService } from '@/services/correlations';
 import { billingService } from '@/services/billing';
 import { healthConditionsService } from '@/services/healthConditions';
 import { useSubscriptionStore } from '@/stores/subscriptionStore';
-import { Zap, RefreshCw, AlertTriangle, Lock, GitBranch } from 'lucide-react';
+import { Zap, RefreshCw, AlertTriangle, Lock, GitBranch, TrendingUp } from 'lucide-react';
 import type { CorrelationCategory } from '@/types';
 
 const CONDITION_HINTS: Record<string, string> = {
@@ -95,7 +95,7 @@ export function CorrelationsView() {
         <div className="flex items-center gap-3">
           <Zap className="w-6 h-6 text-primary-600 dark:text-primary-400" />
           <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">
-            Triggers &amp; Causes
+            Patterns
           </h1>
         </div>
         <Card>
@@ -116,7 +116,7 @@ export function CorrelationsView() {
         <div className="flex items-center gap-3">
           <Zap className="w-6 h-6 text-primary-600 dark:text-primary-400" />
           <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">
-            Triggers &amp; Causes
+            Patterns
           </h1>
         </div>
         <Card>
@@ -147,7 +147,7 @@ export function CorrelationsView() {
         <div className="flex items-center gap-3">
           <Zap className="w-6 h-6 text-primary-600 dark:text-primary-400" />
           <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">
-            Triggers &amp; Causes
+            Patterns
           </h1>
         </div>
         <div className="flex items-center gap-2">
@@ -175,6 +175,13 @@ export function CorrelationsView() {
               <GitBranch className="w-3 h-3" />
               Causes
             </button>
+            <a
+              href="/predictions"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700"
+            >
+              <TrendingUp className="w-3 h-3" />
+              Forecast
+            </a>
           </div>
           {/* Period toggle (correlations only) */}
           {viewMode === 'correlations' && (

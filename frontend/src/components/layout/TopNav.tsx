@@ -28,25 +28,23 @@ const TABS: TabDef[] = [
   {
     name: 'Track',
     href: '/nutrition',
-    subRoutes: ['/nutrition', '/medications', '/symptoms', '/lab-results'],
+    subRoutes: ['/nutrition', '/medications', '/symptoms', '/lab-results', '/cycle'],
     subItems: [
       { name: 'Nutrition', href: '/nutrition' },
       { name: 'Medications', href: '/medications' },
       { name: 'Symptoms', href: '/symptoms' },
       { name: 'Lab Results', href: '/lab-results' },
+      { name: 'Cycle', href: '/cycle' },
     ],
   },
   {
-    name: 'Understand',
+    name: 'Insights',
     href: '/timeline',
-    subRoutes: ['/timeline', '/trends', '/correlations', '/predictions', '/meta-analysis', '/doctor-prep', '/causal-graph', '/research', '/health-twin'],
+    subRoutes: ['/timeline', '/trends', '/correlations', '/predictions', '/causal-graph'],
     subItems: [
       { name: 'Timeline', href: '/timeline' },
-      { name: 'Triggers & Causes', href: '/correlations' },
-      { name: 'Health Forecast', href: '/predictions' },
-      { name: 'Research', href: '/research' },
-      { name: 'Simulate', href: '/health-twin' },
-      { name: 'Visit Prep', href: '/doctor-prep' },
+      { name: 'Patterns', href: '/correlations' },
+      { name: 'Forecast', href: '/predictions' },
     ],
   },
   {
@@ -57,9 +55,13 @@ const TABS: TabDef[] = [
   {
     name: 'Profile',
     href: '/health-profile',
-    subRoutes: ['/health-profile', '/devices', '/settings'],
+    subRoutes: ['/health-profile', '/devices', '/settings', '/doctor-prep', '/research', '/meta-analysis', '/health-twin', '/billing', '/efficacy', '/journeys', '/journey'],
     subItems: [
       { name: 'Health Profile', href: '/health-profile' },
+      { name: 'What Works', href: '/efficacy' },
+      { name: 'Journeys', href: '/journeys' },
+      { name: 'Visit Prep', href: '/doctor-prep' },
+      { name: 'Research', href: '/research' },
       { name: 'Devices', href: '/devices' },
       { name: 'Settings', href: '/settings' },
     ],

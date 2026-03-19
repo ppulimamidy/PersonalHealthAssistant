@@ -372,8 +372,16 @@ export default function HealthTwinScreen() {
           <Text className="text-[#526380] text-xs mt-0.5">What if you changed something?</Text>
         </View>
         <View className="bg-indigo-400/20 border border-indigo-400/30 rounded-full px-2.5 py-1">
-          <Text className="text-indigo-400 text-xs font-sansMedium">Pro+</Text>
+          <Text className="text-indigo-400 text-xs font-sansMedium">Preview</Text>
         </View>
+      </View>
+
+      {/* Coming Soon banner */}
+      <View className="mx-6 mt-4 px-4 py-3 rounded-xl bg-indigo-400/5 border border-indigo-400/15">
+        <Text className="text-indigo-400 text-xs font-sansMedium">Coming Soon — Preview Mode</Text>
+        <Text className="text-[#526380] text-[11px] mt-1">
+          Health Twin simulations are under development. Below is a preview of how it will look with your data.
+        </Text>
       </View>
 
       <FirstVisitBanner

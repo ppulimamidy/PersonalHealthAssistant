@@ -248,7 +248,7 @@ async def list_medications(
 
 @router.post("/medications", response_model=MedicationResponse, status_code=201)
 async def add_medication(
-    body: MedicationCreate, current_user: dict = Depends(UsageGate("health_conditions"))
+    body: MedicationCreate, current_user: dict = Depends(get_current_user)
 ):
     """
     Add a new medication (Pro+ only).
@@ -365,7 +365,7 @@ async def list_supplements(
 
 @router.post("/supplements", response_model=SupplementResponse, status_code=201)
 async def add_supplement(
-    body: SupplementCreate, current_user: dict = Depends(UsageGate("health_conditions"))
+    body: SupplementCreate, current_user: dict = Depends(get_current_user)
 ):
     """
     Add a new supplement (Pro+ only).
@@ -574,13 +574,20 @@ async def get_today_adherence(
         return TodayAdherenceResponse(medications=[])
 
     today = date.today()
-    day_start = datetime(today.year, today.month, today.day, 0, 0, 0, tzinfo=timezone.utc).isoformat()
-    day_end = datetime(today.year, today.month, today.day, 23, 59, 59, tzinfo=timezone.utc).isoformat()
+    day_start = datetime(
+        today.year, today.month, today.day, 0, 0, 0, tzinfo=timezone.utc
+    ).isoformat()
+    day_end = datetime(
+        today.year, today.month, today.day, 23, 59, 59, tzinfo=timezone.utc
+    ).isoformat()
 
-    logs = await _supabase_get(
-        "medication_adherence_log",
-        f"user_id=eq.{user_id}&scheduled_time=gte.{day_start}&scheduled_time=lte.{day_end}&select=*",
-    ) or []
+    logs = (
+        await _supabase_get(
+            "medication_adherence_log",
+            f"user_id=eq.{user_id}&scheduled_time=gte.{day_start}&scheduled_time=lte.{day_end}&select=*",
+        )
+        or []
+    )
 
     result = []
     for med in meds:
@@ -588,13 +595,15 @@ async def get_today_adherence(
         if dpd == 0:
             continue
         med_logs = [lg for lg in logs if lg.get("medication_id") == med["id"]]
-        result.append(TodayMedication(
-            medication_id=med["id"],
-            medication_name=med["medication_name"],
-            dosage=med.get("dosage", ""),
-            doses_today=dpd,
-            logs=med_logs,
-        ))
+        result.append(
+            TodayMedication(
+                medication_id=med["id"],
+                medication_name=med["medication_name"],
+                dosage=med.get("dosage", ""),
+                doses_today=dpd,
+                logs=med_logs,
+            )
+        )
 
     return TodayAdherenceResponse(medications=result)
 
@@ -609,12 +618,21 @@ async def log_adherence(
     log_date = body.date or date.today()
     slot_hour = _SLOT_HOURS.get(body.scheduled_slot, 8)
     scheduled_time = datetime(
-        log_date.year, log_date.month, log_date.day,
-        slot_hour, 0, 0, tzinfo=timezone.utc
+        log_date.year,
+        log_date.month,
+        log_date.day,
+        slot_hour,
+        0,
+        0,
+        tzinfo=timezone.utc,
     )
 
     # Dedup: check if a log already exists for this med + date + slot
-    med_filter = f"medication_id=eq.{body.medication_id}" if body.medication_id else "supplement_id=eq." + (body.supplement_id or "null")
+    med_filter = (
+        f"medication_id=eq.{body.medication_id}"
+        if body.medication_id
+        else "supplement_id=eq." + (body.supplement_id or "null")
+    )
     existing = await _supabase_get(
         "medication_adherence_log",
         f"user_id=eq.{user_id}&{med_filter}&scheduled_time=eq.{scheduled_time.isoformat()}&select=id&limit=1",
@@ -722,7 +740,9 @@ async def get_adherence_history(
     )
 
     # Group logs by medication_id → date → [was_taken, ...]
-    logs_by_med_date: dict[str, dict[str, list]] = defaultdict(lambda: defaultdict(list))
+    logs_by_med_date: dict[str, dict[str, list]] = defaultdict(
+        lambda: defaultdict(list)
+    )
     for log in logs:
         mid = log.get("medication_id")
         if mid:
@@ -758,19 +778,22 @@ async def get_adherence_history(
 # ADHERENCE STREAKS + MISSED-DOSE PATTERNS
 # ============================================================================
 
+
 class MedStreakData(BaseModel):
     medication_id: str
     medication_name: str
-    current_streak: int          # consecutive days taken (ending today)
-    longest_streak: int          # all-time best streak
+    current_streak: int  # consecutive days taken (ending today)
+    longest_streak: int  # all-time best streak
     total_days_logged: int
     total_days_taken: int
-    missed_days_of_week: List[str]  # day names most commonly skipped, e.g. ["Saturday", "Sunday"]
+    missed_days_of_week: List[
+        str
+    ]  # day names most commonly skipped, e.g. ["Saturday", "Sunday"]
 
 
 class StreaksResponse(BaseModel):
     medications: List[MedStreakData]
-    overall_current_streak: int   # days where ALL scheduled meds were taken
+    overall_current_streak: int  # days where ALL scheduled meds were taken
     overall_longest_streak: int
 
 
@@ -800,7 +823,9 @@ async def get_adherence_streaks(
         or []
     )
     if not meds:
-        return StreaksResponse(medications=[], overall_current_streak=0, overall_longest_streak=0)
+        return StreaksResponse(
+            medications=[], overall_current_streak=0, overall_longest_streak=0
+        )
 
     start_dt = start.isoformat()
     logs = (
@@ -819,9 +844,19 @@ async def get_adherence_streaks(
         if mid:
             d = log["scheduled_time"][:10]
             # If any log for that day is taken, mark the day taken
-            taken_by_med_date[mid][d] = taken_by_med_date[mid].get(d, False) or bool(log.get("was_taken"))
+            taken_by_med_date[mid][d] = taken_by_med_date[mid].get(d, False) or bool(
+                log.get("was_taken")
+            )
 
-    DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+    DAY_NAMES = [
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday",
+        "Friday",
+        "Saturday",
+        "Sunday",
+    ]
 
     def _compute_streaks(taken_map: dict) -> tuple[int, int]:
         """Returns (current_streak, longest_streak) from date_str -> bool map."""
@@ -846,8 +881,8 @@ async def get_adherence_streaks(
 
     def _missed_days_of_week(med_id: str) -> list[str]:
         """Return up to 2 day names most commonly missed (> 50% miss rate on that day)."""
-        day_missed = defaultdict(int)
-        day_total = defaultdict(int)
+        day_missed: dict[str, int] = defaultdict(int)
+        day_total: dict[str, int] = defaultdict(int)
         for d in date_range:
             ds = d.isoformat()
             if ds in taken_by_med_date[med_id]:
@@ -857,8 +892,10 @@ async def get_adherence_streaks(
                     day_missed[dow] += 1
         # Days where miss rate > 50%
         bad_days = [
-            day for day in DAY_NAMES
-            if day_total.get(day, 0) >= 2 and day_missed.get(day, 0) / day_total[day] > 0.5
+            day
+            for day in DAY_NAMES
+            if day_total.get(day, 0) >= 2
+            and day_missed.get(day, 0) / day_total[day] > 0.5
         ]
         return bad_days[:2]
 
@@ -908,10 +945,14 @@ async def get_adherence_streaks(
 # PRESCRIPTION / SUPPLEMENT BOTTLE IMAGE SCAN
 # ============================================================================
 
+
 class PrescriptionScanResult(BaseModel):
     """Extracted medication or supplement data from a scanned image."""
+
     is_supplement: bool = False
-    image_type: str = "unknown"          # prescription_label | bottle | strip | handwritten | other
+    image_type: str = (
+        "unknown"  # prescription_label | bottle | strip | handwritten | other
+    )
     medication_name: Optional[str] = None
     generic_name: Optional[str] = None
     dosage: Optional[str] = None
@@ -938,6 +979,7 @@ def _compress_image(image_bytes: bytes, max_bytes: int = 4_500_000) -> bytes:
         return image_bytes
     try:
         from PIL import Image
+
         img = Image.open(io.BytesIO(image_bytes))
         if img.mode not in ("RGB", "L"):
             img = img.convert("RGB")
@@ -986,10 +1028,15 @@ async def scan_prescription_image(
     media_type = "image/jpeg"
     try:
         from PIL import Image as PILImage
+
         img = PILImage.open(io.BytesIO(image_bytes))
         fmt = (img.format or "JPEG").upper()
-        media_type = {"JPEG": "image/jpeg", "PNG": "image/png",
-                      "GIF": "image/gif", "WEBP": "image/webp"}.get(fmt, "image/jpeg")
+        media_type = {
+            "JPEG": "image/jpeg",
+            "PNG": "image/png",
+            "GIF": "image/gif",
+            "WEBP": "image/webp",
+        }.get(fmt, "image/jpeg")
     except Exception:
         pass
 
@@ -1053,17 +1100,27 @@ Rules:
         content = result.content[0].text.strip()
         # Strip markdown fences if Claude adds them despite instructions
         if "```json" in content:
-            content = content[content.find("```json") + 7: content.rfind("```")].strip()
+            content = content[
+                content.find("```json") + 7 : content.rfind("```")
+            ].strip()
         elif "```" in content:
-            content = content[content.find("```") + 3: content.rfind("```")].strip()
+            content = content[content.find("```") + 3 : content.rfind("```")].strip()
 
         extracted: Dict[str, Any] = json.loads(content)
-        return PrescriptionScanResult(**{k: v for k, v in extracted.items()
-                                         if k in PrescriptionScanResult.model_fields})
+        return PrescriptionScanResult(
+            **{
+                k: v
+                for k, v in extracted.items()
+                if k in PrescriptionScanResult.model_fields
+            }
+        )
 
     except json.JSONDecodeError as e:
         logger.warning(f"Prescription scan: Claude returned non-JSON: {e}")
-        raise HTTPException(status_code=422, detail="Could not parse AI response. Please try a clearer image.")
+        raise HTTPException(
+            status_code=422,
+            detail="Could not parse AI response. Please try a clearer image.",
+        )
     except Exception as e:
         logger.error(f"Prescription scan failed: {e}")
         raise HTTPException(status_code=500, detail=f"Scan failed: {str(e)}")

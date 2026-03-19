@@ -26,7 +26,15 @@ function InsightCard({ item }: { item: AIInsight }) {
   );
 }
 
+// The core insight trio: what happened → why → what's next
 const ANALYSIS_CARDS = [
+  {
+    label: 'Timeline',
+    description: 'See what happened day-by-day across all your data',
+    icon: 'time-outline' as const,
+    iconColor: '#00D4AA',
+    route: '/(tabs)/insights/timeline',
+  },
   {
     label: 'Triggers & Causes',
     description: 'See what patterns and root causes drive your symptoms',
@@ -41,30 +49,9 @@ const ANALYSIS_CARDS = [
     iconColor: '#60A5FA',
     route: '/(tabs)/insights/predictions',
   },
-  {
-    label: 'Research',
-    description: 'AI analysis and scientific literature for your patterns',
-    icon: 'flask-outline' as const,
-    iconColor: '#34D399',
-    route: '/(tabs)/insights/meta-analysis',
-  },
-  {
-    label: 'Simulate',
-    description: 'Model how lifestyle changes could affect your wellbeing',
-    icon: 'construct-outline' as const,
-    iconColor: '#F59E0B',
-    route: '/(tabs)/profile/health-twin',
-  },
-  {
-    label: 'Visit Prep',
-    description: 'Generate a health summary to share with your doctor',
-    icon: 'document-text-outline' as const,
-    iconColor: '#00D4AA',
-    route: '/(tabs)/insights/doctor-prep',
-  },
 ] as const;
 
-function AnalysisCard({ item }: { readonly item: typeof ANALYSIS_CARDS[number] }) {
+function AnalysisCard({ item }: { readonly item: { label: string; description: string; icon: string; iconColor: string; route: string } }) {
   return (
     <TouchableOpacity
       onPress={() => router.push(item.route as never)}
@@ -90,8 +77,8 @@ function InsightsListHeader() {
     <View>
       {/* Page header */}
       <View className="px-6 pt-14 pb-4">
-        <Text className="text-2xl font-display text-[#E8EDF5]">Understand</Text>
-        <Text className="text-[#526380] text-sm mt-1">Explore what's shaping your health</Text>
+        <Text className="text-2xl font-display text-[#E8EDF5]">Insights</Text>
+        <Text className="text-[#526380] text-sm mt-1">What happened, why, and what's next</Text>
       </View>
 
       {/* Analysis cards */}

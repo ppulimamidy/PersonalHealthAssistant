@@ -54,6 +54,11 @@ from .api.sharing import router as sharing_router
 from .api.caregiver import router as caregiver_router
 from .api.notifications import router as notifications_router
 from .api.interventions import router as interventions_router
+from .api.efficacy import router as efficacy_router
+from .api.nudges import router as nudges_router
+from .api.journeys import router as journeys_router
+from .api.cycle_tracking import router as cycle_tracking_router
+from .api.onboarding import router as onboarding_router
 from .api.batch import router as batch_router
 from .api.auth_refresh import router as auth_refresh_router
 from .api.health_data import router as health_data_router
@@ -203,6 +208,31 @@ app.include_router(
     interventions_router,
     prefix="/api/v1/interventions",
     tags=["N-of-1 Interventions"],
+)
+app.include_router(
+    efficacy_router,
+    prefix="/api/v1/efficacy",
+    tags=["Personal Efficacy"],
+)
+app.include_router(
+    nudges_router,
+    prefix="/api/v1/nudges",
+    tags=["Nudge Engine"],
+)
+app.include_router(
+    journeys_router,
+    prefix="/api/v1/journeys",
+    tags=["Goal Journeys"],
+)
+app.include_router(
+    cycle_tracking_router,
+    prefix="/api/v1/cycle",
+    tags=["Cycle Tracking"],
+)
+app.include_router(
+    onboarding_router,
+    prefix="/api/v1/onboarding",
+    tags=["Onboarding"],
 )
 app.include_router(batch_router, prefix="/api/v1/batch", tags=["Batch"])
 app.include_router(auth_refresh_router, prefix="/api/v1/auth", tags=["Auth"])

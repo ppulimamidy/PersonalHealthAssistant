@@ -12,6 +12,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/authStore';
 import { api } from '@/services/api';
+import { setupNotificationListeners } from '@/services/notifications';
 
 // Keep splash visible until fonts are ready
 SplashScreen.preventAutoHideAsync();
@@ -52,9 +53,11 @@ function AuthGate() {
     if (!navigationState?.key || !isInitialized) return;
 
     const inAuthGroup = segments[0] === '(auth)';
+    const inOnboarding = segments[1] === 'onboarding';
     if (!user && !inAuthGroup) {
       router.replace('/(auth)/login');
-    } else if (user && inAuthGroup) {
+    } else if (user && inAuthGroup && !inOnboarding) {
+      // Allow onboarding to stay in auth group — only redirect login/signup
       router.replace('/(tabs)/home');
     }
   }, [user, segments, navigationState?.key, isInitialized]);
@@ -74,6 +77,29 @@ function AppStateListener() {
       }
     );
     return () => subscription.remove();
+  }, []);
+  return null;
+}
+
+function NotificationListener() {
+  useEffect(() => {
+    const cleanup = setupNotificationListeners((screen) => {
+      // Navigate based on the screen hint from the nudge data
+      if (screen === 'home') {
+        router.push('/(tabs)/home');
+      } else if (screen === 'insights') {
+        router.push('/(tabs)/insights');
+      } else if (screen === 'profile') {
+        router.push('/(tabs)/profile');
+      } else {
+        router.push('/(tabs)/home');
+      }
+      // Refresh home data after navigating
+      queryClient.invalidateQueries({ queryKey: ['active-intervention'] });
+      queryClient.invalidateQueries({ queryKey: ['latest-result'] });
+      queryClient.invalidateQueries({ queryKey: ['top-recommendation'] });
+    });
+    return cleanup;
   }, []);
   return null;
 }
@@ -123,6 +149,7 @@ export default function RootLayout() {
       <QueryClientProvider client={queryClient}>
         <AppStateListener />
         <DeepLinkHandler />
+        <NotificationListener />
         <StatusBar style="light" />
         {/* Slot FIRST — mounts the navigator before AuthGate fires its effects */}
         <Slot />

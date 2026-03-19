@@ -4,12 +4,20 @@ import { router } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import { format } from 'date-fns';
+import Svg, { Circle } from 'react-native-svg';
 import { api } from '@/services/api';
 import { useAuthStore } from '@/stores/authStore';
 import type { AIInsight } from '@/types';
 import DailyCheckinModal, { shouldShowDailyCheckin } from '@/components/DailyCheckinModal';
 import GettingStartedCard from '@/components/GettingStartedCard';
 import { HealthRings, type RingData } from '@/components/HealthRings';
+import RecommendationCard from '@/components/RecommendationCard';
+import ActiveExperimentCard from '@/components/ActiveExperimentCard';
+import ExperimentResultsCard from '@/components/ExperimentResultsCard';
+import GoalJourneyCard from '@/components/GoalJourneyCard';
+import SpecialistInsightCard from '@/components/SpecialistInsightCard';
+import SmartPromptCard from '@/components/SmartPromptCard';
+import JourneyProposalCard from '@/components/JourneyProposalCard';
 
 function scoreColor(score: number): string {
   if (score >= 80) return '#00D4AA';
@@ -320,6 +328,25 @@ export default function HomeScreen() {
         return null;
       }
     },
+    staleTime: 10_000,
+  });
+
+  const { data: trajectoryData } = useQuery({
+    queryKey: ['trajectory'],
+    queryFn: async () => {
+      try {
+        const { data: resp } = await api.get('/api/v1/health-score/trajectory');
+        return resp as {
+          score: number | null;
+          delta_30d: number | null;
+          direction: string;
+          components: Array<{ name: string; label: string; score: number; weight: number; available: boolean }>;
+          data_quality: string;
+        };
+      } catch {
+        return null;
+      }
+    },
     staleTime: 5 * 60 * 1000,
   });
 
@@ -352,8 +379,8 @@ export default function HomeScreen() {
       {userRole === 'provider' && <ProviderHomeCards />}
       {userRole === 'caregiver' && <CaregiverHomeCards />}
 
-      {/* Getting started checklist — shown to new users until all 5 steps done */}
-      <GettingStartedCard />
+      {/* Smart prompt — replaces old getting started checklist */}
+      <SmartPromptCard />
 
       {/* Health Rings + Score */}
       {summaries && Object.keys(summaries).length > 0 ? (() => {
@@ -402,10 +429,107 @@ export default function HomeScreen() {
         <HealthScoreRing score={healthScore} trend={healthTrend} />
       ) : null}
 
-      {/* Empty state for brand-new users */}
-      {!isLoading && !hasAnyData && <EmptyDashboard />}
+      {/* Health Trajectory */}
+      {trajectoryData?.score != null && (
+        <View className="bg-surface-raised rounded-2xl p-4 mb-4 border border-surface-border">
+          <View className="flex-row items-center justify-between mb-3">
+            <Text className="text-[#526380] text-xs uppercase tracking-wider">Health Trajectory</Text>
+            {trajectoryData.data_quality === 'partial' && (
+              <View className="bg-white/5 rounded-full px-2 py-0.5">
+                <Text className="text-[#3D4F66] text-[9px]">partial data</Text>
+              </View>
+            )}
+          </View>
+          <View className="flex-row items-center gap-4 mb-3">
+            <View className="items-center">
+              {/* Score ring */}
+              {(() => {
+                const size = 80;
+                const stroke = 6;
+                const radius = (size - stroke) / 2;
+                const circumference = 2 * Math.PI * radius;
+                const pct = Math.min(trajectoryData.score / 100, 1);
+                const dashOffset = circumference * (1 - pct);
+                const color = scoreColor(trajectoryData.score);
+                return (
+                  <View style={{ width: size, height: size }}>
+                    <Svg width={size} height={size}>
+                      <Circle cx={size / 2} cy={size / 2} r={radius} stroke="#1E2A3B" strokeWidth={stroke} fill="none" />
+                      <Circle
+                        cx={size / 2} cy={size / 2} r={radius}
+                        stroke={color} strokeWidth={stroke} fill="none"
+                        strokeLinecap="round"
+                        strokeDasharray={`${circumference}`}
+                        strokeDashoffset={dashOffset}
+                        rotation="-90" origin={`${size / 2}, ${size / 2}`}
+                      />
+                    </Svg>
+                    <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, justifyContent: 'center', alignItems: 'center' }}>
+                      <Text className="font-display" style={{ fontSize: 24, color, lineHeight: 28 }}>
+                        {Math.round(trajectoryData.score)}
+                      </Text>
+                      <Text className="text-[#526380] text-[8px]">/ 100</Text>
+                    </View>
+                  </View>
+                );
+              })()}
+              {trajectoryData.delta_30d != null && (
+                <View className="flex-row items-center mt-1 gap-0.5">
+                  <Ionicons
+                    name={trajectoryData.direction === 'up' ? 'trending-up' : trajectoryData.direction === 'down' ? 'trending-down' : 'remove'}
+                    size={12}
+                    color={trajectoryData.direction === 'up' ? '#00D4AA' : trajectoryData.direction === 'down' ? '#F87171' : '#526380'}
+                  />
+                  <Text style={{
+                    fontSize: 10,
+                    color: trajectoryData.direction === 'up' ? '#00D4AA' : trajectoryData.direction === 'down' ? '#F87171' : '#526380',
+                  }}>
+                    {trajectoryData.delta_30d > 0 ? '+' : ''}{Math.round(trajectoryData.delta_30d)} vs last month
+                  </Text>
+                </View>
+              )}
+            </View>
+            <View className="flex-1">
+              {trajectoryData.components.map((comp) => (
+                <View key={comp.name} className="flex-row items-center justify-between mb-1.5">
+                  <Text className="text-[#526380] text-xs flex-1">{comp.label}</Text>
+                  <View className="flex-row items-center gap-2 flex-1">
+                    <View className="flex-1 h-1.5 rounded-full bg-white/5">
+                      <View
+                        className="h-1.5 rounded-full"
+                        style={{
+                          width: `${comp.available ? Math.min(comp.score, 100) : 0}%`,
+                          backgroundColor: comp.available ? '#00D4AA' : '#3D4F66',
+                        }}
+                      />
+                    </View>
+                    <Text className="text-[#526380] text-[10px] w-6 text-right">
+                      {comp.available ? Math.round(comp.score) : '—'}
+                    </Text>
+                  </View>
+                </View>
+              ))}
+            </View>
+          </View>
+          <Text className="text-[#3D4F66] text-[9px] text-center">
+            Combines medication adherence, symptom control, goal engagement, and well-being check-ins (25% each)
+          </Text>
+        </View>
+      )}
 
-      {/* Check-in prompt */}
+      {/* Closed-loop: proposal → journey → results → experiment → recommendation */}
+      <JourneyProposalCard />
+      <GoalJourneyCard />
+      <SpecialistInsightCard />
+      <ExperimentResultsCard />
+      <ActiveExperimentCard />
+      <RecommendationCard />
+
+      {/* Quick Log */}
+      <Text className="text-[#526380] text-xs uppercase tracking-wider mb-2">Quick Log</Text>
+      <QuickLogStrip />
+
+      {/* Check-in prompt — below quick log */}
       {checkinStatus?.should_prompt && (
         <TouchableOpacity
           onPress={() => router.push('/(tabs)/home/checkin')}
@@ -419,10 +543,6 @@ export default function HomeScreen() {
           <Text className="text-[#526380] text-sm mt-1 ml-7">Rate your mood, energy, and pain levels</Text>
         </TouchableOpacity>
       )}
-
-      {/* Quick Log */}
-      <Text className="text-[#526380] text-xs uppercase tracking-wider mb-2">Quick Log</Text>
-      <QuickLogStrip />
 
       {/* Adherence Strip */}
       <AdherenceStrip data={adherenceData ?? undefined} />

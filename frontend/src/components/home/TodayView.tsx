@@ -19,6 +19,7 @@ import {
   Pill,
   FlaskConical,
   Heart,
+  Info,
 } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
 import type { InsightFollowUp } from '@/types';
@@ -39,6 +40,13 @@ import { TrajectoryWidget } from './TrajectoryWidget';
 import { DailyAdherenceStrip } from '@/components/medications/DailyAdherenceStrip';
 import { SmartReminderBanner } from './SmartReminderBanner';
 import { MonthlyProgressCard } from './MonthlyProgressCard';
+import { RecommendationCard } from './RecommendationCard';
+import { ActiveExperimentCard } from './ActiveExperimentCard';
+import { ExperimentResultsCard } from './ExperimentResultsCard';
+import { GoalJourneyCard } from './GoalJourneyCard';
+import { SpecialistInsightCard } from './SpecialistInsightCard';
+import { JourneyProposalCard } from './JourneyProposalCard';
+import { SmartPromptCard } from './SmartPromptCard';
 
 const CHECKLIST_KEY = 'setup-checklist-dismissed';
 
@@ -573,7 +581,23 @@ export function TodayView() {
       {/* Health snapshot — rings when summaries available, score rings otherwise */}
       {hasHealthData ? (
         <Panel>
-          <h2 className="text-sm font-semibold text-[#8B97A8] mb-4">Today&apos;s Health Snapshot</h2>
+          <div className="flex items-center gap-2 mb-4">
+            <h2 className="text-sm font-semibold text-[#8B97A8]">Today&apos;s Health Snapshot</h2>
+            <div className="group relative">
+              <Info className="w-3.5 h-3.5 text-[#3D4F66] cursor-help" />
+              <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 w-64 p-3 rounded-lg bg-[#1A2332] border border-[#2A3A4E] text-xs text-[#8B97A8] opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity z-50 shadow-lg">
+                <p className="font-medium text-[#E8EDF5] mb-1">How is this calculated?</p>
+                <p>Your Health Score (0-100) combines:</p>
+                <ul className="mt-1 space-y-0.5 list-disc pl-3">
+                  <li><span className="text-[#818CF8]">Sleep</span> — hours slept vs 8h goal (40%)</li>
+                  <li><span className="text-[#F87171]">Heart</span> — HRV in ms vs your baseline (30%)</li>
+                  <li><span className="text-[#6EE7B7]">Activity</span> — steps vs 8,000 goal (20%)</li>
+                  <li><span className="text-[#F5A623]">Recovery</span> — readiness score (10%)</li>
+                </ul>
+                <p className="mt-1.5 text-[#526380]">Data from your connected wearable and health apps.</p>
+              </div>
+            </div>
+          </div>
           {scoreLoading || timelineLoading ? (
             <div className="flex gap-8 justify-center">
               {[1, 2, 3, 4].map((i) => (
@@ -652,6 +676,14 @@ export function TodayView() {
       {/* Health trajectory composite score */}
       <TrajectoryWidget />
 
+      {/* Closed-loop: proposal → journey → results → experiment → recommendation */}
+      <JourneyProposalCard />
+      <GoalJourneyCard />
+      <SpecialistInsightCard />
+      <ExperimentResultsCard />
+      <ActiveExperimentCard />
+      <RecommendationCard />
+
       {/* Progress summary card */}
       <ProgressSummaryCard
         timeline={timeline ?? undefined}
@@ -710,14 +742,8 @@ export function TodayView() {
         </Panel>
       )}
 
-      {/* Setup checklist */}
-      <SetupChecklist
-        ouraActive={hasHealthData}
-        conditionsCount={conditionsCount}
-        medsCount={activeMeds.length}
-        hasMeal={hasMeal}
-        hasSymptom={hasSymptom}
-      />
+      {/* Smart prompt — replaces old 5-item setup checklist */}
+      <SmartPromptCard />
 
       {/* Latest insight */}
       {(insightsLoading || latestInsight) && (

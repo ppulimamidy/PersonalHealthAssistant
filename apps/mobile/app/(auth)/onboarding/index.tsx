@@ -1,397 +1,815 @@
 import { useState } from 'react';
 import {
-  View, Text, TextInput, TouchableOpacity, ScrollView,
-  ActivityIndicator, Platform,
+  View, Text, TouchableOpacity, ScrollView, TextInput,
+  ActivityIndicator, Platform, Alert,
 } from 'react-native';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import Constants from 'expo-constants';
 import * as Device from 'expo-device';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { api } from '@/services/api';
+import { registerForPushNotifications } from '@/services/notifications';
 
-// ─── Types ─────────────────────────────────────────────────────────────────────
+const ONBOARDING_PENDING_KEY = 'onboarding_pending';
 
-type UserRole = 'patient' | 'provider' | 'caregiver';
-type HKStatus = 'idle' | 'connecting' | 'connected' | 'skipped';
+// ── Types ────────────────────────────────────────────────────────────────────
 
-// ─── Constants ─────────────────────────────────────────────────────────────────
+type Intent = 'condition' | 'goal' | 'exploring' | '';
 
-const TOTAL_STEPS = 5;
+interface SpecialistInfo {
+  agent_type: string;
+  agent_name: string;
+  specialty: string;
+  description: string;
+}
 
-const VALUE_PROPS = [
-  { icon: 'heart-outline' as const,            color: '#F87171', title: 'Track everything in one place',  body: 'Symptoms, meds, nutrition, labs and wearable data — all connected.' },
-  { icon: 'bulb-outline' as const,             color: '#00D4AA', title: 'AI that explains your patterns', body: "Spot what's affecting your sleep, energy and pain before your next appointment." },
-  { icon: 'document-text-outline' as const,    color: '#818CF8', title: 'Walk in prepared',               body: 'Auto-generate a doctor-ready summary of your recent health history.' },
-  { icon: 'shield-checkmark-outline' as const, color: '#6EE7B7', title: 'Private by design',              body: 'Your data is encrypted, never sold, and yours to export any time.' },
+interface JourneyProposal {
+  key: string;
+  title: string;
+  phases: Array<{ name: string; description: string; phase_type: string }>;
+  total_phases: number;
+}
+
+interface QuickQuestion {
+  id: string;
+  question: string;
+  input_type: string;
+  options?: string[];
+  text_prompt?: string;
+  data_field: string;
+}
+
+// ── Goal icons ───────────────────────────────────────────────────────────────
+
+const GOAL_ICONS: Record<string, string> = {
+  sleep_optimization: 'moon-outline',
+  weight_loss: 'scale-outline',
+  muscle_building: 'barbell-outline',
+  mental_health: 'leaf-outline',
+  general_wellness: 'flash-outline',
+  cardiac_rehab: 'heart-outline',
+};
+
+// ── Fallback data (used when API fails, e.g. auth token not ready) ───────
+
+const FALLBACK_CONDITION_CATEGORIES: Record<string, string[]> = {
+  Metabolic: ['Type 2 Diabetes', 'PCOS', 'Hypothyroidism', 'Prediabetes'],
+  'Heart & Blood': ['Hypertension', 'High Cholesterol', 'Heart Disease'],
+  Digestive: ['IBS', 'GERD', 'Celiac Disease', 'Food Sensitivities'],
+  'Mental Health': ['Anxiety', 'Depression', 'Insomnia', 'ADHD'],
+  "Women's Health": ['Perimenopause', 'Endometriosis', 'PMS / PMDD'],
+  'Autoimmune & Pain': ['Rheumatoid Arthritis', 'Fibromyalgia', 'Migraine'],
+  Other: ['Asthma', 'Sleep Apnea', 'Kidney Disease', 'Cancer Support'],
+};
+
+const FALLBACK_GOAL_OPTIONS = [
+  { value: 'sleep_optimization', label: 'Sleep better' },
+  { value: 'weight_loss', label: 'Lose weight' },
+  { value: 'muscle_building', label: 'Build muscle' },
+  { value: 'mental_health', label: 'Reduce stress' },
+  { value: 'general_wellness', label: 'More energy' },
+  { value: 'cardiac_rehab', label: 'Heart health' },
 ];
 
-const ROLES: Array<{ key: UserRole; label: string; description: string; icon: React.ComponentProps<typeof Ionicons>['name'] }> = [
-  { key: 'patient',   label: 'Patient',   description: 'Track my own health',          icon: 'person-outline' },
-  { key: 'provider',  label: 'Provider',  description: 'Manage patients & care plans', icon: 'medical-outline' },
-  { key: 'caregiver', label: 'Caregiver', description: 'Support a family member',      icon: 'people-outline' },
-];
+// ── HealthKit helper ─────────────────────────────────────────────────────────
 
-const COMMON_CONDITIONS = [
-  'Type 2 Diabetes', 'Type 1 Diabetes', 'Hypertension', 'High Cholesterol',
-  'Hypothyroidism', 'Asthma', 'COPD', 'Heart Disease', 'Atrial Fibrillation',
-  'Rheumatoid Arthritis', 'Lupus', "Crohn's Disease", 'IBS', 'Celiac Disease',
-  'GERD', 'Depression', 'Anxiety', 'ADHD', 'Sleep Apnea', 'Insomnia',
-  'PCOS', 'Fibromyalgia', 'Chronic Fatigue', 'Migraines', 'Osteoarthritis',
-  'Osteoporosis', 'Anemia', 'Kidney Disease', 'Multiple Sclerosis', 'Psoriasis',
-];
-
-const GOAL_OPTIONS = [
-  'Improve sleep quality', 'Manage chronic condition', 'Lose weight', 'Reduce stress',
-  'Improve fitness', 'Track medications', 'Understand lab results', 'Prepare for doctor visits',
-];
-
-// ─── HealthKit helper ──────────────────────────────────────────────────────────
-
-async function requestHealthKitPermission(): Promise<'granted' | 'simulator' | 'error'> {
-  if (Constants.executionEnvironment === 'storeClient') return 'error';
-  if (!Device.isDevice) return 'simulator';
+async function requestHealthKit(): Promise<boolean> {
   try {
-    const { requireNativeModule } = await import('expo-modules-core');
-    const HK = requireNativeModule('VitalixHealthKit');
-    await HK.requestAuthorization();
-    return 'granted';
+    const HealthKit = (await import('@kingstinct/react-native-healthkit')).default;
+    const available = await HealthKit.isHealthDataAvailable();
+    if (!available) return false;
+
+    await HealthKit.requestAuthorization({
+      toRead: [
+        'HKQuantityTypeIdentifierStepCount',
+        'HKQuantityTypeIdentifierHeartRate',
+        'HKQuantityTypeIdentifierHeartRateVariabilitySDNN',
+        'HKQuantityTypeIdentifierActiveEnergyBurned',
+        'HKQuantityTypeIdentifierRestingHeartRate',
+        'HKCategoryTypeIdentifierSleepAnalysis',
+      ] as any[],
+    });
+    return true;
   } catch {
-    return 'error';
+    return false;
   }
 }
 
-// ─── Onboarding submit ────────────────────────────────────────────────────────
+// ── Step dots ────────────────────────────────────────────────────────────────
 
-interface OnboardingData {
-  role: UserRole;
-  weightKg: string;
-  heightCm: string;
-  gender: string;
-  selectedConditions: string[];
-  noneConditions: boolean;
-  selectedGoals: string[];
+function StepDots({ current, total }: { current: number; total: number }) {
+  return (
+    <View className="flex-row items-center justify-center gap-2 mb-6">
+      {Array.from({ length: total }, (_, i) => (
+        <View
+          key={i}
+          className="h-1.5 rounded-full"
+          style={{
+            width: i === current ? 24 : 8,
+            backgroundColor: i <= current ? '#00D4AA' : 'rgba(255,255,255,0.1)',
+          }}
+        />
+      ))}
+    </View>
+  );
 }
 
-async function submitOnboarding(data: OnboardingData): Promise<void> {
-  await api.patch('/api/v1/profile/role', { user_role: data.role }).catch(() => {});
+// ── Device row component ─────────────────────────────────────────────────────
 
-  const conditions = data.noneConditions ? [] : data.selectedConditions;
-  await api.patch('/api/v1/profile/checkin', {
-    weight_kg: data.weightKg ? Number.parseFloat(data.weightKg) : undefined,
-    height_cm: data.heightCm ? Number.parseFloat(data.heightCm) : undefined,
-    gender: data.gender || undefined,
-    new_conditions: conditions.length > 0 ? conditions : undefined,
-  }).catch(() => {});
-
-  if (data.selectedGoals.length > 0) {
-    await api.post('/api/v1/health-questionnaire', {
-      answers: { health_goals: data.selectedGoals },
-    }).catch(() => {});
-  }
-
-  await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-}
-
-// ─── Shared chip ──────────────────────────────────────────────────────────────
-
-function Chip({ label, selected, onPress }: Readonly<{ label: string; selected: boolean; onPress: () => void }>) {
+function DeviceRow({ icon, color, name, description, connected, connecting, onConnect }: {
+  icon: string; color: string; name: string; description: string;
+  connected: boolean; connecting: boolean; onConnect: () => void;
+}) {
   return (
     <TouchableOpacity
-      onPress={onPress}
-      className={`px-3 py-2 rounded-full border mr-2 mb-2 ${selected ? 'bg-primary-500/20 border-primary-500' : 'bg-surface-raised border-surface-border'}`}
+      onPress={onConnect}
+      disabled={connected || connecting}
+      className="flex-row items-center gap-3 p-4 rounded-xl mb-2"
+      style={{
+        backgroundColor: connected ? `${color}08` : 'rgba(255,255,255,0.03)',
+        borderWidth: 1,
+        borderColor: connected ? `${color}30` : 'rgba(255,255,255,0.06)',
+      }}
+      activeOpacity={0.7}
     >
-      <Text className={selected ? 'text-primary-500 text-sm' : 'text-[#E8EDF5] text-sm'}>{label}</Text>
+      <View className="w-10 h-10 rounded-xl items-center justify-center" style={{ backgroundColor: `${color}18` }}>
+        <Ionicons name={icon as never} size={20} color={color} />
+      </View>
+      <View className="flex-1">
+        <Text className="text-sm font-sansMedium text-[#E8EDF5]">{name}</Text>
+        <Text className="text-xs text-[#526380] mt-0.5">{description}</Text>
+      </View>
+      {connecting ? (
+        <ActivityIndicator size="small" color={color} />
+      ) : connected ? (
+        <View className="flex-row items-center gap-1">
+          <Ionicons name="checkmark-circle" size={16} color="#00D4AA" />
+          <Text className="text-xs" style={{ color: '#00D4AA' }}>Connected</Text>
+        </View>
+      ) : (
+        <Text className="text-xs font-sansMedium" style={{ color }}>Connect</Text>
+      )}
     </TouchableOpacity>
   );
 }
 
-// ─── Step components ──────────────────────────────────────────────────────────
-
-function StepValueProp() {
-  return (
-    <View className="pt-16">
-      <View className="items-center mb-10">
-        <View className="w-20 h-20 rounded-3xl bg-primary-500/20 border border-primary-500/30 items-center justify-center mb-5">
-          <Ionicons name="pulse" size={36} color="#00D4AA" />
-        </View>
-        <Text className="text-3xl font-display text-[#E8EDF5] text-center mb-2">Welcome to Vitalix</Text>
-        <Text className="text-[#526380] text-center text-base leading-6">Your personal health intelligence platform</Text>
-      </View>
-      <View className="gap-4">
-        {VALUE_PROPS.map((vp) => (
-          <View key={vp.title} className="flex-row items-start gap-4 bg-surface-raised border border-surface-border rounded-2xl p-4">
-            <View className="w-10 h-10 rounded-xl items-center justify-center mt-0.5" style={{ backgroundColor: `${vp.color}18` }}>
-              <Ionicons name={vp.icon} size={20} color={vp.color} />
-            </View>
-            <View className="flex-1">
-              <Text className="text-[#E8EDF5] font-sansMedium mb-1">{vp.title}</Text>
-              <Text className="text-[#526380] text-sm leading-5">{vp.body}</Text>
-            </View>
-          </View>
-        ))}
-      </View>
-    </View>
-  );
-}
-
-function StepRole({ role, setRole }: Readonly<{ role: UserRole; setRole: (r: UserRole) => void }>) {
-  return (
-    <View>
-      <Text className="text-2xl font-display text-[#E8EDF5] mb-2">How will you use Vitalix?</Text>
-      <Text className="text-[#526380] mb-8">This helps us personalise your experience</Text>
-      <View className="gap-3">
-        {ROLES.map((r) => {
-          const selected = role === r.key;
-          return (
-            <TouchableOpacity
-              key={r.key}
-              onPress={() => setRole(r.key)}
-              className="flex-row items-center p-4 rounded-2xl border"
-              style={{ backgroundColor: selected ? 'rgba(0,212,170,0.08)' : 'rgba(255,255,255,0.03)', borderColor: selected ? '#00D4AA' : '#1E2A3B' }}
-              activeOpacity={0.7}
-            >
-              <View className="w-12 h-12 rounded-2xl items-center justify-center mr-4" style={{ backgroundColor: selected ? 'rgba(0,212,170,0.15)' : 'rgba(255,255,255,0.05)' }}>
-                <Ionicons name={r.icon} size={22} color={selected ? '#00D4AA' : '#526380'} />
-              </View>
-              <View className="flex-1">
-                <Text className="font-sansMedium text-base" style={{ color: selected ? '#E8EDF5' : '#8A9BB0' }}>{r.label}</Text>
-                <Text className="text-sm mt-0.5" style={{ color: selected ? '#526380' : '#3A4A5C' }}>{r.description}</Text>
-              </View>
-              {selected ? <Ionicons name="checkmark-circle" size={20} color="#00D4AA" /> : null}
-            </TouchableOpacity>
-          );
-        })}
-      </View>
-    </View>
-  );
-}
-
-const GENDER_OPTIONS = ['Male', 'Female', 'Non-binary', 'Prefer not to say'];
-
-function StepPersonalDetails({ weightKg, setWeightKg, heightCm, setHeightCm, gender, setGender }: Readonly<{
-  weightKg: string; setWeightKg: (v: string) => void;
-  heightCm: string; setHeightCm: (v: string) => void;
-  gender: string; setGender: (v: string) => void;
-}>) {
-  return (
-    <View>
-      <Text className="text-2xl font-display text-[#E8EDF5] mb-2">Personal Details</Text>
-      <Text className="text-[#526380] mb-8">Help us personalise your health insights</Text>
-      <View className="gap-4">
-        <View>
-          <Text className="text-sm text-[#526380] mb-2">Gender — optional</Text>
-          <View className="flex-row flex-wrap gap-2">
-            {GENDER_OPTIONS.map((g) => (
-              <TouchableOpacity
-                key={g}
-                onPress={() => setGender(gender === g ? '' : g)}
-                className="rounded-xl px-4 py-2.5"
-                style={{
-                  backgroundColor: gender === g ? '#00D4AA20' : 'rgba(255,255,255,0.03)',
-                  borderWidth: 1,
-                  borderColor: gender === g ? '#00D4AA' : 'rgba(255,255,255,0.08)',
-                }}
-              >
-                <Text style={{ color: gender === g ? '#00D4AA' : '#526380', fontSize: 13, fontWeight: '500' }}>{g}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
-        <View>
-          <Text className="text-sm text-[#526380] mb-2">Weight (kg) — optional</Text>
-          <TextInput
-            className="bg-surface-raised border border-surface-border rounded-xl px-4 py-3 text-[#E8EDF5] text-base"
-            value={weightKg} onChangeText={setWeightKg}
-            keyboardType="decimal-pad" placeholderTextColor="#526380" placeholder="70"
-          />
-        </View>
-        <View>
-          <Text className="text-sm text-[#526380] mb-2">Height (cm) — optional</Text>
-          <TextInput
-            className="bg-surface-raised border border-surface-border rounded-xl px-4 py-3 text-[#E8EDF5] text-base"
-            value={heightCm} onChangeText={setHeightCm}
-            keyboardType="decimal-pad" placeholderTextColor="#526380" placeholder="170"
-          />
-        </View>
-      </View>
-    </View>
-  );
-}
-
-function StepConditions({ selectedConditions, noneConditions, onToggle, onToggleNone }: Readonly<{
-  selectedConditions: string[];
-  noneConditions: boolean;
-  onToggle: (c: string) => void;
-  onToggleNone: () => void;
-}>) {
-  return (
-    <View>
-      <Text className="text-2xl font-display text-[#E8EDF5] mb-2">Health Conditions</Text>
-      <Text className="text-[#526380] mb-6">Select any conditions you manage — we'll tailor your tracking</Text>
-      <View className="flex-row flex-wrap mb-4">
-        {COMMON_CONDITIONS.map((c) => (
-          <Chip key={c} label={c} selected={!noneConditions && selectedConditions.includes(c)} onPress={() => onToggle(c)} />
-        ))}
-      </View>
-      <TouchableOpacity
-        onPress={onToggleNone}
-        className="flex-row items-center gap-3 p-4 rounded-2xl border mb-2"
-        style={{ backgroundColor: noneConditions ? 'rgba(0,212,170,0.08)' : 'rgba(255,255,255,0.03)', borderColor: noneConditions ? '#00D4AA' : '#1E2A3B' }}
-      >
-        <Ionicons name={noneConditions ? 'checkmark-circle' : 'ellipse-outline'} size={20} color={noneConditions ? '#00D4AA' : '#526380'} />
-        <Text className="text-[#E8EDF5] font-sansMedium">None currently</Text>
-      </TouchableOpacity>
-    </View>
-  );
-}
-
-function HealthKitCard({ hkStatus, onConnect }: Readonly<{ hkStatus: HKStatus; onConnect: () => void }>) {
-  const connected = hkStatus === 'connected';
-  const bgColor = connected ? 'rgba(0,212,170,0.08)' : 'rgba(255,255,255,0.03)';
-  const borderColor = connected ? '#00D4AA' : '#1E2A3B';
-  const iconBg = connected ? 'rgba(0,212,170,0.15)' : 'rgba(255,255,255,0.05)';
-  const subtitle = connected ? 'Connected — steps, sleep, heart rate & more' : 'Sync steps, sleep, heart rate & HRV';
-
-  return (
-    <>
-      <Text className="text-[#526380] text-xs uppercase tracking-wider mb-3">Connect Health Data</Text>
-      <TouchableOpacity
-        onPress={connected ? undefined : onConnect}
-        className="flex-row items-center p-4 rounded-2xl border mb-2"
-        style={{ backgroundColor: bgColor, borderColor }}
-        activeOpacity={connected ? 1 : 0.7}
-      >
-        <View className="w-12 h-12 rounded-2xl items-center justify-center mr-4" style={{ backgroundColor: iconBg }}>
-          {hkStatus === 'connecting'
-            ? <ActivityIndicator size="small" color="#00D4AA" />
-            : <Ionicons name={connected ? 'heart' : 'heart-outline'} size={22} color={connected ? '#00D4AA' : '#526380'} />}
-        </View>
-        <View className="flex-1">
-          <Text className="font-sansMedium text-[#E8EDF5]">Apple Health</Text>
-          <Text className="text-sm mt-0.5 text-[#526380]">{subtitle}</Text>
-        </View>
-        {connected
-          ? <Ionicons name="checkmark-circle" size={20} color="#00D4AA" />
-          : <Text className="text-primary-500 font-sansMedium text-sm">Connect</Text>}
-      </TouchableOpacity>
-      <Text className="text-[#3A4A5C] text-xs mt-1 mb-4">
-        Read-only · Revocable anytime in iOS Settings · You can also connect later in Profile → Devices
-      </Text>
-    </>
-  );
-}
-
-function StepGoalsAndHealth({ selectedGoals, onToggleGoal, hkStatus, onConnectHK }: Readonly<{
-  selectedGoals: string[];
-  onToggleGoal: (g: string) => void;
-  hkStatus: HKStatus;
-  onConnectHK: () => void;
-}>) {
-  return (
-    <View>
-      <Text className="text-2xl font-display text-[#E8EDF5] mb-2">Your Goals</Text>
-      <Text className="text-[#526380] mb-6">Select all that apply</Text>
-      <View className="flex-row flex-wrap mb-8">
-        {GOAL_OPTIONS.map((goal) => (
-          <Chip key={goal} label={goal} selected={selectedGoals.includes(goal)} onPress={() => onToggleGoal(goal)} />
-        ))}
-      </View>
-      {Platform.OS === 'ios' ? <HealthKitCard hkStatus={hkStatus} onConnect={onConnectHK} /> : null}
-    </View>
-  );
-}
-
-// ─── Screen ────────────────────────────────────────────────────────────────────
+// ── Main ─────────────────────────────────────────────────────────────────────
 
 export default function OnboardingScreen() {
-  const [step, setStep]                           = useState(0);
-  const [role, setRole]                           = useState<UserRole>('patient');
-  const [weightKg, setWeightKg]                   = useState('');
-  const [heightCm, setHeightCm]                   = useState('');
-  const [gender, setGender]                       = useState('');
-  const [selectedConditions, setSelectedConditions] = useState<string[]>([]);
-  const [noneConditions, setNoneConditions]       = useState(false);
-  const [selectedGoals, setSelectedGoals]         = useState<string[]>([]);
-  const [hkStatus, setHkStatus]                   = useState<HKStatus>('idle');
-  const [loading, setLoading]                     = useState(false);
+  const [step, setStep] = useState(0);
+  const [loading, setLoading] = useState(false);
 
-  function toggleCondition(c: string) {
-    setNoneConditions(false);
-    setSelectedConditions((prev) => prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]);
-  }
+  // Step 0
+  const [intent, setIntent] = useState<Intent>('');
 
-  function toggleNoneConditions() {
-    setNoneConditions((v) => !v);
-    setSelectedConditions([]);
-  }
+  // Step 1
+  const [conditionCategories, setConditionCategories] = useState<Record<string, string[]>>({});
+  const [goalOptions, setGoalOptions] = useState<Array<{ value: string; label: string }>>([]);
 
-  function toggleGoal(g: string) {
-    setSelectedGoals((prev) => prev.includes(g) ? prev.filter((x) => x !== g) : [...prev, g]);
-  }
+  // Step 2 + 3
+  const [specialist, setSpecialist] = useState<SpecialistInfo | null>(null);
+  const [journeyProposal, setJourneyProposal] = useState<JourneyProposal | null>(null);
+  const [quickQuestions, setQuickQuestions] = useState<QuickQuestion[]>([]);
+  const [answers, setAnswers] = useState<Record<string, any>>({});
+  const [connectedDevices, setConnectedDevices] = useState<Set<string>>(new Set());
 
-  async function handleConnectHealthKit() {
-    if (Platform.OS !== 'ios') { setHkStatus('skipped'); return; }
-    setHkStatus('connecting');
-    const result = await requestHealthKitPermission();
-    setHkStatus(result === 'granted' || result === 'simulator' ? 'connected' : 'skipped');
-  }
+  const totalSteps = intent === 'exploring' ? 2 : quickQuestions.length > 0 ? 4 : 3;
 
-  async function handleFinish() {
+  // ── Step 0: Intent ─────────────────────────────────────────────────────────
+
+  async function handleIntent(selected: Intent) {
+    setIntent(selected);
     setLoading(true);
+
+    // Try API call, but use local fallback data if it fails (e.g. auth token not ready)
     try {
-      await submitOnboarding({ role, weightKg, heightCm, gender, selectedConditions, noneConditions, selectedGoals });
-    } catch { /* non-blocking */ } finally {
+      const { data } = await api.post('/api/v1/onboarding/intent', { intent: selected });
+      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
+      if (selected === 'condition') {
+        setConditionCategories(data.categories || FALLBACK_CONDITION_CATEGORIES);
+        setStep(1);
+      } else if (selected === 'goal') {
+        setGoalOptions(data.options || FALLBACK_GOAL_OPTIONS);
+        setStep(1);
+      } else {
+        setSpecialist(data.specialist || { agent_type: 'health_coach', agent_name: 'Health Coach', specialty: 'General Wellness', description: 'Your personal health and wellness guide.' });
+        setStep(3);
+      }
+    } catch {
+      // API failed (auth not ready) — use local data, save intent for replay later
+      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      await AsyncStorage.setItem(ONBOARDING_PENDING_KEY, JSON.stringify({ intent: selected })).catch(() => {});
+      if (selected === 'condition') {
+        setConditionCategories(FALLBACK_CONDITION_CATEGORIES);
+        setStep(1);
+      } else if (selected === 'goal') {
+        setGoalOptions(FALLBACK_GOAL_OPTIONS);
+        setStep(1);
+      } else {
+        setSpecialist({ agent_type: 'health_coach', agent_name: 'Health Coach', specialty: 'General Wellness', description: 'Your personal health and wellness guide.' });
+        setStep(3);
+      }
+    } finally {
       setLoading(false);
-      router.replace('/(tabs)/home');
     }
   }
 
-  function goNext() { setStep((s) => Math.min(s + 1, TOTAL_STEPS - 1)); }
-  function goBack() {
-    if (step > 0) setStep((s) => s - 1);
-    else router.replace('/(tabs)/home');
+  // ── Step 1: Select ─────────────────────────────────────────────────────────
+
+  async function handleSelect(value: string) {
+    setLoading(true);
+    try {
+      const { data } = await api.post('/api/v1/onboarding/select', {
+        type: intent === 'condition' ? 'condition' : 'goal',
+        value,
+      });
+      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      setSpecialist(data.specialist || null);
+      setJourneyProposal(data.journey_proposal || null);
+      setQuickQuestions(data.quick_questions || []);
+      // If we have quick questions, show them; otherwise skip to connect+guide
+      setStep(data.quick_questions?.length > 0 ? 2 : 3);
+    } catch {
+      // API failed — save selection locally for replay, use fallback specialist
+      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      const pending = { intent, type: intent === 'condition' ? 'condition' : 'goal', value };
+      await AsyncStorage.setItem(ONBOARDING_PENDING_KEY, JSON.stringify(pending)).catch(() => {});
+      setSpecialist({ agent_type: 'health_coach', agent_name: 'Health Coach', specialty: 'General Wellness', description: 'Your personal health and wellness guide. We\'ll start analyzing your data once you connect a device.' });
+      setStep(3);
+    } finally {
+      setLoading(false);
+    }
   }
 
-  const stepContent = [
-    <StepValueProp key="value-prop" />,
-    <StepRole key="role" role={role} setRole={setRole} />,
-    <StepPersonalDetails key="personal" weightKg={weightKg} setWeightKg={setWeightKg} heightCm={heightCm} setHeightCm={setHeightCm} gender={gender} setGender={setGender} />,
-    <StepConditions key="conditions" selectedConditions={selectedConditions} noneConditions={noneConditions} onToggle={toggleCondition} onToggleNone={toggleNoneConditions} />,
-    <StepGoalsAndHealth key="goals" selectedGoals={selectedGoals} onToggleGoal={toggleGoal} hkStatus={hkStatus} onConnectHK={handleConnectHealthKit} />,
-  ];
+  // ── Step 2: Context ────────────────────────────────────────────────────────
 
-  const isLastStep = step === TOTAL_STEPS - 1;
+  async function handleContextDone() {
+    setLoading(true);
+    try {
+      if (Object.keys(answers).length > 0) {
+        await api.post('/api/v1/onboarding/context', { answers });
+      }
+    } catch { /* non-fatal */ }
+    setLoading(false);
+    setStep(3);
+  }
+
+  // ── Step 3: Start / Skip ───────────────────────────────────────────────────
+
+  async function replayPendingOnboarding() {
+    try {
+      const raw = await AsyncStorage.getItem(ONBOARDING_PENDING_KEY);
+      if (!raw) return;
+      const pending = JSON.parse(raw);
+
+      if (pending.intent) {
+        await api.post('/api/v1/onboarding/intent', { intent: pending.intent }).catch(() => {});
+      }
+      if (pending.type && pending.value) {
+        await api.post('/api/v1/onboarding/select', {
+          type: pending.type,
+          value: pending.value,
+        }).catch(() => {});
+      }
+      if (Object.keys(answers).length > 0) {
+        await api.post('/api/v1/onboarding/context', { answers }).catch(() => {});
+      }
+
+      await AsyncStorage.removeItem(ONBOARDING_PENDING_KEY);
+    } catch { /* non-fatal */ }
+  }
+
+  async function handleStartJourney() {
+    setLoading(true);
+    try {
+      await replayPendingOnboarding();
+      await api.post('/api/v1/onboarding/start-journey', {
+        journey_template_key: journeyProposal?.key,
+      });
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch {
+      try { await api.post('/api/v1/onboarding/complete', { skipped_journey: false }); } catch {}
+    }
+    setLoading(false);
+    router.replace('/(tabs)/home');
+  }
+
+  async function handleSkip() {
+    await replayPendingOnboarding();
+
+    try {
+      await api.post('/api/v1/onboarding/complete', { skipped_journey: !journeyProposal });
+    } catch { /* non-fatal */ }
+
+    if (connectedDevices.size > 0) {
+      triggerInitialSync();
+    }
+
+    router.replace('/(tabs)/home');
+  }
+
+  const [connectingDevice, setConnectingDevice] = useState<string | null>(null);
+
+  async function handleConnectOura() {
+    setConnectingDevice('oura');
+    try {
+      const mobileRedirectUri = 'vitalix://oura-callback';
+      const { data } = await api.get('/api/v1/oura/auth-url', {
+        params: { redirect_uri: mobileRedirectUri },
+      });
+      if (data?.sandbox_mode) {
+        setConnectedDevices((s) => new Set(s).add('oura'));
+        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        // Trigger Oura sync in background
+        api.post('/api/v1/oura/sync').catch(() => {});
+      } else if (data?.auth_url) {
+        const { openAuthSessionAsync } = await import('expo-web-browser');
+        const result = await openAuthSessionAsync(data.auth_url, mobileRedirectUri);
+        if (result.type === 'success' && result.url) {
+          const url = new URL(result.url);
+          const code = url.searchParams.get('code');
+          if (code) {
+            await api.post('/api/v1/oura/callback', { code, redirect_uri: mobileRedirectUri });
+            setConnectedDevices((s) => new Set(s).add('oura'));
+            await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            // Trigger Oura sync in background
+            api.post('/api/v1/oura/sync').catch(() => {});
+          }
+        }
+      }
+    } catch {
+      Alert.alert('Connection Issue', 'Could not connect Oura Ring. You can try again from Profile → Devices.');
+    } finally {
+      setConnectingDevice(null);
+    }
+  }
+
+  async function handleConnectAppleHealth() {
+    setConnectingDevice('healthkit');
+    try {
+      const ok = await requestHealthKit();
+      if (ok) {
+        setConnectedDevices((s) => new Set(s).add('healthkit'));
+        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
+        // Trigger initial sync in the background so Home has data
+        triggerInitialSync();
+      } else {
+        Alert.alert(
+          'Apple Health',
+          'Apple Health is not available. Please check that Health is enabled in your device settings.',
+          [{ text: 'OK' }],
+        );
+      }
+    } catch {
+      Alert.alert('Connection Issue', 'Could not connect to Apple Health.');
+    } finally {
+      setConnectingDevice(null);
+    }
+  }
+
+  function triggerInitialSync() {
+    // Fire-and-forget: use same mock/real sync as Profile → Devices
+    (async () => {
+      try {
+        const { format: fmtDate, subDays } = await import('date-fns');
+
+        if (!Device.isDevice) {
+          // Simulator: use same mock data as devices page
+          const workoutTypes = ['yoga', 'running', 'cycling', 'strength', 'walking'];
+          const points: Array<{ metric_type: string; date: string; value_json: object }> = [];
+          for (let i = 6; i >= 0; i--) {
+            const date = fmtDate(subDays(new Date(), i), 'yyyy-MM-dd');
+            points.push({ metric_type: 'steps', date, value_json: { steps: 6000 + Math.floor(Math.random() * 6000) } });
+            points.push({ metric_type: 'resting_heart_rate', date, value_json: { bpm: 58 + Math.floor(Math.random() * 18) } });
+            points.push({ metric_type: 'hrv_sdnn', date, value_json: { ms: 38 + Math.round(Math.random() * 24 * 10) / 10 } });
+            points.push({ metric_type: 'spo2', date, value_json: { pct: 96 + Math.round(Math.random() * 3 * 10) / 10 } });
+            points.push({ metric_type: 'sleep', date, value_json: { hours: 5.5 + Math.round(Math.random() * 3 * 10) / 10 } });
+            points.push({ metric_type: 'active_calories', date, value_json: { kcal: 250 + Math.floor(Math.random() * 350) } });
+            if (i !== 1 && i !== 4) {
+              const type = workoutTypes[Math.floor(Math.random() * workoutTypes.length)];
+              const mins = 25 + Math.floor(Math.random() * 45);
+              points.push({ metric_type: 'workout', date, value_json: { minutes: mins, sessions: 1, active_calories: Math.round(mins * 4.5), types: [type] } });
+            }
+          }
+          await api.post('/api/v1/health-data/ingest', {
+            source: 'healthkit',
+            data_points: points,
+            sync_timestamp: new Date().toISOString(),
+          });
+          console.log('[onboarding] Simulator sync: uploaded', points.length, 'data points');
+          return;
+        }
+
+        // Real device: quick HealthKit sync (steps, HR, HRV, sleep — 14 days)
+        const HealthKit = (await import('@kingstinct/react-native-healthkit')).default;
+        const now = new Date();
+        const anchor = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const start = subDays(now, 14);
+
+        const METRIC_MAP: Record<string, string> = {
+          HKQuantityTypeIdentifierStepCount: 'steps',
+          HKQuantityTypeIdentifierRestingHeartRate: 'resting_heart_rate',
+          HKQuantityTypeIdentifierHeartRateVariabilitySDNN: 'hrv_sdnn',
+          HKQuantityTypeIdentifierActiveEnergyBurned: 'active_calories',
+        };
+
+        const dataPoints: Array<{ metric_type: string; date: string; value_json: object }> = [];
+        for (const [identifier, metricName] of Object.entries(METRIC_MAP)) {
+          try {
+            const results = await HealthKit.queryStatisticsCollectionForQuantity(
+              identifier as any,
+              ['cumulativeSum', 'discreteAverage'],
+              anchor,
+              { day: 1 },
+              { from: start, to: now } as any,
+            );
+            for (const bucket of results) {
+              if (!bucket.startDate) continue;
+              const day = fmtDate(bucket.startDate, 'yyyy-MM-dd');
+              const val = (bucket as any).sumQuantity?.quantity ?? (bucket as any).averageQuantity?.quantity;
+              if (val != null) {
+                dataPoints.push({ metric_type: metricName, date: day, value_json: { value: val } });
+              }
+            }
+          } catch { /* skip */ }
+        }
+
+        if (dataPoints.length > 0) {
+          await api.post('/api/v1/health-data/ingest', {
+            source: 'apple_health',
+            data_points: dataPoints,
+            sync_timestamp: now.toISOString(),
+          });
+          console.log('[onboarding] HealthKit sync: uploaded', dataPoints.length, 'data points');
+        }
+      } catch (err) {
+        console.warn('[onboarding] Initial sync failed (non-fatal):', err);
+      }
+    })();
+  }
+
+  async function handleConnectHealthConnect() {
+    setConnectingDevice('health_connect');
+    // Health Connect integration placeholder — show guidance
+    Alert.alert(
+      'Health Connect',
+      'Health Connect integration coming soon. You can connect from Profile → Devices.',
+      [{ text: 'OK' }],
+    );
+    setConnectingDevice(null);
+  }
+
+  // ── Provider / Caregiver ───────────────────────────────────────────────────
+
+  async function handleProviderComplete() {
+    try { await api.patch('/api/v1/profile/role', { user_role: 'provider' }); } catch {}
+    router.replace('/(tabs)/home');
+  }
+
+  async function handleCaregiverComplete() {
+    try { await api.patch('/api/v1/profile/role', { user_role: 'caregiver' }); } catch {}
+    router.replace('/(tabs)/home');
+  }
+
+  // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
-    <View className="flex-1 bg-obsidian-900">
-      {step > 0 ? (
-        <View className="flex-row gap-2 px-6 pt-16 pb-6">
-          {Array.from({ length: TOTAL_STEPS - 1 }, (_, i) => (
-            <View key={i} className={`h-1 flex-1 rounded-full ${i < step ? 'bg-primary-500' : 'bg-surface-border'}`} />
-          ))}
+    <ScrollView
+      className="flex-1 bg-obsidian-900"
+      contentContainerStyle={{ padding: 24, paddingTop: 60, paddingBottom: 40 }}
+      keyboardShouldPersistTaps="handled"
+    >
+      <StepDots current={step} total={totalSteps} />
+
+      {loading && <ActivityIndicator color="#00D4AA" className="mb-4" />}
+
+      {/* ── Step 0: What brings you here? ────────────────────────── */}
+      {step === 0 && (
+        <View>
+          <Text className="text-2xl font-display text-[#E8EDF5] text-center mb-2">What brings you to Vitalix?</Text>
+          <Text className="text-sm text-[#526380] text-center mb-6">This shapes your entire experience</Text>
+
+          <TouchableOpacity
+            onPress={() => handleIntent('condition')}
+            className="flex-row items-center gap-3 p-4 rounded-xl mb-3"
+            style={{ backgroundColor: 'rgba(255,255,255,0.03)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' }}
+            activeOpacity={0.7}
+          >
+            <View className="w-11 h-11 rounded-xl items-center justify-center" style={{ backgroundColor: 'rgba(248,113,113,0.1)' }}>
+              <Ionicons name="heart-outline" size={20} color="#F87171" />
+            </View>
+            <View className="flex-1">
+              <Text className="text-sm font-sansMedium text-[#E8EDF5]">Managing a health condition</Text>
+              <Text className="text-xs text-[#526380] mt-0.5">PCOS, diabetes, thyroid, IBS, etc.</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color="#3D4F66" />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            onPress={() => handleIntent('goal')}
+            className="flex-row items-center gap-3 p-4 rounded-xl mb-3"
+            style={{ backgroundColor: 'rgba(255,255,255,0.03)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' }}
+            activeOpacity={0.7}
+          >
+            <View className="w-11 h-11 rounded-xl items-center justify-center" style={{ backgroundColor: 'rgba(0,212,170,0.1)' }}>
+              <Ionicons name="flag-outline" size={20} color="#00D4AA" />
+            </View>
+            <View className="flex-1">
+              <Text className="text-sm font-sansMedium text-[#E8EDF5]">Improve my health</Text>
+              <Text className="text-xs text-[#526380] mt-0.5">Sleep, weight, fitness, stress, energy</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color="#3D4F66" />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            onPress={() => handleIntent('exploring')}
+            className="flex-row items-center gap-3 p-4 rounded-xl mb-3"
+            style={{ backgroundColor: 'rgba(255,255,255,0.03)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' }}
+            activeOpacity={0.7}
+          >
+            <View className="w-11 h-11 rounded-xl items-center justify-center" style={{ backgroundColor: 'rgba(96,165,250,0.1)' }}>
+              <Ionicons name="search-outline" size={20} color="#60A5FA" />
+            </View>
+            <View className="flex-1">
+              <Text className="text-sm font-sansMedium text-[#E8EDF5]">Just exploring</Text>
+              <Text className="text-xs text-[#526380] mt-0.5">See what my health data can tell me</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color="#3D4F66" />
+          </TouchableOpacity>
+
+          <TouchableOpacity onPress={() => setStep(-1)} className="mt-4 self-center">
+            <Text className="text-xs text-[#526380]">Healthcare provider or caregiver? →</Text>
+          </TouchableOpacity>
         </View>
-      ) : null}
+      )}
 
-      <ScrollView className="flex-1 px-6" keyboardShouldPersistTaps="handled">
-        {stepContent[step]}
-        <View style={{ height: 24 }} />
-      </ScrollView>
+      {/* ── Step -1: Provider / Caregiver ────────────────────────── */}
+      {step === -1 && (
+        <View>
+          <Text className="text-xl font-display text-[#E8EDF5] text-center mb-6">Professional access</Text>
+          <TouchableOpacity onPress={handleProviderComplete} className="flex-row items-center gap-3 p-4 rounded-xl mb-3"
+            style={{ backgroundColor: 'rgba(255,255,255,0.03)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' }} activeOpacity={0.7}>
+            <Ionicons name="medical-outline" size={20} color="#818CF8" />
+            <View className="flex-1">
+              <Text className="text-sm font-sansMedium text-[#E8EDF5]">Healthcare Provider</Text>
+              <Text className="text-xs text-[#526380]">Monitor patients, review care plans</Text>
+            </View>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={handleCaregiverComplete} className="flex-row items-center gap-3 p-4 rounded-xl mb-3"
+            style={{ backgroundColor: 'rgba(255,255,255,0.03)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' }} activeOpacity={0.7}>
+            <Ionicons name="people-outline" size={20} color="#6EE7B7" />
+            <View className="flex-1">
+              <Text className="text-sm font-sansMedium text-[#E8EDF5]">Caregiver / Family</Text>
+              <Text className="text-xs text-[#526380]">Support a family member's health</Text>
+            </View>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => setStep(0)} className="mt-4 self-center">
+            <Text className="text-xs text-[#526380]">← Back</Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
-      <View className="px-6 pb-10 pt-4 gap-3">
-        {isLastStep ? (
-          <TouchableOpacity onPress={handleFinish} disabled={loading} className="bg-primary-500 rounded-xl py-4 items-center" activeOpacity={0.8}>
-            {loading ? <ActivityIndicator color="#080B10" /> : <Text className="text-obsidian-900 font-sansMedium text-base">Finish Setup</Text>}
+      {/* ── Step 1: Condition picker ──────────────────────────────── */}
+      {step === 1 && intent === 'condition' && (
+        <View>
+          <Text className="text-xl font-display text-[#E8EDF5] text-center mb-1">Primary condition?</Text>
+          <Text className="text-xs text-[#526380] text-center mb-5">You can add more later</Text>
+
+          {Object.entries(conditionCategories).map(([cat, conditions]) => (
+            <View key={cat} className="mb-4">
+              <Text className="text-[9px] font-bold uppercase tracking-wider text-[#526380] mb-2">{cat}</Text>
+              <View className="flex-row flex-wrap gap-2">
+                {conditions.map((c) => (
+                  <TouchableOpacity key={c} onPress={() => handleSelect(c)} disabled={loading}
+                    className="px-3 py-2 rounded-lg" activeOpacity={0.7}
+                    style={{ backgroundColor: 'rgba(255,255,255,0.03)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' }}>
+                    <Text className="text-xs text-[#E8EDF5]">{c}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+          ))}
+
+          <TouchableOpacity onPress={() => setStep(0)} className="mt-2 self-center">
+            <Text className="text-xs text-[#526380]">← Back</Text>
           </TouchableOpacity>
-        ) : (
-          <TouchableOpacity onPress={goNext} className="bg-primary-500 rounded-xl py-4 items-center" activeOpacity={0.8}>
-            <Text className="text-obsidian-900 font-sansMedium text-base">{step === 0 ? 'Get Started' : 'Continue'}</Text>
+        </View>
+      )}
+
+      {/* ── Step 1: Goal picker ───────────────────────────────────── */}
+      {step === 1 && intent === 'goal' && (
+        <View>
+          <Text className="text-xl font-display text-[#E8EDF5] text-center mb-1">Your #1 health goal?</Text>
+          <Text className="text-xs text-[#526380] text-center mb-5">Pick the one that matters most</Text>
+
+          <View className="flex-row flex-wrap gap-3 justify-center">
+            {goalOptions.map((g) => {
+              const iconName = GOAL_ICONS[g.value] || 'flag-outline';
+              return (
+                <TouchableOpacity key={g.value} onPress={() => handleSelect(g.value)} disabled={loading}
+                  className="items-center p-4 rounded-xl" activeOpacity={0.7}
+                  style={{ width: '45%', backgroundColor: 'rgba(255,255,255,0.03)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' }}>
+                  <Ionicons name={iconName as never} size={24} color="#00D4AA" />
+                  <Text className="text-sm font-sansMedium text-[#E8EDF5] mt-2 text-center">{g.label}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
+          <TouchableOpacity onPress={() => setStep(0)} className="mt-4 self-center">
+            <Text className="text-xs text-[#526380]">← Back</Text>
           </TouchableOpacity>
-        )}
-        <TouchableOpacity onPress={goBack} className="items-center py-2">
-          <Text className="text-[#526380] text-sm">{step > 0 ? 'Back' : 'Skip for now'}</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
+        </View>
+      )}
+
+      {/* ── Step 2: Quick context ─────────────────────────────────── */}
+      {step === 2 && (
+        <View>
+          <Text className="text-xl font-display text-[#E8EDF5] text-center mb-1">Quick questions</Text>
+          <Text className="text-xs text-[#526380] text-center mb-5">Helps personalize your plan</Text>
+
+          {quickQuestions.map((q) => (
+            <View key={q.id} className="rounded-xl p-4 mb-3"
+              style={{ backgroundColor: 'rgba(255,255,255,0.03)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' }}>
+              <Text className="text-sm font-sansMedium text-[#E8EDF5] mb-3">{q.question}</Text>
+
+              {(q.input_type === 'choice' || q.input_type === 'choice_then_text') && q.options && (
+                <View className="flex-row flex-wrap gap-2">
+                  {q.options.map((opt) => {
+                    const sel = answers[q.data_field] === opt;
+                    return (
+                      <TouchableOpacity key={opt}
+                        onPress={() => { setAnswers({ ...answers, [q.data_field]: opt }); Haptics.selectionAsync(); }}
+                        className="px-3 py-1.5 rounded-lg"
+                        style={{
+                          backgroundColor: sel ? 'rgba(0,212,170,0.12)' : 'rgba(255,255,255,0.03)',
+                          borderWidth: 1, borderColor: sel ? 'rgba(0,212,170,0.3)' : 'rgba(255,255,255,0.06)',
+                        }}>
+                        <Text className="text-xs" style={{ color: sel ? '#00D4AA' : '#8B97A8' }}>{opt}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              )}
+
+              {q.input_type === 'multi_choice' && q.options && (
+                <View className="flex-row flex-wrap gap-2">
+                  {q.options.map((opt) => {
+                    const arr = (answers[q.data_field] as string[]) || [];
+                    const sel = arr.includes(opt);
+                    return (
+                      <TouchableOpacity key={opt}
+                        onPress={() => {
+                          const updated = sel ? arr.filter((x) => x !== opt) : [...arr, opt];
+                          setAnswers({ ...answers, [q.data_field]: updated });
+                          Haptics.selectionAsync();
+                        }}
+                        className="px-3 py-1.5 rounded-lg"
+                        style={{
+                          backgroundColor: sel ? 'rgba(0,212,170,0.12)' : 'rgba(255,255,255,0.03)',
+                          borderWidth: 1, borderColor: sel ? 'rgba(0,212,170,0.3)' : 'rgba(255,255,255,0.06)',
+                        }}>
+                        <Text className="text-xs" style={{ color: sel ? '#00D4AA' : '#8B97A8' }}>{opt}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              )}
+
+              {(q.input_type === 'text' || (q.input_type === 'choice_then_text' && answers[q.data_field] === q.options?.[0])) && (
+                <TextInput
+                  placeholder={q.text_prompt || 'Type here...'}
+                  placeholderTextColor="#3D4F66"
+                  value={(answers[`${q.data_field}_text`] as string) || ''}
+                  onChangeText={(t) => setAnswers({ ...answers, [`${q.data_field}_text`]: t })}
+                  className="mt-2 px-3 py-2 rounded-lg text-sm text-[#E8EDF5]"
+                  style={{ backgroundColor: 'rgba(255,255,255,0.03)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' }}
+                />
+              )}
+            </View>
+          ))}
+
+          <View className="flex-row gap-3 mt-4">
+            <TouchableOpacity onPress={handleContextDone} disabled={loading}
+              className="flex-1 py-3 rounded-xl items-center" style={{ backgroundColor: '#00D4AA' }} activeOpacity={0.85}>
+              <Text className="text-sm font-sansMedium" style={{ color: '#080B10' }}>
+                {loading ? 'Saving...' : 'Continue'}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => setStep(3)} className="px-4 py-3 items-center justify-center">
+              <Text className="text-xs text-[#526380]">Skip</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
+      {/* ── Step 3: Connect + Meet Guide ──────────────────────────── */}
+      {step === 3 && (
+        <View>
+          <Text className="text-lg font-display text-[#E8EDF5] text-center mb-2">Connect your data</Text>
+          <Text className="text-xs text-[#526380] text-center mb-4">
+            {specialist ? `Your ${specialist.agent_name} needs health data to get started` : 'Connect a device to start tracking'}
+          </Text>
+
+          {/* Apple Health (iOS) / Health Connect (Android) — shown first as default */}
+          {Platform.OS === 'ios' ? (
+            <DeviceRow
+              icon="fitness-outline"
+              color="#F87171"
+              name="Apple Health"
+              description="Steps, sleep, heart rate, workouts"
+              connected={connectedDevices.has('healthkit')}
+              connecting={connectingDevice === 'healthkit'}
+              onConnect={handleConnectAppleHealth}
+            />
+          ) : (
+            <DeviceRow
+              icon="fitness-outline"
+              color="#34D399"
+              name="Health Connect"
+              description="Steps, sleep, heart rate, workouts"
+              connected={connectedDevices.has('health_connect')}
+              connecting={connectingDevice === 'health_connect'}
+              onConnect={handleConnectHealthConnect}
+            />
+          )}
+
+          {/* Oura Ring */}
+          <DeviceRow
+            icon="ellipse-outline"
+            color="#818CF8"
+            name="Oura Ring"
+            description="Sleep score, readiness, HRV, temperature"
+            connected={connectedDevices.has('oura')}
+            connecting={connectingDevice === 'oura'}
+            onConnect={handleConnectOura}
+          />
+
+          {/* Skip note */}
+          {connectedDevices.size === 0 && (
+            <Text className="text-[10px] text-[#3D4F66] text-center mt-1 mb-3">
+              You can connect more devices from Profile → Devices later
+            </Text>
+          )}
+
+          {/* Specialist + Journey */}
+          {specialist && (
+            <View className="rounded-xl p-4 mt-3" style={{ backgroundColor: 'rgba(255,255,255,0.03)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' }}>
+              <View className="flex-row items-center gap-3 mb-3">
+                <View className="w-10 h-10 rounded-xl items-center justify-center" style={{ backgroundColor: 'rgba(0,212,170,0.1)' }}>
+                  <Ionicons name="medkit-outline" size={20} color="#00D4AA" />
+                </View>
+                <View>
+                  <Text className="text-sm font-sansMedium" style={{ color: '#00D4AA' }}>Your {specialist.agent_name}</Text>
+                  <Text className="text-xs text-[#526380]">{specialist.specialty}</Text>
+                </View>
+              </View>
+
+              <Text className="text-xs text-[#8B97A8] leading-5 mb-3">{specialist.description}</Text>
+
+              {journeyProposal && (
+                <View className="rounded-lg p-3 mb-3" style={{ backgroundColor: 'rgba(96,165,250,0.04)', borderWidth: 1, borderColor: 'rgba(96,165,250,0.12)' }}>
+                  <Text className="text-xs font-sansMedium mb-2" style={{ color: '#60A5FA' }}>{journeyProposal.title}</Text>
+                  {journeyProposal.phases.map((phase, i) => (
+                    <View key={i} className="flex-row items-center gap-2 mb-1.5">
+                      <View className="w-5 h-5 rounded-full items-center justify-center" style={{ backgroundColor: 'rgba(96,165,250,0.1)' }}>
+                        <Text className="text-[8px] font-bold" style={{ color: '#60A5FA' }}>{i + 1}</Text>
+                      </View>
+                      <View className="flex-1">
+                        <Text className="text-xs text-[#E8EDF5]">{phase.name}</Text>
+                      </View>
+                    </View>
+                  ))}
+                </View>
+              )}
+
+              <View className="flex-row gap-3">
+                {journeyProposal && (
+                  <TouchableOpacity onPress={handleStartJourney} disabled={loading}
+                    className="flex-1 py-3 rounded-xl items-center" style={{ backgroundColor: '#00D4AA', opacity: loading ? 0.6 : 1 }} activeOpacity={0.85}>
+                    <Text className="text-sm font-sansMedium" style={{ color: '#080B10' }}>
+                      {loading ? 'Starting...' : 'Start My Journey'}
+                    </Text>
+                  </TouchableOpacity>
+                )}
+                <TouchableOpacity onPress={handleSkip} className="px-4 py-3 items-center justify-center">
+                  <Text className="text-xs text-[#526380]">{journeyProposal ? 'Maybe Later' : 'Continue'}</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+
+          {!specialist && (
+            <TouchableOpacity onPress={handleSkip}
+              className="py-3 rounded-xl items-center mt-4" style={{ backgroundColor: '#00D4AA' }} activeOpacity={0.85}>
+              <Text className="text-sm font-sansMedium" style={{ color: '#080B10' }}>Get Started</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      )}
+    </ScrollView>
   );
 }

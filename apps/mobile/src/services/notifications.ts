@@ -66,6 +66,43 @@ export async function registerForPushNotifications(): Promise<string | null> {
   return token;
 }
 
+/**
+ * Set up notification response listener for deep linking.
+ * Call once from root layout. Returns cleanup function.
+ */
+export function setupNotificationListeners(
+  navigate: (screen: string) => void,
+): () => void {
+  // When user taps a notification
+  const responseSubscription = Notifications.addNotificationResponseReceivedListener(
+    (response) => {
+      const data = response.notification.request.content.data as Record<string, unknown>;
+      const screen = (data?.screen as string) || 'home';
+      const nudgeId = data?.nudge_id as string | undefined;
+
+      // Mark nudge as opened (fire and forget)
+      if (nudgeId) {
+        api.post(`/api/v1/nudges/${nudgeId}/opened`).catch(() => {});
+      }
+
+      // Navigate to the appropriate screen
+      navigate(screen);
+    },
+  );
+
+  // When notification received while app is foregrounded
+  const receivedSubscription = Notifications.addNotificationReceivedListener(
+    (notification) => {
+      console.log('[notifications] Received in foreground:', notification.request.content.title);
+    },
+  );
+
+  return () => {
+    responseSubscription.remove();
+    receivedSubscription.remove();
+  };
+}
+
 export async function unregisterPushToken(): Promise<void> {
   try {
     const projectId = process.env.EXPO_PUBLIC_EXPO_PROJECT_ID;

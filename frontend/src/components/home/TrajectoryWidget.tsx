@@ -1,6 +1,7 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
+import { Info } from 'lucide-react';
 import { healthScoreService } from '@/services/healthScore';
 import type { TrajectoryComponent } from '@/types';
 
@@ -109,7 +110,23 @@ export function TrajectoryWidget() {
       style={{ backgroundColor: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}
     >
       <div className="flex items-center justify-between mb-1">
-        <h2 className="text-sm font-semibold text-[#8B97A8]">Health Trajectory</h2>
+        <div className="flex items-center gap-2">
+          <h2 className="text-sm font-semibold text-[#8B97A8]">Health Trajectory</h2>
+          <div className="group relative">
+            <Info className="w-3.5 h-3.5 text-[#3D4F66] cursor-help" />
+            <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 w-64 p-3 rounded-lg bg-[#1A2332] border border-[#2A3A4E] text-xs text-[#8B97A8] opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity z-50 shadow-lg">
+              <p className="font-medium text-[#E8EDF5] mb-1">What is Health Trajectory?</p>
+              <p>A composite score (0-100) tracking your overall health direction over the past 30 days across four pillars, each weighted equally at 25%:</p>
+              <ul className="mt-1 space-y-0.5 list-disc pl-3">
+                <li><span className="text-[#00D4AA]">Med. Adherence</span> — % of medications taken on schedule</li>
+                <li><span className="text-[#00D4AA]">Symptom Control</span> — lower severity = higher score</li>
+                <li><span className="text-[#00D4AA]">Goal Engagement</span> — active goals + completion rate</li>
+                <li><span className="text-[#00D4AA]">Well-being</span> — energy + mood from check-ins</li>
+              </ul>
+              <p className="mt-1.5 text-[#526380]">The change vs last month shows if you&apos;re improving.</p>
+            </div>
+          </div>
+        </div>
         {data.data_quality === 'partial' && (
           <span className="text-[9px] text-[#3D4F66] bg-white/5 px-2 py-0.5 rounded-full">partial data</span>
         )}

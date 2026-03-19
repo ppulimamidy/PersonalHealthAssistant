@@ -22,8 +22,9 @@ import certifi
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
 
+from common.middleware.auth import get_current_user
 from common.utils.logging import get_logger
-from ..dependencies.usage_gate import UsageGate, _supabase_get
+from ..dependencies.usage_gate import UsageGate, _supabase_get, _supabase_insert
 
 logger = get_logger(__name__)
 router = APIRouter()
@@ -78,6 +79,37 @@ class RecoveryPlan(BaseModel):
     foods_to_emphasize: List[FoodSuggestion]
     foods_to_limit: List[str]
     generated_at: str
+
+
+class PersonalHistory(BaseModel):
+    status: str = "untested"  # proven|disproven|inconclusive|untested
+    times_tried: int = 0
+    avg_effect: float = 0
+    confidence: float = 0
+
+
+class CycleGuidance(BaseModel):
+    phase: str = "unknown"
+    cycle_day: Optional[int] = None
+    note: Optional[str] = None
+
+
+class TopRecommendation(BaseModel):
+    pattern: str
+    title: str
+    description: str
+    evidence: Dict[str, Any]
+    suggested_duration: int
+    expected_improvement: Optional[str] = None
+    foods: List[FoodSuggestion]
+    category: str
+    severity: str
+    personal_history: Optional[PersonalHistory] = None
+    cycle_guidance: Optional[CycleGuidance] = None
+
+
+class DismissRequest(BaseModel):
+    reason: str = "not_now"  # not_now | not_interested | tried_before
 
 
 # ---------------------------------------------------------------------------
@@ -878,6 +910,33 @@ async def _get_recent_data(
     wearable_daily = _extract_wearable_daily(timeline)
     nutrition_daily = await _fetch_nutrition_daily(bearer, 14)
 
+    # Fallback: if Oura/timeline yielded nothing, try health_metric_summaries
+    # (covers Apple Health and other non-Oura sources)
+    if not wearable_daily:
+        user_id = current_user["id"]
+        try:
+            rows = await _supabase_get(
+                "health_metric_summaries",
+                f"user_id=eq.{user_id}&select=metric_type,latest_value,latest_date,avg_7d",
+            )
+            if rows:
+                from datetime import date as _date
+
+                synthetic: Dict[str, float] = {}
+                latest_date_str = str(_date.today())
+                for r in rows:
+                    metric = r.get("metric_type", "")
+                    val = r.get("latest_value") or r.get("avg_7d")
+                    if val is not None:
+                        synthetic[metric] = float(val)
+                    d = r.get("latest_date")
+                    if d:
+                        latest_date_str = str(d)
+                if synthetic:
+                    wearable_daily = {latest_date_str: synthetic}
+        except Exception as exc:
+            logger.debug("Summaries fallback failed: %s", exc)
+
     return wearable_daily, nutrition_daily
 
 
@@ -1130,3 +1189,361 @@ async def get_recovery_plan(
 
     plan = await _generate_recovery_plan(patterns, profile, conditions)
     return plan
+
+
+# ---------------------------------------------------------------------------
+# Pattern → actionable experiment mapping
+# ---------------------------------------------------------------------------
+
+PATTERN_EXPERIMENTS: Dict[str, Dict[str, Any]] = {
+    "overtraining": {
+        "title": "Recovery-focused nutrition for 7 days",
+        "description": "Increase anti-inflammatory foods and protein while reducing training intensity. Focus on sleep-supporting nutrients.",
+        "suggested_duration": 7,
+        "expected_improvement": "Sleep score and HRV typically improve 5-15% with adequate recovery nutrition.",
+        "category": "nutrition",
+    },
+    "inflammation": {
+        "title": "Anti-inflammatory diet for 10 days",
+        "description": "Cut refined sugar and processed foods. Emphasize omega-3 rich fish, leafy greens, and berries.",
+        "suggested_duration": 10,
+        "expected_improvement": "HRV and temperature deviation often improve within 7-10 days of reduced inflammation.",
+        "category": "nutrition",
+    },
+    "poor_recovery": {
+        "title": "Recovery optimization for 7 days",
+        "description": "Prioritize magnesium-rich foods, lean protein, and electrolyte balance. Earlier dinners and sleep-supporting nutrients.",
+        "suggested_duration": 7,
+        "expected_improvement": "Readiness score and resting heart rate typically respond within 5-7 days.",
+        "category": "nutrition",
+    },
+    "sleep_disruption": {
+        "title": "Sleep hygiene + nutrition for 7 days",
+        "description": "No meals after 7pm, add sleep-supporting foods (kiwi, almonds, chamomile). Limit caffeine after 2pm.",
+        "suggested_duration": 7,
+        "expected_improvement": "Sleep efficiency and sleep score often improve 8-15% with consistent meal timing.",
+        "category": "timing",
+    },
+}
+
+
+@router.get("/top", response_model=Optional[TopRecommendation])
+async def get_top_recommendation(
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Get the single best recommendation for the user.
+    Returns null if user has an active intervention or no patterns detected.
+    """
+    user_id = current_user["id"]
+
+    # Check for active intervention — don't show rec if one is running
+    active = await _supabase_get(
+        "active_interventions",
+        f"user_id=eq.{user_id}&status=eq.active&limit=1",
+    )
+    if active:
+        return None
+
+    # Check recently dismissed patterns (within 14 days)
+    from datetime import timedelta
+
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=14)).isoformat()
+    dismissed_rows = await _supabase_get(
+        "recommendation_events",
+        f"user_id=eq.{user_id}&event_type=in.(not_now,not_interested)&created_at=gte.{cutoff}&select=recommendation_pattern",
+    )
+    dismissed_patterns = set()
+    if dismissed_rows:
+        dismissed_patterns = {r["recommendation_pattern"] for r in dismissed_rows}
+
+    # Detect current patterns
+    bearer = request.headers.get("Authorization")
+    oura_daily, nutrition_daily = await _get_recent_data(current_user, bearer)
+    if not oura_daily:
+        return None
+
+    conditions = await _get_user_conditions(user_id)
+    condition_names = [
+        c.get("condition_name", "") for c in conditions if c.get("condition_name")
+    ]
+    patterns = _detect_patterns(oura_daily, nutrition_daily, condition_names)
+    if not patterns:
+        return None
+
+    # Filter out recently dismissed, pick highest severity
+    severity_rank = {"high": 3, "moderate": 2, "mild": 1}
+    candidates = [p for p in patterns if p.pattern not in dismissed_patterns]
+    if not candidates:
+        return None
+
+    # Fetch efficacy data to rank by personal history
+    efficacy_rows = await _supabase_get(
+        "user_efficacy_profile",
+        f"user_id=eq.{user_id}&select=pattern,status,confidence,avg_effect_size",
+    )
+    efficacy_map: Dict[str, Dict[str, Any]] = {}
+    if efficacy_rows:
+        for row in efficacy_rows:
+            efficacy_map[row["pattern"]] = row
+
+    # Filter out disproven patterns
+    candidates = [
+        p
+        for p in candidates
+        if efficacy_map.get(p.pattern, {}).get("status") != "disproven"
+    ]
+    if not candidates:
+        return None
+
+    # Score: personal_confidence*2 + severity + novelty_bonus
+    def _score(p: PatternDetection) -> float:
+        eff = efficacy_map.get(p.pattern, {})
+        personal = eff.get("confidence", 0) if eff.get("status") == "proven" else 0
+        sev = severity_rank.get(p.severity, 0) / 3  # normalize to 0-1
+        novelty = 0.5 if p.pattern not in efficacy_map else 0
+        return personal * 2 + sev + novelty
+
+    candidates.sort(key=_score, reverse=True)
+    best = candidates[0]
+
+    experiment = PATTERN_EXPERIMENTS.get(best.pattern, {})
+
+    # Try to fetch correlation evidence for this pattern
+    evidence: Dict[str, Any] = {
+        "signals": best.signals,
+        "severity": best.severity,
+        "data_points": len(oura_daily),
+    }
+
+    # Build personal history for this pattern
+    eff = efficacy_map.get(best.pattern, {})
+    personal_history = (
+        PersonalHistory(
+            status=eff.get("status", "untested"),
+            times_tried=eff.get("interventions_tried", 0) if eff else 0,
+            avg_effect=eff.get("avg_effect_size", 0) if eff else 0,
+            confidence=eff.get("confidence", 0) if eff else 0,
+        )
+        if eff
+        else None
+    )
+
+    # Use best_duration from efficacy if proven
+    suggested_duration = experiment.get("suggested_duration", 7)
+    if eff and eff.get("best_duration"):
+        suggested_duration = eff["best_duration"]
+
+    # Check cycle phase for guidance
+    cycle_guidance = None
+    try:
+        from .cycle_tracking import get_cycle_phase_for_date
+        from datetime import date as date_cls
+
+        phase_info = await get_cycle_phase_for_date(user_id, date_cls.today())
+        if phase_info and phase_info.phase != "unknown":
+            PHASE_NOTES = {
+                "menstrual": "You're in your menstrual phase — focus on recovery rather than starting new experiments.",
+                "follicular": "Great timing! Follicular phase is ideal for starting new diet or exercise experiments.",
+                "ovulation": "Peak energy phase — good for ambitious experiments, but not representative for baselines.",
+                "luteal": "Luteal phase — HRV and sleep may dip naturally. Consider waiting for follicular phase to start.",
+            }
+            cycle_guidance = CycleGuidance(
+                phase=phase_info.phase,
+                cycle_day=phase_info.cycle_day,
+                note=PHASE_NOTES.get(phase_info.phase),
+            )
+    except Exception:
+        pass  # No cycle data — that's fine
+
+    return TopRecommendation(
+        pattern=best.pattern,
+        title=experiment.get("title", f"Address {best.label}"),
+        description=experiment.get(
+            "description", best.signals[0] if best.signals else ""
+        ),
+        evidence=evidence,
+        suggested_duration=suggested_duration,
+        expected_improvement=experiment.get("expected_improvement"),
+        foods=best.food_suggestions[:5],
+        category=experiment.get("category", "nutrition"),
+        severity=best.severity,
+        personal_history=personal_history,
+        cycle_guidance=cycle_guidance,
+    )
+
+
+@router.post("/{pattern}/dismiss")
+async def dismiss_recommendation(
+    pattern: str,
+    body: DismissRequest,
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Record that the user dismissed a recommendation.
+    - not_now: re-surface in 14 days
+    - not_interested: deprioritize this category
+    - tried_before: mark as user-reported
+    """
+    user_id = current_user["id"]
+    event_type = (
+        body.reason
+        if body.reason in ("not_now", "not_interested", "tried_before")
+        else "not_now"
+    )
+
+    await _supabase_insert(
+        "recommendation_events",
+        {
+            "user_id": user_id,
+            "recommendation_pattern": pattern,
+            "event_type": event_type,
+        },
+    )
+    return {"status": "dismissed", "pattern": pattern, "reason": event_type}
+
+
+# ---------------------------------------------------------------------------
+# Adaptive experiment design — what to try next
+# ---------------------------------------------------------------------------
+
+
+class ExperimentProposal(BaseModel):
+    pattern: str
+    title: str
+    description: str
+    rationale: str  # why this is recommended now
+    suggested_duration: int
+    source: str  # "untested" | "retest" | "combination" | "pattern_detected"
+    confidence: float  # how confident we are this will help (0-1)
+
+
+class NextExperimentResponse(BaseModel):
+    proposals: List[ExperimentProposal]
+    ai_rationale: Optional[str] = None
+
+
+@router.get("/next-experiment", response_model=NextExperimentResponse)
+async def get_next_experiment(
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Adaptive experiment design: propose what to try next based on:
+    1. User's efficacy profile (proven, disproven, untested patterns)
+    2. Current health data (what metrics are suboptimal)
+    3. Combination opportunities (stack proven interventions)
+    4. Retest opportunities (inconclusive with more data now)
+    """
+    user_id = current_user["id"]
+
+    # Fetch efficacy data
+    efficacy_rows = await _supabase_get(
+        "user_efficacy_profile",
+        f"user_id=eq.{user_id}&select=*",
+    )
+    efficacy_map: Dict[str, Dict[str, Any]] = {}
+    for row in efficacy_rows or []:
+        efficacy_map[row["pattern"]] = row
+
+    # Detect current patterns
+    bearer = request.headers.get("Authorization")
+    oura_daily, nutrition_daily = await _get_recent_data(current_user, bearer)
+
+    conditions = await _get_user_conditions(user_id)
+    condition_names = [
+        c.get("condition_name", "") for c in conditions if c.get("condition_name")
+    ]
+    patterns = (
+        _detect_patterns(oura_daily, nutrition_daily, condition_names)
+        if oura_daily
+        else []
+    )
+    detected_set = {p.pattern for p in patterns}
+
+    proposals: List[ExperimentProposal] = []
+
+    # 1. Untested patterns that are currently detected
+    for p in patterns:
+        if p.pattern not in efficacy_map:
+            exp = PATTERN_EXPERIMENTS.get(p.pattern, {})
+            proposals.append(
+                ExperimentProposal(
+                    pattern=p.pattern,
+                    title=exp.get("title", f"Address {p.label}"),
+                    description=exp.get("description", ""),
+                    rationale=f"Pattern detected ({p.severity} severity) and never tested. {', '.join(p.signals[:2])}.",
+                    suggested_duration=exp.get("suggested_duration", 7),
+                    source="untested",
+                    confidence=0.6,
+                )
+            )
+
+    # 2. Untested patterns not currently detected (explore)
+    all_patterns = set(PATTERN_EXPERIMENTS.keys())
+    for pat in all_patterns - set(efficacy_map.keys()) - detected_set:
+        exp = PATTERN_EXPERIMENTS[pat]
+        proposals.append(
+            ExperimentProposal(
+                pattern=pat,
+                title=exp.get("title", pat.replace("_", " ").title()),
+                description=exp.get("description", ""),
+                rationale="Not yet tested — try it to discover if your body responds.",
+                suggested_duration=exp.get("suggested_duration", 7),
+                source="untested",
+                confidence=0.3,
+            )
+        )
+
+    # 3. Retest opportunities: inconclusive with low tries
+    for pat, eff in efficacy_map.items():
+        if (
+            eff.get("status") == "inconclusive"
+            and eff.get("interventions_tried", 0) < 3
+        ):
+            exp = PATTERN_EXPERIMENTS.get(pat, {})
+            proposals.append(
+                ExperimentProposal(
+                    pattern=pat,
+                    title=exp.get("title", pat.replace("_", " ").title()),
+                    description=f"Previous result was inconclusive ({eff.get('avg_effect_size', 0):.1f}% avg effect). Worth retesting with more data.",
+                    rationale=f"Tried {eff.get('interventions_tried', 0)}x with inconclusive results. Another trial may clarify.",
+                    suggested_duration=eff.get("best_duration")
+                    or exp.get("suggested_duration", 7),
+                    source="retest",
+                    confidence=0.4,
+                )
+            )
+
+    # 4. Combination: if 2+ patterns are proven, suggest combining
+    proven = [pat for pat, eff in efficacy_map.items() if eff.get("status") == "proven"]
+    if len(proven) >= 2:
+        names = [
+            PATTERN_EXPERIMENTS.get(p, {}).get("title", p).split(" for ")[0]
+            for p in proven[:2]
+        ]
+        proposals.append(
+            ExperimentProposal(
+                pattern=f"{proven[0]}+{proven[1]}",
+                title=f"Combine: {names[0]} + {names[1]}",
+                description=f"Both interventions work for you individually. Test if combining them produces a stronger effect.",
+                rationale=f"Both {proven[0].replace('_', ' ')} and {proven[1].replace('_', ' ')} are proven effective. Stacking may amplify results.",
+                suggested_duration=10,
+                source="combination",
+                confidence=0.7,
+            )
+        )
+
+    # Sort by confidence descending, filter out disproven
+    disproven = {
+        pat for pat, eff in efficacy_map.items() if eff.get("status") == "disproven"
+    }
+    proposals = [p for p in proposals if p.pattern not in disproven]
+    proposals.sort(key=lambda p: p.confidence, reverse=True)
+
+    return NextExperimentResponse(
+        proposals=proposals[:5],
+        ai_rationale=None,  # Could add AI summary in future
+    )

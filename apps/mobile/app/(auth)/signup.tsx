@@ -38,6 +38,8 @@ export default function SignupScreen() {
         options: { data: { full_name: name.trim() } },
       });
       if (authError) throw authError;
+      // Profile row auto-created by database trigger on auth.users INSERT
+
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       router.replace('/(auth)/onboarding');
     } catch (err: unknown) {

@@ -15,7 +15,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 import anthropic
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from common.middleware.auth import get_current_user
@@ -477,10 +477,18 @@ class Agent:
                     "conversation. Do NOT include the user's full name in your response — use "
                     "first name only. All recommendations must include a medical disclaimer."
                 )
+                # Inject closed-loop context (active experiments, proven patterns, etc.)
+                loop_ctx = ""
+                try:
+                    loop_ctx = await get_loop_context(self.user_id)  # type: ignore[attr-defined]
+                except Exception:
+                    pass
+
                 system_prompt = (
                     f"{system_prompt}{privacy_preamble}"
                     f"\n\nUser Health Profile:\n{context_summary}"
                     f"{personalization}"
+                    f"{loop_ctx}"
                 )
 
         # Build messages array — only user/assistant roles (no system role)
@@ -543,14 +551,18 @@ class Agent:
             lab_strs = []
             for l in context["lab_results"][:15]:
                 if l.get("ai_summary"):
-                    lab_strs.append(f"{l.get('test', '')} ({l.get('date', '')}): {l['ai_summary'][:150]}")
+                    lab_strs.append(
+                        f"{l.get('test', '')} ({l.get('date', '')}): {l['ai_summary'][:150]}"
+                    )
                 else:
                     biomarker = l.get("biomarker", l.get("test", ""))
                     val = l.get("value", "")
                     unit = l.get("unit", "")
                     status = l.get("status", "")
                     date = l.get("date", "")
-                    status_str = f" [{status}]" if status and status.lower() != "normal" else ""
+                    status_str = (
+                        f" [{status}]" if status and status.lower() != "normal" else ""
+                    )
                     lab_strs.append(f"{biomarker}: {val} {unit}{status_str} ({date})")
             parts.append(f"Recent lab results: {'; '.join(lab_strs)}")
 
@@ -638,9 +650,7 @@ class Agent:
                         f"{mt}: {val_str} ({info.get('source', '?')}, {info.get('latest_date', '')})"
                     )
             if whd_strs:
-                parts.append(
-                    f"Latest wearable health data: {'; '.join(whd_strs[:12])}"
-                )
+                parts.append(f"Latest wearable health data: {'; '.join(whd_strs[:12])}")
 
         # --- Health metric summaries (averages, trends, anomalies) ---
         if context.get("health_summaries"):
@@ -661,17 +671,11 @@ class Agent:
                     s += f", trend={trend}"
                     summary_strs.append(s)
                 if info.get("anomalous") and info.get("anomaly"):
-                    anomaly_strs.append(
-                        f"{mt}: {info['anomaly']}"
-                    )
+                    anomaly_strs.append(f"{mt}: {info['anomaly']}")
             if summary_strs:
-                parts.append(
-                    f"Health metric summaries: {'; '.join(summary_strs)}"
-                )
+                parts.append(f"Health metric summaries: {'; '.join(summary_strs)}")
             if anomaly_strs:
-                parts.append(
-                    f"HEALTH ANOMALIES DETECTED: {'; '.join(anomaly_strs)}"
-                )
+                parts.append(f"HEALTH ANOMALIES DETECTED: {'; '.join(anomaly_strs)}")
 
         # --- Prior AI insights ---
         if context.get("recent_insights"):
@@ -1170,20 +1174,24 @@ async def _get_user_context(
                     biomarkers = []
             if isinstance(biomarkers, list):
                 for b in biomarkers:
-                    lab_entries.append({
-                        "test": l.get("test_type"),
-                        "biomarker": b.get("name"),
-                        "value": b.get("value"),
-                        "unit": b.get("unit"),
-                        "status": b.get("status", "unknown"),
-                        "date": (l.get("test_date") or "")[:10],
-                    })
+                    lab_entries.append(
+                        {
+                            "test": l.get("test_type"),
+                            "biomarker": b.get("name"),
+                            "value": b.get("value"),
+                            "unit": b.get("unit"),
+                            "status": b.get("status", "unknown"),
+                            "date": (l.get("test_date") or "")[:10],
+                        }
+                    )
             if l.get("ai_summary"):
-                lab_entries.append({
-                    "test": l.get("test_type"),
-                    "ai_summary": l.get("ai_summary"),
-                    "date": (l.get("test_date") or "")[:10],
-                })
+                lab_entries.append(
+                    {
+                        "test": l.get("test_type"),
+                        "ai_summary": l.get("ai_summary"),
+                        "date": (l.get("test_date") or "")[:10],
+                    }
+                )
         context["lab_results"] = lab_entries
 
     # --- Recent meal logs (last 7) ---
@@ -1727,3 +1735,370 @@ async def update_action(
 
     # Return updated action
     return await list_actions(current_user, None)
+
+
+# ============================================================================
+# SPECIALIST AGENT ENDPOINTS — condition-based agent lookup + journey proposal
+# ============================================================================
+
+
+@router.get("/specialists")
+async def list_specialists():
+    """List all available specialist agents."""
+    from ..agents.specialist_configs import list_all_specialists
+
+    return {"specialists": list_all_specialists()}
+
+
+@router.get("/specialist/{condition}")
+async def get_specialist(condition: str):
+    """Get the most relevant specialist agent for a given condition."""
+    from ..agents.specialist_configs import (
+        get_specialist_for_condition,
+        get_specialist_for_goal,
+    )
+
+    agent = get_specialist_for_condition(condition) or get_specialist_for_goal(
+        condition
+    )
+    if not agent:
+        raise HTTPException(
+            status_code=404, detail=f"No specialist found for: {condition}"
+        )
+    return {
+        "agent_type": agent["agent_type"],
+        "agent_name": agent["agent_name"],
+        "specialty": agent["specialty"],
+        "description": agent["description"],
+        "conditions": agent["conditions"],
+        "capabilities": agent["capabilities"],
+        "tracked_metrics": agent["tracked_metrics"],
+    }
+
+
+@router.get("/specialist/{condition}/journey-template")
+async def get_journey_template(condition: str):
+    """Get a pre-built journey template for a condition/goal."""
+    from ..agents.journey_templates import get_template, list_available_templates
+
+    template = get_template(condition)
+    if not template:
+        return {"template": None, "available": list_available_templates()}
+    return {"template": template}
+
+
+@router.post("/specialist/propose-journey")
+async def propose_journey(
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Have a specialist agent propose a personalized journey based on user's condition
+    and current health data. Returns a journey proposal ready for user approval.
+    """
+    from ..agents.specialist_configs import (
+        get_specialist_for_condition,
+        get_specialist_for_goal,
+    )
+    from ..agents.journey_templates import get_template
+
+    body = await request.json()
+    condition = body.get("condition", "")
+    goal_type = body.get("goal_type", "")
+
+    # Find specialist
+    agent = get_specialist_for_condition(condition) or get_specialist_for_goal(
+        goal_type
+    )
+    if not agent:
+        raise HTTPException(
+            status_code=404, detail="No specialist found for this condition/goal"
+        )
+
+    # Find template
+    template = get_template(condition) or get_template(goal_type)
+    if not template:
+        return {
+            "specialist": agent["agent_name"],
+            "proposal": None,
+            "message": f"No pre-built journey template for '{condition or goal_type}'. "
+            f"Your {agent['agent_name']} can design a custom journey through chat.",
+        }
+
+    return {
+        "specialist": agent["agent_name"],
+        "specialty": agent["specialty"],
+        "proposal": {
+            "title": template["title"],
+            "goal_type": template["goal_type"],
+            "duration_type": template["duration_type"],
+            "specialist_agent_id": agent["agent_type"],
+            "target_metrics": template["target_metrics"],
+            "phases": template["phases"],
+            "total_phases": len(template["phases"]),
+        },
+    }
+
+
+# ============================================================================
+# MULTI-AGENT CONSULTATION
+# ============================================================================
+
+
+class ConsultRequest(BaseModel):
+    primary_agent: str  # agent_type of the lead agent
+    consulting_agents: List[str]  # agent_types to consult
+    question: str
+    user_context: Optional[Dict[str, Any]] = None
+
+
+class AgentPerspective(BaseModel):
+    agent_type: str
+    agent_name: str
+    specialty: str
+    response: str
+
+
+class ConsultResponse(BaseModel):
+    primary_response: str
+    perspectives: List[AgentPerspective]
+    synthesis: str
+
+
+@router.post("/consult", response_model=ConsultResponse)
+async def multi_agent_consult(
+    body: ConsultRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Multi-agent consultation: primary agent frames a question, consulting
+    agents each provide their specialist perspective, then primary synthesizes.
+
+    Use case: PCOS patient with anxiety → Endocrinologist consults Behavioral Health.
+    """
+    from ..agents.specialist_configs import SPECIALIST_AGENTS
+
+    api_key = _get_anthropic_key()
+    if not api_key:
+        raise HTTPException(status_code=503, detail="AI service unavailable")
+
+    # Resolve agents
+    primary = SPECIALIST_AGENTS.get(body.primary_agent)
+    if not primary:
+        raise HTTPException(
+            status_code=404, detail=f"Primary agent '{body.primary_agent}' not found"
+        )
+
+    consultants = []
+    for agent_type in body.consulting_agents[:3]:  # max 3 consultants
+        agent = SPECIALIST_AGENTS.get(agent_type)
+        if agent:
+            consultants.append(agent)
+
+    if not consultants:
+        raise HTTPException(
+            status_code=400, detail="No valid consulting agents specified"
+        )
+
+    # Build user context string
+    context_str = ""
+    if body.user_context:
+        ctx = body.user_context
+        parts = []
+        if ctx.get("conditions"):
+            parts.append(f"Health conditions: {', '.join(ctx['conditions'])}")
+        if ctx.get("active_experiment"):
+            parts.append(f"Active experiment: {ctx['active_experiment']}")
+        if ctx.get("proven_patterns"):
+            parts.append(f"Proven effective: {', '.join(ctx['proven_patterns'])}")
+        if ctx.get("current_metrics"):
+            metrics = ctx["current_metrics"]
+            parts.append(
+                f"Current metrics: {', '.join(f'{k}={v}' for k, v in metrics.items() if v is not None)}"
+            )
+        if parts:
+            context_str = "\n\nUser Context:\n" + "\n".join(f"- {p}" for p in parts)
+
+    client = anthropic.Anthropic(api_key=api_key)
+    model = os.environ.get("ANTHROPIC_MODEL", _DEFAULT_MODEL)
+
+    # Step 1: Get perspective from each consulting agent
+    perspectives: List[AgentPerspective] = []
+    for consultant in consultants:
+        try:
+            consult_prompt = f"""You are a {consultant['specialty']} specialist. A {primary['specialty']} specialist is asking for your perspective on a patient question.
+
+Question from {primary['agent_name']}: {body.question}
+{context_str}
+
+Provide your specialist perspective in 2-3 sentences. Focus on what's relevant to your domain. Be specific and actionable."""
+
+            resp = client.messages.create(
+                model=model,
+                max_tokens=300,
+                messages=[{"role": "user", "content": consult_prompt}],
+            )
+            text = resp.content[0].text.strip()
+            perspectives.append(
+                AgentPerspective(
+                    agent_type=consultant["agent_type"],
+                    agent_name=consultant["agent_name"],
+                    specialty=consultant["specialty"],
+                    response=text,
+                )
+            )
+        except Exception as exc:
+            logger.warning(
+                "Consultation with %s failed: %s", consultant["agent_type"], exc
+            )
+            perspectives.append(
+                AgentPerspective(
+                    agent_type=consultant["agent_type"],
+                    agent_name=consultant["agent_name"],
+                    specialty=consultant["specialty"],
+                    response=f"[Consultation unavailable: {consultant['agent_name']}]",
+                )
+            )
+
+    # Step 2: Primary agent synthesizes all perspectives
+    perspective_text = "\n\n".join(
+        f"**{p.agent_name} ({p.specialty}):** {p.response}" for p in perspectives
+    )
+
+    synthesis_prompt = f"""{primary['system_prompt']}
+
+A patient asked: {body.question}
+{context_str}
+
+You consulted with the following specialists:
+
+{perspective_text}
+
+Synthesize these perspectives into a unified recommendation. Address the patient directly. Include the key insight from each specialist where relevant. Keep it to 3-5 sentences. Be specific and actionable."""
+
+    try:
+        synth_resp = client.messages.create(
+            model=model,
+            max_tokens=500,
+            messages=[{"role": "user", "content": synthesis_prompt}],
+        )
+        synthesis = synth_resp.content[0].text.strip()
+        primary_response = synthesis
+    except Exception as exc:
+        logger.warning("Synthesis failed: %s", exc)
+        synthesis = "Unable to synthesize perspectives. Please review individual specialist responses."
+        primary_response = synthesis
+
+    return ConsultResponse(
+        primary_response=primary_response,
+        perspectives=perspectives,
+        synthesis=synthesis,
+    )
+
+
+# ============================================================================
+# LOOP-AWARE CONTEXT — inject experiment/efficacy data into agent conversations
+# ============================================================================
+
+
+async def get_loop_context(user_id: str) -> str:
+    """
+    Build a context block with the user's closed-loop state for injection
+    into any agent conversation. Returns a formatted string.
+    """
+    parts: List[str] = []
+
+    # Active experiment
+    active_rows = await _supabase_get(
+        "active_interventions",
+        f"user_id=eq.{user_id}&status=eq.active&limit=1",
+    )
+    if active_rows:
+        exp = active_rows[0]
+        days_elapsed = 0
+        try:
+            from datetime import datetime as _dt, timezone as _tz
+
+            started = _dt.fromisoformat(exp["started_at"].replace("Z", "+00:00"))
+            days_elapsed = (_dt.now(_tz.utc) - started).days
+        except Exception:
+            pass
+        parts.append(
+            f"ACTIVE EXPERIMENT: \"{exp.get('title', '')}\" — day {days_elapsed} of {exp.get('duration_days', '?')}, "
+            f"{exp.get('adherence_days', 0)} days adherent, pattern: {exp.get('recommendation_pattern', '?')}"
+        )
+
+    # Active journey
+    journey_rows = await _supabase_get(
+        "goal_journeys",
+        f"user_id=eq.{user_id}&status=eq.active&limit=1",
+    )
+    if journey_rows:
+        j = journey_rows[0]
+        phases = j.get("phases") or []
+        current = j.get("current_phase", 0)
+        phase_name = phases[current].get("name", "") if current < len(phases) else ""
+        parts.append(
+            f"ACTIVE JOURNEY: \"{j.get('title', '')}\" — phase {current + 1}/{len(phases)} ({phase_name}), "
+            f"condition: {j.get('condition', 'none')}"
+        )
+
+    # Proven patterns from efficacy
+    efficacy_rows = await _supabase_get(
+        "user_efficacy_profile",
+        f"user_id=eq.{user_id}&status=eq.proven",
+    )
+    if efficacy_rows:
+        proven = [
+            f"{r['pattern'].replace('_', ' ')} (+{r.get('avg_effect_size', 0):.0f}%)"
+            for r in efficacy_rows
+        ]
+        parts.append(f"PROVEN EFFECTIVE: {', '.join(proven)}")
+
+    disproven_rows = await _supabase_get(
+        "user_efficacy_profile",
+        f"user_id=eq.{user_id}&status=eq.disproven",
+    )
+    if disproven_rows:
+        disproven = [r["pattern"].replace("_", " ") for r in disproven_rows]
+        parts.append(f"NOT EFFECTIVE: {', '.join(disproven)}")
+
+    # Recent completed experiments (last 30 days)
+    from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+
+    cutoff = (_dt.now(_tz.utc) - _td(days=30)).isoformat()
+    recent_rows = await _supabase_get(
+        "active_interventions",
+        f"user_id=eq.{user_id}&status=in.(completed,habit_adopted)&updated_at=gte.{cutoff}&order=updated_at.desc&limit=3",
+    )
+    if recent_rows:
+        recent = []
+        for r in recent_rows:
+            delta = r.get("outcome_delta") or {}
+            top_changes = sorted(delta.items(), key=lambda x: abs(x[1]), reverse=True)[
+                :2
+            ]
+            changes_str = ", ".join(
+                f"{m.replace('_', ' ')}: {v:+.0f}%" for m, v in top_changes
+            )
+            recent.append(f"\"{r.get('title', '')}\" ({changes_str})")
+        parts.append(f"RECENT RESULTS: {'; '.join(recent)}")
+
+    if not parts:
+        return ""
+
+    return (
+        "\n\n--- PERSONAL HEALTH LOOP CONTEXT ---\n"
+        + "\n".join(f"• {p}" for p in parts)
+        + "\n--- END LOOP CONTEXT ---\n"
+    )
+
+
+@router.get("/loop-context")
+async def get_loop_context_endpoint(
+    current_user: dict = Depends(get_current_user),
+):
+    """Get the current loop context for debugging/preview."""
+    user_id = current_user["id"]
+    context = await get_loop_context(user_id)
+    return {"context": context}
