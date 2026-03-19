@@ -361,11 +361,13 @@ export default function HomeScreen() {
     staleTime: 5 * 60 * 1000,
   });
 
-  const healthScore = data?.health_score?.score ?? null;
-  const healthTrend = data?.health_score?.trend;
-  const insights: AIInsight[] = Array.isArray(data?.insights)
-    ? data.insights
-    : (data?.insights?.insights ?? []);
+  const batchResources = data?.resources ?? data;
+  const healthScore = batchResources?.health_score?.score ?? null;
+  if (__DEV__ && data) console.log('[Home] batch health_score:', JSON.stringify(batchResources?.health_score)?.slice(0, 100));
+  const healthTrend = batchResources?.health_score?.trend;
+  const insights: AIInsight[] = Array.isArray(batchResources?.insights)
+    ? batchResources.insights
+    : (batchResources?.insights?.insights ?? []);
   const hasAnyData = healthScore !== null || insights.length > 0 || (adherenceData?.total ?? 0) > 0;
   const fullName = (user?.user_metadata?.full_name as string | undefined)
     ?? (user?.user_metadata?.name as string | undefined);
