@@ -508,128 +508,25 @@ async def clinical_search(
     except Exception as e:
         logger.warning("PubMed search failed: %s", e)
 
-    # AI synthesis with treatment report
-    prompt = f"""You are a clinical research analyst for {first_name}.
+    # Phase 1: Fast AI synthesis (plain text, no JSON — renders immediately)
+    synthesis_prompt = f"""You are a clinical research analyst for {first_name}.
 
 QUERY: {body.query}
 
 PATIENT CONTEXT:
 {context_text}
 
-Generate a comprehensive clinical research response. Return ONLY valid JSON (no markdown):
-{{
-  "ai_synthesis": "3-5 sentence synthesis of the latest evidence addressing the query, personalized to this patient. Reference specific guidelines when applicable.",
-  "treatment_report": {{
-    "condition": "the condition being researched",
-    "guidelines_referenced": ["ADA 2026", "ACC/AHA 2023"],
-    "treatment_options": [
-      {{
-        "name": "Treatment name",
-        "type": "medication|procedure|lifestyle|supplement",
-        "evidence_level": "strong|moderate|limited",
-        "efficacy": "Specific efficacy data (e.g., A1C reduction 0.5-1.0%)",
-        "guideline_position": "First-line per ADA 2026",
-        "side_effects": "Common side effects",
-        "compatibility": "Compatible with current meds / Interaction concern",
-        "notes": "Personalized note for this patient"
-      }}
-    ],
-    "doctor_questions": [
-      "Specific, guideline-informed question for the doctor"
-    ],
-    "disclaimer": "This is not medical advice. Discuss all findings with your healthcare provider."
-  }},
-  "drugs_mentioned": [
-    {{
-      "name": "Drug name",
-      "drug_class": "Class",
-      "mechanism": "Plain language mechanism",
-      "approved_indications": ["indication1"],
-      "efficacy_summary": "Key efficacy data",
-      "side_effects": {{"common": ["nausea", "headache"], "serious": ["pancreatitis"]}},
-      "interactions_with_user_meds": ["interaction with X"],
-      "cost_range": "$10-50/month generic",
-      "guideline_position": "First-line per [authority]"
-    }}
-  ]
-}}
+Write a 3-5 sentence evidence-based synthesis addressing this query, personalized to this patient.
+Reference specific clinical practice guidelines (ADA, ACC/AHA, NCCN, etc.) with year.
+Mention relevant drug interactions with the patient's current medications.
+Be specific with efficacy numbers. Return ONLY the synthesis text, no JSON."""
 
-Rules:
-- Reference specific clinical practice guidelines with year
-- Rank treatment options by evidence strength
-- Check drug interactions against patient's current medications
-- Be specific with efficacy numbers
-- Maximum 3 treatment options, 2 drugs, 3 doctor questions
-- Keep responses concise"""
-
-    raw = await _call_claude(prompt, max_tokens=2000)
-
-    # Parse response — robust JSON extraction
-    parsed = None
-    try:
-        # Strip markdown fences
-        clean = raw
-        if "```json" in clean:
-            clean = clean[clean.find("```json") + 7 :]
-            if "```" in clean:
-                clean = clean[: clean.find("```")]
-        elif "```" in clean:
-            clean = clean[clean.find("```") + 3 :]
-            if "```" in clean:
-                clean = clean[: clean.find("```")]
-        clean = clean.strip()
-
-        # Find the outermost JSON object
-        if clean.startswith("{"):
-            # Try to find matching closing brace
-            depth = 0
-            end_idx = -1
-            for i, ch in enumerate(clean):
-                if ch == "{":
-                    depth += 1
-                elif ch == "}":
-                    depth -= 1
-                    if depth == 0:
-                        end_idx = i
-                        break
-            if end_idx > 0:
-                parsed = json.loads(clean[: end_idx + 1])
-            else:
-                parsed = json.loads(clean)
-        else:
-            parsed = json.loads(clean)
-    except (json.JSONDecodeError, ValueError):
-        logger.warning("Failed to parse clinical search JSON, using raw text")
-
-    if not parsed:
-        # Extract ai_synthesis from raw text if JSON failed
-        synthesis = raw
-        if '"ai_synthesis"' in synthesis:
-            try:
-                start = synthesis.find('"ai_synthesis"')
-                # Find the value after the key
-                colon = synthesis.find(":", start)
-                quote1 = synthesis.find('"', colon + 1)
-                quote2 = synthesis.find('"', quote1 + 1)
-                # Handle escaped quotes
-                while quote2 > 0 and synthesis[quote2 - 1] == "\\":
-                    quote2 = synthesis.find('"', quote2 + 1)
-                if quote1 > 0 and quote2 > 0:
-                    synthesis = synthesis[quote1 + 1 : quote2]
-            except Exception:
-                synthesis = raw[:500]
-        else:
-            synthesis = raw[:500] if raw else "Unable to generate synthesis."
-        parsed = {
-            "ai_synthesis": synthesis,
-            "treatment_report": None,
-            "drugs_mentioned": [],
-        }
+    ai_synthesis = await _call_claude(synthesis_prompt, max_tokens=600)
 
     return {
-        "ai_synthesis": parsed.get("ai_synthesis", ""),
-        "treatment_report": parsed.get("treatment_report"),
-        "drugs_mentioned": parsed.get("drugs_mentioned", []),
+        "ai_synthesis": ai_synthesis,
+        "treatment_report": None,
+        "drugs_mentioned": [],
         "articles": [
             {
                 "title": a.get("title", ""),
@@ -643,6 +540,87 @@ Rules:
         if articles
         else [],
     }
+
+
+@router.post("/clinical-search/details")
+async def clinical_search_details(
+    body: ClinicalSearchRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """Phase 2: Structured treatment options, drug profiles, and doctor questions."""
+    user_id = current_user["id"]
+    ctx = await _gather_research_context(user_id)
+    context_text = _format_context(ctx)
+    first_name = ctx.get("first_name") or "there"
+
+    prompt = f"""You are a clinical research analyst for {first_name}.
+
+QUERY: {body.query}
+
+PATIENT CONTEXT:
+{context_text}
+
+Return ONLY valid JSON (no markdown fences, no extra text):
+{{
+  "treatment_report": {{
+    "condition": "condition",
+    "guidelines_referenced": ["guideline1"],
+    "treatment_options": [
+      {{"name": "Treatment", "type": "medication", "evidence_level": "strong", "efficacy": "data", "guideline_position": "First-line per X", "side_effects": "effects", "compatibility": "status", "notes": "personalized note"}}
+    ],
+    "doctor_questions": ["question1", "question2", "question3"]
+  }},
+  "drugs_mentioned": [
+    {{"name": "Drug", "drug_class": "class", "mechanism": "how it works", "approved_indications": ["indication"], "efficacy_summary": "data", "side_effects": {{"common": ["effect"], "serious": ["effect"]}}, "interactions_with_user_meds": [], "cost_range": "range", "guideline_position": "position"}}
+  ]
+}}
+
+Rules: max 3 treatment options, 2 drugs, 3 doctor questions. Be concise. Reference guidelines."""
+
+    raw = await _call_claude(prompt, max_tokens=2000)
+
+    parsed = _parse_json_robust(raw)
+    if not parsed:
+        parsed = {"treatment_report": None, "drugs_mentioned": []}
+
+    return {
+        "treatment_report": parsed.get("treatment_report"),
+        "drugs_mentioned": parsed.get("drugs_mentioned", []),
+    }
+
+
+def _parse_json_robust(raw: str) -> Optional[Dict[str, Any]]:
+    """Robust JSON extraction from Claude response."""
+    try:
+        clean = raw
+        if "```json" in clean:
+            clean = clean[clean.find("```json") + 7 :]
+            if "```" in clean:
+                clean = clean[: clean.find("```")]
+        elif "```" in clean:
+            clean = clean[clean.find("```") + 3 :]
+            if "```" in clean:
+                clean = clean[: clean.find("```")]
+        clean = clean.strip()
+
+        if clean.startswith("{"):
+            depth = 0
+            end_idx = -1
+            for i, ch in enumerate(clean):
+                if ch == "{":
+                    depth += 1
+                elif ch == "}":
+                    depth -= 1
+                    if depth == 0:
+                        end_idx = i
+                        break
+            if end_idx > 0:
+                return json.loads(clean[: end_idx + 1])
+            return json.loads(clean)
+        return json.loads(clean)
+    except (json.JSONDecodeError, ValueError):
+        logger.warning("JSON parse failed: %s", raw[:100])
+        return None
 
 
 @router.get("/drug-profile/{drug_name}")

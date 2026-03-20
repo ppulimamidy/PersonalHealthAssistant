@@ -180,23 +180,32 @@ export default function ClinicalResearchScreen() {
     setError(null);
     setResult(null);
     try {
-      const [searchResp, trialsResp] = await Promise.allSettled([
-        api.post('/api/v1/research/clinical-search', { query: searchQuery, search_type: 'all' }, { timeout: 90_000 }),
-        api.get('/api/v1/research/trials', { params: { condition: searchQuery, max_results: 5 }, timeout: 15_000 }),
-      ]);
-      if (__DEV__) {
-        console.log('[Research] search:', searchResp.status, searchResp.status === 'rejected' ? (searchResp as any).reason?.message : '');
-        console.log('[Research] trials:', trialsResp.status);
-      }
-      if (searchResp.status === 'fulfilled') {
-        setResult(searchResp.value.data);
-      } else {
-        setError('Research search timed out or failed. Try a shorter query.');
-      }
-      if (trialsResp.status === 'fulfilled') setTrials(trialsResp.value.data?.trials ?? []);
+      // Phase 1: Fast synthesis (renders immediately)
+      const { data: synthData } = await api.post(
+        '/api/v1/research/clinical-search',
+        { query: searchQuery, search_type: 'all' },
+        { timeout: 60_000 },
+      );
+      setResult(synthData);
+      setSearching(false); // Show synthesis immediately
+
+      // Phase 2: Detailed treatment options + drug profiles (loads in background)
+      try {
+        const [detailsResp, trialsResp] = await Promise.allSettled([
+          api.post('/api/v1/research/clinical-search/details', { query: searchQuery }, { timeout: 90_000 }),
+          api.get('/api/v1/research/trials', { params: { condition: searchQuery, max_results: 5 }, timeout: 15_000 }),
+        ]);
+        if (detailsResp.status === 'fulfilled') {
+          setResult((prev) => prev ? {
+            ...prev,
+            treatment_report: detailsResp.value.data?.treatment_report ?? prev.treatment_report,
+            drugs_mentioned: detailsResp.value.data?.drugs_mentioned ?? prev.drugs_mentioned,
+          } : prev);
+        }
+        if (trialsResp.status === 'fulfilled') setTrials(trialsResp.value.data?.trials ?? []);
+      } catch { /* details are bonus, synthesis already shown */ }
     } catch (e: any) {
       setError(e?.message ?? 'Search failed. Please try again.');
-    } finally {
       setSearching(false);
     }
   }
