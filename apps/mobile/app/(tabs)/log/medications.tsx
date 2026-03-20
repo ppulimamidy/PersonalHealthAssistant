@@ -9,6 +9,9 @@ import { router } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { api } from '@/services/api';
 import type { Medication } from '@/types';
+import TreatmentOverviewCard from '@/components/TreatmentOverviewCard';
+import InteractionAlertCard from '@/components/InteractionAlertCard';
+import MedScheduleCard from '@/components/MedScheduleCard';
 
 // ─── Lab Evidence Badge ──────────────────────────────────────────────────────
 
@@ -446,6 +449,40 @@ export default function MedicationsScreen() {
     },
   });
 
+  // Intelligence queries
+  const { data: treatmentOverview } = useQuery({
+    queryKey: ['treatment-overview'],
+    queryFn: async () => {
+      try {
+        const { data } = await api.get('/api/v1/med-intelligence/treatment-overview');
+        return data;
+      } catch { return null; }
+    },
+    staleTime: 2 * 60_000,
+  });
+
+  const { data: interactions } = useQuery({
+    queryKey: ['med-interactions'],
+    queryFn: async () => {
+      try {
+        const { data } = await api.get('/api/v1/med-intelligence/interactions');
+        return data;
+      } catch { return null; }
+    },
+    staleTime: 5 * 60_000,
+  });
+
+  const { data: scheduleData } = useQuery({
+    queryKey: ['med-schedule'],
+    queryFn: async () => {
+      try {
+        const { data } = await api.get('/api/v1/med-intelligence/schedule');
+        return data;
+      } catch { return null; }
+    },
+    staleTime: 10 * 60_000,
+  });
+
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.delete(`/api/v1/medications/medications/${id}`),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['medications'] }),
@@ -527,6 +564,33 @@ export default function MedicationsScreen() {
           contentContainerStyle={{ padding: 16, paddingTop: 4, paddingBottom: 40 }}
           refreshControl={<RefreshControl refreshing={isLoading} onRefresh={refetch} tintColor="#00D4AA" />}
         >
+          {/* Treatment Intelligence */}
+          {treatmentOverview && (
+            <TreatmentOverviewCard
+              adherence={treatmentOverview.adherence ?? { rate_pct: 0, taken_today: 0, total_today: 0 }}
+              labValidation={treatmentOverview.lab_validation ?? { improving: 0, monitoring: 0 }}
+              supplementGaps={treatmentOverview.supplement_gaps ?? 0}
+              interactionAlerts={treatmentOverview.interaction_alerts ?? 0}
+              aiSummary={treatmentOverview.ai_summary ?? ''}
+            />
+          )}
+
+          {interactions && (
+            <InteractionAlertCard
+              drugNutrient={interactions.drug_nutrient ?? []}
+              drugFood={interactions.drug_food ?? []}
+              drugDrug={interactions.drug_drug ?? []}
+              onAddSupplement={(nutrient) => router.push('/(tabs)/log/new-medication')}
+            />
+          )}
+
+          {scheduleData?.schedule?.length > 0 && (
+            <MedScheduleCard
+              schedule={scheduleData.schedule}
+              supplementInteractions={scheduleData.supplement_interactions ?? []}
+            />
+          )}
+
           {saveError ? (
             <View className="bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-3 mb-3">
               <Text className="text-red-400 text-sm">{saveError}</Text>
