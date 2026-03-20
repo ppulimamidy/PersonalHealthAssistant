@@ -31,6 +31,7 @@ ALL_RESOURCES = {
     "health_score",
     "trajectory",
     "timeline",
+    "timeline_actions",
     "insights",
     "metric_deltas",
     "correlated_insights",
@@ -107,6 +108,14 @@ async def _fetch_correlated_insights(user: dict) -> Any:
     return await get_correlated_insights(current_user=user)
 
 
+async def _fetch_timeline_actions(user: dict, days: int) -> Any:
+    from .timeline_actions import (  # pylint: disable=import-outside-toplevel
+        get_timeline_actions,
+    )
+
+    return await get_timeline_actions(days=days, current_user=user)
+
+
 # ---------------------------------------------------------------------------
 # Batch endpoint
 # ---------------------------------------------------------------------------
@@ -169,6 +178,8 @@ async def batch_fetch(
         keys.append(resource)
         if resource == "timeline":
             coros.append(_fetch_timeline(current_user, days, since_timestamp))
+        elif resource == "timeline_actions":
+            coros.append(_fetch_timeline_actions(current_user, days))
         elif resource in _FETCHERS:
             coros.append(_FETCHERS[resource](current_user))
 

@@ -505,16 +505,23 @@ class FoodRecognitionService:
 
         prompt = """Analyze this food image and identify all food items present.
 Return ONLY a valid JSON array with each food item containing:
-- name: the food name (string, be specific e.g. "grilled salmon" not just "fish")
+- name: a specific, descriptive food name (string). Include visual details:
+  cooking method (grilled, fried, steamed), ripeness/color, and preparation style.
+  Examples: "ripe banana", "fried chicken nuggets", "steamed white rice", "sliced whole wheat bread"
+- quantity: how many of this item are visible (number, e.g. 2 for two bananas, 4 for four nuggets, 1 for a plate of rice)
+- unit: the most natural unit for this food (string). Use: "pieces" (bananas, eggs), "nuggets" (chicken nuggets),
+  "slices" (bread, pizza), "cups" (rice, soup), "bowl" (soup, oatmeal), "patty" (burgers),
+  "fillet" (fish), "wing" (chicken wings), "strip" (bacon), "serving" (mixed dishes), or "g" (grams) for loose items
 - confidence: confidence score (number 0-1)
-- description: brief description (string)
+- description: brief description of what you see (string)
 - category: food category (one of: protein, vegetable, grain, fruit, dairy, beverage, condiment, other)
 
-Identify every distinct food item visible. Be precise — name dishes and ingredients specifically.
-Return the JSON array only, no markdown fences or extra text.
+IMPORTANT: Count discrete items carefully. If you see 2 bananas, return quantity 2. If you see 4 nuggets, return quantity 4.
+For plated foods like rice or pasta, estimate in cups or servings.
+Identify every distinct food item visible. Return the JSON array only, no markdown fences or extra text.
 
 Example:
-[{"name": "grilled salmon", "confidence": 0.95, "description": "Salmon fillet with grill marks", "category": "protein"}]"""
+[{"name": "ripe banana", "quantity": 2, "unit": "pieces", "confidence": 0.95, "description": "Two ripe yellow bananas", "category": "fruit"}, {"name": "fried chicken nuggets", "quantity": 4, "unit": "nuggets", "confidence": 0.90, "description": "Four golden-brown breaded chicken nuggets", "category": "protein"}]"""
 
         result = await client.messages.create(
             model="claude-sonnet-4-6",
@@ -551,15 +558,19 @@ Example:
         if isinstance(food_data, list):
             for item in food_data:
                 if isinstance(item, dict):
-                    food_items.append(
-                        {
-                            "name": item.get("name", "unknown"),
-                            "confidence": item.get("confidence", 0.8),
-                            "description": item.get("description", ""),
-                            "category": item.get("category", "other"),
-                            "model_used": "anthropic_vision",
-                        }
-                    )
+                    entry = {
+                        "name": item.get("name", "unknown"),
+                        "confidence": item.get("confidence", 0.8),
+                        "description": item.get("description", ""),
+                        "category": item.get("category", "other"),
+                        "model_used": "anthropic_vision",
+                    }
+                    # Carry forward quantity/unit from recognition step
+                    if item.get("quantity") is not None:
+                        entry["quantity"] = float(item["quantity"])
+                    if item.get("unit"):
+                        entry["unit"] = item["unit"]
+                    food_items.append(entry)
 
         if food_items:
             logger.info(f"Anthropic Vision recognized {len(food_items)} food items")
@@ -577,27 +588,21 @@ Example:
         # Convert image to base64
         image_base64 = base64.b64encode(image_bytes).decode("utf-8")
 
-        prompt = """
-        Analyze this food image and identify all food items present.
-        Return ONLY a valid JSON array with each food item containing:
-        - name: the food name (string)
-        - confidence: confidence score (number between 0-1)
-        - description: brief description (string)
-        - category: food category (string: protein, vegetable, grain, fruit, dairy, or other)
+        prompt = """Analyze this food image and identify all food items present.
+Return ONLY a valid JSON array with each food item containing:
+- name: a specific, descriptive food name. Include cooking method, ripeness, or preparation details.
+  Examples: "ripe banana", "fried chicken nuggets", "steamed white rice"
+- quantity: how many of this item are visible (number, e.g. 2 for two bananas, 4 for four nuggets)
+- unit: the most natural unit (pieces, nuggets, slices, cups, bowl, patty, fillet, wing, strip, serving, or g)
+- confidence: confidence score (number 0-1)
+- description: brief description of what you see
+- category: food category (protein, vegetable, grain, fruit, dairy, beverage, condiment, or other)
 
-        Focus on identifying individual food items, not prepared dishes.
-        Return the JSON array directly without any markdown formatting or additional text.
+IMPORTANT: Count discrete items carefully. If you see 2 bananas return quantity 2. For plated foods estimate in cups or servings.
+Return the JSON array directly without any markdown formatting or additional text.
 
-        Example format:
-        [
-          {
-            "name": "chicken",
-            "confidence": 0.95,
-            "description": "Grilled chicken breast",
-            "category": "protein"
-          }
-        ]
-        """
+Example:
+[{"name": "ripe banana", "quantity": 2, "unit": "pieces", "confidence": 0.95, "description": "Two ripe yellow bananas", "category": "fruit"}]"""
 
         response = await client.chat.completions.create(
             model="gpt-4o",
@@ -642,29 +647,26 @@ Example:
 
             # Extract food items from the parsed response
             food_items = []
+            items_list = []
             if isinstance(food_data, list):
-                for item in food_data:
-                    if isinstance(item, dict):
-                        food_items.append(
-                            {
-                                "name": item.get("name", "unknown"),
-                                "confidence": item.get("confidence", 0.5),
-                                "description": item.get("description", ""),
-                                "category": item.get("category", "other"),
-                                "model_used": "openai_vision",
-                            }
-                        )
+                items_list = food_data
             elif isinstance(food_data, dict) and "foods" in food_data:
-                for item in food_data["foods"]:
-                    food_items.append(
-                        {
-                            "name": item.get("name", "unknown"),
-                            "confidence": item.get("confidence", 0.5),
-                            "description": item.get("description", ""),
-                            "category": item.get("category", "other"),
-                            "model_used": "openai_vision",
-                        }
-                    )
+                items_list = food_data["foods"]
+
+            for item in items_list:
+                if isinstance(item, dict):
+                    entry = {
+                        "name": item.get("name", "unknown"),
+                        "confidence": item.get("confidence", 0.5),
+                        "description": item.get("description", ""),
+                        "category": item.get("category", "other"),
+                        "model_used": "openai_vision",
+                    }
+                    if item.get("quantity") is not None:
+                        entry["quantity"] = float(item["quantity"])
+                    if item.get("unit"):
+                        entry["unit"] = item["unit"]
+                    food_items.append(entry)
 
             if food_items:
                 logger.info(
@@ -971,12 +973,25 @@ Example: {{"banana": {{"quantity": 2, "unit": "pieces", "grams": 240}}, "grilled
                 quantity = g_val
                 unit = "g"
             else:
+                # No match from portion estimation — fall back to recognition-step values
+                recog_qty = item.get("quantity", 1)
+                recog_unit = item.get("unit", "g")
                 g_val = 0
-                quantity = 0
-                unit = "g"
+                quantity = float(recog_qty) if recog_qty else 0
+                unit = recog_unit or "g"
 
             if not g_val or g_val <= 0:
-                updated.append(item)
+                # Still carry recognition-step quantity/unit even without gram estimate
+                if item.get("quantity") or item.get("unit"):
+                    updated.append(
+                        {
+                            **item,
+                            "quantity": item.get("quantity", 1),
+                            "unit": item.get("unit", "serving"),
+                        }
+                    )
+                else:
+                    updated.append(item)
                 continue
 
             updated.append(

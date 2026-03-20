@@ -158,9 +158,30 @@ function CorrelationCard({ c }: { c: Correlation }) {
               )}
             </View>
           </View>
-          <View className="flex-row gap-4 mt-2">
-            <Text className="text-[#526380] text-xs">p={c.p_value < 0.001 ? '<0.001' : c.p_value.toFixed(3)}</Text>
-            <Text className="text-[#526380] text-xs">n={c.sample_size}</Text>
+          <View className="flex-row items-center justify-between mt-2">
+            <View className="flex-row gap-4">
+              <Text className="text-[#526380] text-xs">p={c.p_value < 0.001 ? '<0.001' : c.p_value.toFixed(3)}</Text>
+              <Text className="text-[#526380] text-xs">n={c.sample_size}</Text>
+            </View>
+            {c.strength !== 'weak' && (
+              <TouchableOpacity
+                onPress={() => router.push({
+                  pathname: '/(tabs)/home',
+                  params: {
+                    startExperiment: '1',
+                    cause: c.metric_a_label,
+                    effect: c.metric_b_label,
+                    coefficient: String(coeff.toFixed(2)),
+                  },
+                } as never)}
+                className="flex-row items-center gap-1 px-2.5 py-1 rounded-lg"
+                style={{ backgroundColor: '#00D4AA15', borderWidth: 1, borderColor: '#00D4AA30' }}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="flask-outline" size={12} color="#00D4AA" />
+                <Text className="text-[#00D4AA] text-xs font-sansMedium">Test this</Text>
+              </TouchableOpacity>
+            )}
           </View>
         </>
       )}
@@ -188,7 +209,7 @@ const CATEGORY_FILTERS: { value: FilterCategory; label: string }[] = [
 ];
 
 export default function CorrelationsScreen() {
-  const [days, setDays] = useState<14 | 30 | 0>(0);
+  const [days, setDays] = useState<14 | 30 | 0>(14);
   const [viewTab, setViewTab] = useState<ViewTab>('patterns');
   const [filterCat, setFilterCat] = useState<FilterCategory>('all');
 
@@ -353,10 +374,31 @@ export default function CorrelationsScreen() {
         ) : correlations.length === 0 ? (
           <View className="items-center py-16">
             <Ionicons name="git-branch-outline" size={44} color="#526380" />
-            <Text className="text-[#526380] text-base mt-3">No correlations found</Text>
-            <Text className="text-[#526380] text-sm mt-1 text-center">
-              Log nutrition data and connect a wearable to discover patterns
-            </Text>
+            <Text className="text-[#526380] text-base mt-3">No correlations yet</Text>
+            {data && data.nutrition_days_available < 5 ? (
+              <View className="items-center mt-2">
+                <Text className="text-[#526380] text-sm text-center">
+                  Log {5 - data.nutrition_days_available} more day{5 - data.nutrition_days_available !== 1 ? 's' : ''} of meals to unlock food↔health patterns
+                </Text>
+                <View className="flex-row items-center gap-2 mt-3">
+                  <View className="flex-1 h-1.5 bg-surface rounded-full overflow-hidden" style={{ maxWidth: 120 }}>
+                    <View
+                      className="h-full rounded-full bg-[#00D4AA]"
+                      style={{ width: `${(data.nutrition_days_available / 5) * 100}%` }}
+                    />
+                  </View>
+                  <Text className="text-[#526380] text-xs">{data.nutrition_days_available}/5 days</Text>
+                </View>
+              </View>
+            ) : data && data.oura_days_available < 3 ? (
+              <Text className="text-[#526380] text-sm mt-1 text-center">
+                Connect a wearable device to find patterns between your habits and health
+              </Text>
+            ) : (
+              <Text className="text-[#526380] text-sm mt-1 text-center">
+                Keep logging — patterns emerge with more data
+              </Text>
+            )}
           </View>
         ) : (
           correlations.map((c) => <CorrelationCard key={c.id} c={c} />)

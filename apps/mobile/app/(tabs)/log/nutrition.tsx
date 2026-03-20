@@ -19,6 +19,12 @@ import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
 import { format, isToday, isYesterday } from 'date-fns';
 import { api } from '@/services/api';
+import DailyProgressCard from '@/components/DailyProgressCard';
+import NutritionInsightCard from '@/components/NutritionInsightCard';
+import ProactiveSuggestionCard from '@/components/ProactiveSuggestionCard';
+import InlineNutritionChat from '@/components/InlineNutritionChat';
+import SwapSheet from '@/components/SwapSheet';
+import { router } from 'expo-router';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -74,6 +80,10 @@ interface FoodItem {
   portion_g: number;
   quantity?: number;
   unit?: PortionUnit;
+  calories?: number;
+  protein_g?: number;
+  carbs_g?: number;
+  fat_g?: number;
 }
 
 interface RecognizedFood {
@@ -132,7 +142,7 @@ function PhotoScanModal({
 }: {
   visible: boolean;
   onClose: () => void;
-  onSaved: () => void;
+  onSaved: (mealType?: string, foodItems?: any[]) => void;
 }) {
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [mealType, setMealType] = useState<MealType>(inferMealType());
@@ -264,8 +274,18 @@ function PhotoScanModal({
         logged_at: new Date().toISOString(),
       });
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      const savedFoods = validFoods.map((f) => ({
+        name: f.name.trim(),
+        portion_g: Number(f.portion_g) || 100,
+        quantity: f.quantity ?? f.portion_g,
+        unit: f.unit ?? 'g',
+        calories: f.calories ?? 0,
+        protein_g: f.protein_g ?? 0,
+        carbs_g: f.carbs_g ?? 0,
+        fat_g: f.fat_g ?? 0,
+      }));
       reset();
-      onSaved();
+      onSaved(mealType, savedFoods);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to log meal');
     } finally {
@@ -471,7 +491,7 @@ function LogMealModal({
 }: {
   visible: boolean;
   onClose: () => void;
-  onSaved: () => void;
+  onSaved: (mealType?: string, foodItems?: any[]) => void;
 }) {
   const [mealType, setMealType] = useState<MealType>(inferMealType());
   const [mealName, setMealName] = useState('');
@@ -524,8 +544,14 @@ function LogMealModal({
         logged_at: new Date().toISOString(),
       });
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      const savedFoods = validFoods.map((f) => ({
+        name: f.name.trim(),
+        portion_g: Number(f.portion_g) || 100,
+        quantity: f.quantity ?? f.portion_g,
+        unit: f.unit ?? 'g',
+      }));
       reset();
-      onSaved();
+      onSaved(mealType, savedFoods);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to log meal');
     } finally {
@@ -723,6 +749,11 @@ export default function NutritionScreen() {
   const queryClient = useQueryClient();
   const [showManual, setShowManual] = useState(false);
   const [showScan, setShowScan] = useState(false);
+  const [insightData, setInsightData] = useState<{
+    insight: string;
+    macros: { calories: number; protein_g: number; carbs_g: number; fat_g: number };
+    quickActions: string[];
+  } | null>(null);
 
   const { data: meals, isLoading } = useQuery<MealLog[]>({
     queryKey: ['meals'],
@@ -732,17 +763,102 @@ export default function NutritionScreen() {
     },
   });
 
+  const { data: dailyProgress } = useQuery({
+    queryKey: ['daily-progress'],
+    queryFn: async () => {
+      try {
+        const { data } = await api.get('/api/v1/nutrition-ai/daily-progress');
+        return data;
+      } catch { return null; }
+    },
+    staleTime: 30_000,
+  });
+
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.delete(`/api/v1/nutrition/meals/${id}`),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['meals'] }),
     onError: () => Alert.alert('Error', 'Could not delete meal'),
   });
 
-  const handleSaved = useCallback(() => {
+  const fetchPostLogInsight = useCallback(async (mealType: string, foodItems: any[]) => {
+    try {
+      const { data } = await api.post('/api/v1/nutrition-ai/post-log-insight', {
+        meal_type: mealType,
+        food_items: foodItems,
+      });
+      setInsightData({
+        insight: data.insight,
+        macros: data.macros,
+        quickActions: data.quick_actions ?? [],
+      });
+    } catch { /* silent — insight is bonus, not critical */ }
+  }, []);
+
+  const handleSaved = useCallback((mealType?: string, foodItems?: any[]) => {
     setShowManual(false);
     setShowScan(false);
     queryClient.invalidateQueries({ queryKey: ['meals'] });
-  }, [queryClient]);
+    queryClient.invalidateQueries({ queryKey: ['daily-progress'] });
+    if (mealType && foodItems?.length) {
+      fetchPostLogInsight(mealType, foodItems);
+    }
+  }, [queryClient, fetchPostLogInsight]);
+
+  // Session 3: Meal suggestion
+  const [suggestion, setSuggestion] = useState<{
+    meal_name: string;
+    ingredients: any[];
+    macros: { calories: number; protein_g: number; carbs_g: number; fat_g: number };
+    rationale: string;
+  } | null>(null);
+  const [suggestionLoading, setSuggestionLoading] = useState(false);
+
+  const fetchSuggestion = useCallback(async () => {
+    setSuggestionLoading(true);
+    try {
+      const { data } = await api.post('/api/v1/nutrition-ai/suggest-meal', {});
+      if (data?.meal_name) {
+        setSuggestion(data);
+      }
+    } catch (e) {
+      if (__DEV__) console.warn('[Nutrition] suggest-meal failed:', e);
+    } finally {
+      setSuggestionLoading(false);
+    }
+  }, []);
+
+  // Session 4: Inline chat
+  const [showChat, setShowChat] = useState(false);
+  const [chatInitialMsg, setChatInitialMsg] = useState<string | undefined>();
+
+  // Session 5: Swap
+  const [swapState, setSwapState] = useState<{
+    visible: boolean;
+    original: string;
+    alternatives: any[];
+    loading: boolean;
+    foodIndex: number;
+    modal: 'scan' | 'manual';
+  }>({ visible: false, original: '', alternatives: [], loading: false, foodIndex: -1, modal: 'scan' });
+
+  const fetchSwap = useCallback(async (foodName: string, idx: number, modal: 'scan' | 'manual') => {
+    setSwapState({ visible: true, original: foodName, alternatives: [], loading: true, foodIndex: idx, modal });
+    try {
+      const { data } = await api.post('/api/v1/nutrition-ai/swap', { food_name: foodName });
+      setSwapState((s) => ({ ...s, alternatives: data.alternatives ?? [], loading: false }));
+    } catch {
+      setSwapState((s) => ({ ...s, loading: false }));
+    }
+  }, []);
+
+  const handleInsightAction = useCallback((action: string) => {
+    if (action === 'Ask nutrition coach') {
+      setShowChat(true);
+    } else if (action === 'Suggest next meal') {
+      fetchSuggestion();
+    }
+    setInsightData(null);
+  }, [fetchSuggestion]);
 
   const mealsList = Array.isArray(meals) ? meals : [];
   const grouped = mealsList.reduce<Record<string, MealLog[]>>((acc, meal) => {
@@ -759,8 +875,17 @@ export default function NutritionScreen() {
         <View className="px-6 pt-14 pb-4 border-b border-surface-border">
           <View className="flex-row items-center justify-between mb-3">
             <Text className="text-xl font-display text-[#E8EDF5]">Nutrition</Text>
+            <TouchableOpacity
+              onPress={() => setShowChat(true)}
+              className="flex-row items-center gap-1 px-2.5 py-1.5 rounded-lg"
+              style={{ backgroundColor: '#00D4AA12', borderWidth: 1, borderColor: '#00D4AA25' }}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="sparkles" size={12} color="#00D4AA" />
+              <Text className="text-[#00D4AA] text-[11px] font-sansMedium">Coach</Text>
+            </TouchableOpacity>
           </View>
-          <View className="flex-row gap-3">
+          <View className="flex-row gap-2">
             <TouchableOpacity
               onPress={() => setShowScan(true)}
               className="flex-1 bg-primary-500 rounded-xl py-2.5 flex-row items-center justify-center gap-1.5"
@@ -777,10 +902,63 @@ export default function NutritionScreen() {
               <Ionicons name="create-outline" size={16} color="#E8EDF5" />
               <Text className="text-[#E8EDF5] font-sansMedium text-sm">Manual Entry</Text>
             </TouchableOpacity>
+            <TouchableOpacity
+              onPress={fetchSuggestion}
+              disabled={suggestionLoading}
+              className="bg-surface-raised border border-surface-border rounded-xl py-2.5 px-3 flex-row items-center justify-center gap-1"
+              activeOpacity={0.8}
+            >
+              <Ionicons name="bulb-outline" size={16} color="#F5A623" />
+            </TouchableOpacity>
           </View>
         </View>
 
         <View className="px-6 pt-5">
+          {/* Daily Progress */}
+          {dailyProgress && (
+            <DailyProgressCard
+              meals={dailyProgress.meals_today ?? []}
+              totals={dailyProgress.totals ?? { calories: 0, protein_g: 0, carbs_g: 0, fat_g: 0 }}
+              targets={dailyProgress.targets ?? { calories: 2000, protein_g: 100, carbs_g: 200, fat_g: 65 }}
+              remaining={dailyProgress.remaining ?? { calories: 2000 }}
+              progressPct={dailyProgress.progress_pct ?? { calories: 0, protein: 0, carbs: 0, fat: 0 }}
+            />
+          )}
+
+          {/* Post-log AI insight */}
+          {insightData && (
+            <NutritionInsightCard
+              insight={insightData.insight}
+              macros={insightData.macros}
+              quickActions={insightData.quickActions}
+              onAction={handleInsightAction}
+              onDismiss={() => setInsightData(null)}
+            />
+          )}
+
+          {/* Proactive meal suggestion */}
+          {suggestion && !insightData && (
+            <ProactiveSuggestionCard
+              mealName={suggestion.meal_name}
+              ingredients={suggestion.ingredients}
+              macros={suggestion.macros}
+              rationale={suggestion.rationale}
+              onLogThis={() => {
+                // Pre-fill manual log with suggested foods
+                setShowManual(true);
+                setSuggestion(null);
+              }}
+              onSomethingElse={() => fetchSuggestion()}
+              onDismiss={() => setSuggestion(null)}
+            />
+          )}
+          {suggestionLoading && !suggestion && (
+            <View className="bg-surface-raised border border-surface-border rounded-2xl p-4 mb-3 items-center">
+              <ActivityIndicator color="#F5A623" size="small" />
+              <Text className="text-[#526380] text-xs mt-1">Finding the perfect meal...</Text>
+            </View>
+          )}
+
           {isLoading ? (
             <ActivityIndicator color="#00D4AA" className="mt-8" />
           ) : Object.keys(grouped).length === 0 ? (
@@ -790,6 +968,15 @@ export default function NutritionScreen() {
               <Text className="text-[#526380] text-sm mt-1 text-center">
                 Tap "Scan Photo" to use AI recognition or "Manual Entry" to type foods.
               </Text>
+              <TouchableOpacity
+                onPress={() => router.push('/(tabs)/log/meal-plan')}
+                className="mt-4 flex-row items-center gap-1.5 px-4 py-2 rounded-lg"
+                style={{ backgroundColor: '#818CF815', borderWidth: 1, borderColor: '#818CF830' }}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="calendar-outline" size={14} color="#818CF8" />
+                <Text className="text-[#818CF8] text-xs font-sansMedium">Generate a meal plan</Text>
+              </TouchableOpacity>
             </View>
           ) : (
             Object.entries(grouped).map(([dateLabel, dayMeals]) => (
@@ -806,6 +993,31 @@ export default function NutritionScreen() {
 
       <PhotoScanModal visible={showScan} onClose={() => setShowScan(false)} onSaved={handleSaved} />
       <LogMealModal visible={showManual} onClose={() => setShowManual(false)} onSaved={handleSaved} />
+
+      {/* Inline nutrition chat */}
+      <InlineNutritionChat
+        visible={showChat}
+        onClose={() => setShowChat(false)}
+        initialMessage={chatInitialMsg}
+      />
+
+      {/* Swap sheet */}
+      <SwapSheet
+        visible={swapState.visible}
+        original={swapState.original}
+        alternatives={swapState.alternatives}
+        loading={swapState.loading}
+        onSelect={(alt) => {
+          // Close swap and user can log the alternative
+          setSwapState((s) => ({ ...s, visible: false }));
+        }}
+        onClose={() => setSwapState((s) => ({ ...s, visible: false }))}
+        onAskCoach={() => {
+          setSwapState((s) => ({ ...s, visible: false }));
+          setChatInitialMsg(`What's a good alternative for ${swapState.original}?`);
+          setShowChat(true);
+        }}
+      />
     </>
   );
 }

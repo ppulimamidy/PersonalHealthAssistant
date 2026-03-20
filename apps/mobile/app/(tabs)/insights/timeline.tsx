@@ -52,6 +52,42 @@ interface TimelineEntry {
   };
 }
 
+interface SymptomAction {
+  type: string;
+  severity?: number;
+  mood?: string;
+  stress_level?: number;
+}
+
+interface AdherenceAction {
+  taken: number;
+  total: number;
+  medications: string[];
+}
+
+interface ExperimentAction {
+  title: string;
+  day_number?: number;
+  adhered?: boolean;
+  status?: string;
+}
+
+interface JourneyEvent {
+  title: string;
+  event: string;
+  phase: string;
+  phase_number: number;
+}
+
+interface DayActions {
+  symptoms?: SymptomAction[];
+  adherence?: AdherenceAction;
+  experiments?: ExperimentAction[];
+  journey_events?: JourneyEvent[];
+}
+
+type ActionsMap = Record<string, DayActions>;
+
 const DAY_OPTIONS = [7, 14, 30] as const;
 
 // ─── Score Ring (compact) ─────────────────────────────────────────────────────
@@ -67,9 +103,87 @@ function ScoreChip({ value, label, color }: Readonly<{ value: number; label: str
   );
 }
 
+// ─── Action Overlay ───────────────────────────────────────────────────────────
+
+function ActionOverlay({ actions }: Readonly<{ actions?: DayActions }>) {
+  if (!actions) return null;
+  const { symptoms, adherence, experiments, journey_events } = actions;
+  const hasAny = (symptoms?.length ?? 0) > 0 || adherence || (experiments?.length ?? 0) > 0 || (journey_events?.length ?? 0) > 0;
+  if (!hasAny) return null;
+
+  return (
+    <View className="mt-2 pt-2 border-t border-surface-border">
+      {/* Journey events */}
+      {journey_events && journey_events.length > 0 && journey_events.map((je, i) => (
+        <View key={`je-${i}`} className="flex-row items-center gap-1.5 mb-1">
+          <Ionicons name="flag-outline" size={12} color="#818CF8" />
+          <Text className="text-[#818CF8] text-xs font-sansMedium">
+            {je.phase} {je.event === 'phase_complete' ? 'completed' : 'started'}
+          </Text>
+          <Text className="text-[#3D4F66] text-xs">· {je.title}</Text>
+        </View>
+      ))}
+
+      {/* Experiments */}
+      {experiments && experiments.length > 0 && experiments.map((exp, i) => (
+        <View key={`exp-${i}`} className="flex-row items-center gap-1.5 mb-1">
+          <Ionicons name="flask-outline" size={12} color="#2DD4BF" />
+          <Text className="text-[#2DD4BF] text-xs font-sansMedium">
+            Day {exp.day_number}: {exp.title}
+          </Text>
+          {exp.adhered != null && (
+            <View className="rounded-full px-1.5 py-0.5" style={{ backgroundColor: exp.adhered ? '#00D4AA20' : '#F8717120' }}>
+              <Text className="text-[9px]" style={{ color: exp.adhered ? '#00D4AA' : '#F87171' }}>
+                {exp.adhered ? '✓' : '✗'}
+              </Text>
+            </View>
+          )}
+        </View>
+      ))}
+
+      {/* Symptoms */}
+      {symptoms && symptoms.length > 0 && (
+        <View className="flex-row items-center gap-1.5 mb-1 flex-wrap">
+          <Ionicons name="alert-circle-outline" size={12} color="#F5A623" />
+          {symptoms.map((s, i) => {
+            const sevColor = (s.severity ?? 0) >= 7 ? '#F87171' : (s.severity ?? 0) >= 4 ? '#F5A623' : '#6EE7B7';
+            return (
+              <View key={`sym-${i}`} className="flex-row items-center gap-1">
+                <View className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: sevColor }} />
+                <Text className="text-[#8B9BB4] text-xs">
+                  {s.type}{s.severity != null ? ` · ${s.severity}/10` : ''}
+                </Text>
+              </View>
+            );
+          })}
+        </View>
+      )}
+
+      {/* Medication adherence */}
+      {adherence && adherence.total > 0 && (() => {
+        const pct = adherence.taken / adherence.total;
+        const color = pct >= 0.8 ? '#00D4AA' : pct >= 0.5 ? '#F5A623' : '#F87171';
+        return (
+          <View className="flex-row items-center gap-1.5 mb-1">
+            <Ionicons name="medkit-outline" size={12} color={color} />
+            <Text className="text-xs" style={{ color }}>
+              {adherence.taken}/{adherence.total} meds taken
+            </Text>
+            {adherence.medications.length > 0 && (
+              <Text className="text-[#3D4F66] text-[10px]">
+                · {adherence.medications.slice(0, 3).join(', ')}{adherence.medications.length > 3 ? '…' : ''}
+              </Text>
+            )}
+          </View>
+        );
+      })()}
+    </View>
+  );
+}
+
 // ─── Timeline Day Card ────────────────────────────────────────────────────────
 
-function DayCard({ entry }: Readonly<{ entry: TimelineEntry }>) {
+function DayCard({ entry, actions }: Readonly<{ entry: TimelineEntry; actions?: DayActions }>) {
   const d = new Date(entry.date);
   let dateLabel = format(d, 'EEE, MMM d');
   if (isToday(d)) dateLabel = 'Today';
@@ -173,30 +287,48 @@ function DayCard({ entry }: Readonly<{ entry: TimelineEntry }>) {
         )}
       </View>
 
-      {/* Alt source comparison row */}
+      {/* User actions overlay */}
+      <ActionOverlay actions={actions} />
+
+      {/* Alt source comparison — side-by-side */}
       {entry.alt_metrics && (() => {
         const alt = entry.alt_metrics;
-        const SOURCE_NAMES: Record<string, string> = { oura: 'Oura', healthkit: 'Apple Health', health_connect: 'Health Connect' };
+        const SOURCE_NAMES: Record<string, string> = { oura: 'Oura', healthkit: 'Apple', health_connect: 'HC' };
         const altLabel = SOURCE_NAMES[alt.source] ?? alt.source;
-        const hasAlt = alt.steps != null || alt.sleep_hours != null || alt.resting_heart_rate != null || alt.hrv_ms != null;
-        if (!hasAlt) return null;
+        const primarySource = entry.sources?.find((s) => s !== alt.source);
+        const primaryLabel = primarySource ? (SOURCE_NAMES[primarySource] ?? primarySource) : 'Primary';
+        const comparisons: { label: string; primary: string; secondary: string }[] = [];
+        if (alt.steps != null && steps != null) {
+          comparisons.push({ label: 'Steps', primary: steps.toLocaleString(), secondary: alt.steps.toLocaleString() });
+        }
+        if (alt.sleep_hours != null && sleepHrs != null) {
+          comparisons.push({ label: 'Sleep', primary: `${sleepHrs}h`, secondary: `${alt.sleep_hours.toFixed(1)}h` });
+        }
+        if (alt.resting_heart_rate != null && hr != null) {
+          comparisons.push({ label: 'RHR', primary: `${hr}`, secondary: `${alt.resting_heart_rate}` });
+        }
+        if (alt.hrv_ms != null && hrv != null) {
+          comparisons.push({ label: 'HRV', primary: `${hrv}`, secondary: `${alt.hrv_ms.toFixed(0)}` });
+        }
+        if (comparisons.length === 0) return null;
         return (
           <View className="mt-2 pt-2 border-t border-surface-border">
-            <Text className="text-[#3A4A5C] text-[10px] mb-1">{altLabel} also tracked:</Text>
-            <View className="flex-row flex-wrap gap-3">
-              {alt.steps != null && (
-                <Text className="text-[#3A4A5C] text-xs">{alt.steps.toLocaleString()} steps</Text>
-              )}
-              {alt.sleep_hours != null && (
-                <Text className="text-[#3A4A5C] text-xs">{alt.sleep_hours.toFixed(1)}h sleep</Text>
-              )}
-              {alt.resting_heart_rate != null && (
-                <Text className="text-[#3A4A5C] text-xs">{alt.resting_heart_rate} bpm</Text>
-              )}
-              {alt.hrv_ms != null && (
-                <Text className="text-[#3A4A5C] text-xs">HRV {alt.hrv_ms.toFixed(1)} ms</Text>
-              )}
+            <View className="flex-row items-center justify-between mb-1.5">
+              <Text className="text-[#3A4A5C] text-[10px]">Source comparison</Text>
+              <View className="flex-row gap-3">
+                <Text className="text-[#526380] text-[10px] font-sansMedium">{primaryLabel}</Text>
+                <Text className="text-[#3D4F66] text-[10px] font-sansMedium">{altLabel}</Text>
+              </View>
             </View>
+            {comparisons.map((cmp) => (
+              <View key={cmp.label} className="flex-row items-center justify-between mb-0.5">
+                <Text className="text-[#3D4F66] text-xs flex-1">{cmp.label}</Text>
+                <View className="flex-row gap-3">
+                  <Text className="text-[#8B9BB4] text-xs font-sansMedium w-14 text-right">{cmp.primary}</Text>
+                  <Text className="text-[#3D4F66] text-xs w-14 text-right">{cmp.secondary}</Text>
+                </View>
+              </View>
+            ))}
           </View>
         );
       })()}
@@ -206,20 +338,29 @@ function DayCard({ entry }: Readonly<{ entry: TimelineEntry }>) {
 
 // ─── Screen ────────────────────────────────────────────────────────────────────
 
-function TimelineBody({ isLoading, entries }: Readonly<{ isLoading: boolean; entries: TimelineEntry[] }>) {
+function TimelineBody({ isLoading, entries, actionsMap }: Readonly<{ isLoading: boolean; entries: TimelineEntry[]; actionsMap: ActionsMap }>) {
   if (isLoading) return <ActivityIndicator color="#00D4AA" className="mt-10" />;
   if (entries.length === 0) {
     return (
       <View className="items-center py-16">
         <Ionicons name="calendar-outline" size={44} color="#526380" />
-        <Text className="text-[#526380] text-base mt-3">No timeline data</Text>
-        <Text className="text-[#526380] text-sm mt-1 text-center">
-          Connect a wearable device to populate your health timeline
+        <Text className="text-[#526380] text-base mt-3">No timeline data yet</Text>
+        <Text className="text-[#526380] text-sm mt-1 text-center leading-5 px-4">
+          Connect Apple Health, Oura, or another device to see your day-by-day health story
         </Text>
+        <TouchableOpacity
+          onPress={() => router.push('/(tabs)/profile/data-sources')}
+          className="mt-4 flex-row items-center gap-1.5 px-4 py-2 rounded-lg"
+          style={{ backgroundColor: '#00D4AA15', borderWidth: 1, borderColor: '#00D4AA30' }}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="link-outline" size={14} color="#00D4AA" />
+          <Text className="text-[#00D4AA] text-xs font-sansMedium">Connect a device</Text>
+        </TouchableOpacity>
       </View>
     );
   }
-  return <>{entries.map((entry) => <DayCard key={entry.date} entry={entry} />)}</>;
+  return <>{entries.map((entry) => <DayCard key={entry.date} entry={entry} actions={actionsMap[entry.date]} />)}</>;
 }
 
 export default function TimelineScreen() {
@@ -240,8 +381,18 @@ export default function TimelineScreen() {
     },
   });
 
+  const { data: actionsData } = useQuery<ActionsMap>({
+    queryKey: ['timeline-actions', days],
+    queryFn: async () => {
+      const { data: resp } = await api.get(`/api/v1/timeline-actions?days=${days}`);
+      return (resp ?? {}) as ActionsMap;
+    },
+    staleTime: 30_000,
+  });
+
   const rawEntries = Array.isArray(data) ? data : (data?.entries ?? []);
   const entries = [...rawEntries].reverse(); // most recent first
+  const actionsMap: ActionsMap = actionsData ?? {};
 
   return (
     <ScrollView className="flex-1 bg-obsidian-900" contentContainerStyle={{ paddingBottom: 40 }}>
@@ -272,7 +423,7 @@ export default function TimelineScreen() {
       </View>
 
       <View className="px-6 pt-5">
-        <TimelineBody isLoading={isLoading} entries={entries} />
+        <TimelineBody isLoading={isLoading} entries={entries} actionsMap={actionsMap} />
       </View>
     </ScrollView>
   );

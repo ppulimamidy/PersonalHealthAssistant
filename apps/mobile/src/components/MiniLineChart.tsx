@@ -8,6 +8,21 @@ import Svg, { Path, Circle, Line, Text as SvgText } from 'react-native-svg';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 
+export interface ChartMarker {
+  /** Index into the data array where this marker should appear */
+  index: number;
+  type: 'experiment_start' | 'experiment_end' | 'med_change' | 'phase_transition' | 'symptom_spike';
+  label?: string;
+}
+
+const MARKER_COLORS: Record<ChartMarker['type'], string> = {
+  experiment_start: '#2DD4BF',
+  experiment_end: '#2DD4BF',
+  med_change: '#60A5FA',
+  phase_transition: '#818CF8',
+  symptom_spike: '#F87171',
+};
+
 interface MiniLineChartProps {
   data: number[];
   color?: string;
@@ -16,6 +31,8 @@ interface MiniLineChartProps {
   width?: number;
   showDots?: boolean;
   showLastValue?: boolean;
+  /** Optional annotation markers to overlay on the chart */
+  markers?: ChartMarker[];
 }
 
 export function MiniLineChart({
@@ -25,6 +42,7 @@ export function MiniLineChart({
   width = SCREEN_WIDTH - 80,
   showDots = false,
   showLastValue = false,
+  markers = [],
 }: MiniLineChartProps) {
   if (data.length < 2) return null;
 
@@ -75,6 +93,26 @@ export function MiniLineChart({
           {last.v % 1 === 0 ? last.v : last.v.toFixed(1)}
         </SvgText>
       )}
+      {/* Annotation markers */}
+      {markers.map((m, mi) => {
+        if (m.index < 0 || m.index >= pts.length) return null;
+        const pt = pts[m.index];
+        const mColor = MARKER_COLORS[m.type] ?? '#526380';
+        const isDashed = m.type === 'experiment_start' || m.type === 'experiment_end';
+        return (
+          <Line
+            key={`marker-${mi}`}
+            x1={pt.x}
+            y1={pad}
+            x2={pt.x}
+            y2={height - pad}
+            stroke={mColor}
+            strokeWidth={1}
+            strokeDasharray={isDashed ? '3,3' : undefined}
+            opacity={0.6}
+          />
+        );
+      })}
     </Svg>
   );
 }

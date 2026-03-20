@@ -77,6 +77,75 @@ function HealthScoreRing({ score, trend }: Readonly<{ score: number; trend?: str
   );
 }
 
+function NutritionHomeCard() {
+  const { data } = useQuery({
+    queryKey: ['nutrition-home-summary'],
+    queryFn: async () => {
+      try {
+        const { data: resp } = await api.get('/api/v1/nutrition-ai/nutrition-summary');
+        return resp;
+      } catch { return null; }
+    },
+    staleTime: 60_000,
+  });
+
+  if (!data) return null;
+
+  if (!data.has_data) {
+    return (
+      <TouchableOpacity
+        onPress={() => router.push('/(tabs)/log/nutrition')}
+        className="bg-surface-raised border border-surface-border rounded-xl p-3 mb-4 flex-row items-center gap-3"
+        activeOpacity={0.7}
+      >
+        <View className="rounded-lg p-1.5" style={{ backgroundColor: '#F5A62315' }}>
+          <Ionicons name="nutrition-outline" size={16} color="#F5A623" />
+        </View>
+        <View className="flex-1">
+          <Text className="text-[#E8EDF5] text-sm font-sansMedium">Log your first meal today</Text>
+          <Text className="text-[#526380] text-[10px] mt-0.5">Scan a photo or enter manually</Text>
+        </View>
+        <Ionicons name="chevron-forward" size={14} color="#526380" />
+      </TouchableOpacity>
+    );
+  }
+
+  const t = data.totals;
+  const tgt = data.targets;
+  const pct = tgt.calories > 0 ? Math.min(100, Math.round((t.calories / tgt.calories) * 100)) : 0;
+
+  return (
+    <TouchableOpacity
+      onPress={() => router.push('/(tabs)/log/nutrition')}
+      className="bg-surface-raised border border-surface-border rounded-xl p-3 mb-4"
+      activeOpacity={0.7}
+    >
+      <View className="flex-row items-center justify-between mb-1.5">
+        <View className="flex-row items-center gap-1.5">
+          <Ionicons name="nutrition-outline" size={14} color="#F5A623" />
+          <Text className="text-[#526380] text-xs uppercase tracking-wider">Nutrition</Text>
+        </View>
+        <Text className="text-[#E8EDF5] text-xs font-sansMedium">
+          {Math.round(t.calories)} / {tgt.calories} cal
+        </Text>
+      </View>
+      <View className="h-1.5 bg-white/5 rounded-full overflow-hidden mb-1">
+        <View className="h-full rounded-full bg-[#F5A623]" style={{ width: `${pct}%` }} />
+      </View>
+      <View className="flex-row justify-between">
+        <Text className="text-[#526380] text-[10px]">
+          {data.meals_logged} meal{data.meals_logged !== 1 ? 's' : ''} logged
+        </Text>
+        <View className="flex-row gap-2">
+          <Text className="text-[#6EE7B7] text-[10px]">P {Math.round(t.protein_g)}g</Text>
+          <Text className="text-[#60A5FA] text-[10px]">C {Math.round(t.carbs_g)}g</Text>
+          <Text className="text-[#F5A623] text-[10px]">F {Math.round(t.fat_g)}g</Text>
+        </View>
+      </View>
+    </TouchableOpacity>
+  );
+}
+
 function QuickLogStrip() {
   return (
     <View className="flex-row gap-2 mb-4">
@@ -540,6 +609,9 @@ export default function HomeScreen() {
       <ExperimentResultsCard />
       <ActiveExperimentCard />
       <RecommendationCard />
+
+      {/* Nutrition Progress */}
+      <NutritionHomeCard />
 
       {/* Quick Log */}
       <Text className="text-[#526380] text-xs uppercase tracking-wider mb-2">Quick Log</Text>
