@@ -489,9 +489,22 @@ async def clinical_search(
     # PubMed search (existing endpoint internally)
     articles = []
     try:
-        from .medical_literature import _search_pubmed
+        from .medical_literature import _pubmed_search, _pubmed_fetch_articles
 
-        articles = await _search_pubmed(body.query, max_results=10)
+        pmids = await _pubmed_search(body.query, max_results=10)
+        if pmids:
+            article_data = await _pubmed_fetch_articles(pmids[:10])
+            articles = [
+                {
+                    "title": a.get("title", ""),
+                    "journal": a.get("journal", ""),
+                    "publication_date": a.get("publication_date", ""),
+                    "evidence_level": a.get("evidence_level", "other"),
+                    "pubmed_id": a.get("pubmed_id", ""),
+                    "authors": a.get("authors", [])[:3],
+                }
+                for a in article_data
+            ]
     except Exception as e:
         logger.warning("PubMed search failed: %s", e)
 
@@ -754,16 +767,15 @@ async def search_trials(
 
     ssl_ctx = ssl.create_default_context(cafile=certifi.where())
 
-    params = {
+    params: Dict[str, str] = {
         "query.cond": condition,
-        "filter.overallStatus": status,
-        "filter.phase": phase,
         "pageSize": str(max_results),
-        "fields": "NCTId,BriefTitle,Phase,OverallStatus,BriefSummary,"
-        "LeadSponsorName,LocationCity,LocationState,LocationCountry,"
-        "EligibilityCriteria,EnrollmentCount,StartDate,CompletionDate",
         "format": "json",
     }
+    if status:
+        params["filter.overallStatus"] = status
+    if phase:
+        params["filter.phase"] = phase
 
     trials: List[Dict[str, Any]] = []
     try:

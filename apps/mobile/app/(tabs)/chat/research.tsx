@@ -181,13 +181,21 @@ export default function ClinicalResearchScreen() {
     setResult(null);
     try {
       const [searchResp, trialsResp] = await Promise.allSettled([
-        api.post('/api/v1/research/clinical-search', { query: searchQuery, search_type: 'all' }),
-        api.get('/api/v1/research/trials', { params: { condition: searchQuery, status: 'RECRUITING', max_results: 5 } }),
+        api.post('/api/v1/research/clinical-search', { query: searchQuery, search_type: 'all' }, { timeout: 60_000 }),
+        api.get('/api/v1/research/trials', { params: { condition: searchQuery, max_results: 5 }, timeout: 15_000 }),
       ]);
-      if (searchResp.status === 'fulfilled') setResult(searchResp.value.data);
+      if (__DEV__) {
+        console.log('[Research] search:', searchResp.status, searchResp.status === 'rejected' ? (searchResp as any).reason?.message : '');
+        console.log('[Research] trials:', trialsResp.status);
+      }
+      if (searchResp.status === 'fulfilled') {
+        setResult(searchResp.value.data);
+      } else {
+        setError('Research search timed out or failed. Try a shorter query.');
+      }
       if (trialsResp.status === 'fulfilled') setTrials(trialsResp.value.data?.trials ?? []);
-    } catch (e) {
-      setError('Search failed. Please try again.');
+    } catch (e: any) {
+      setError(e?.message ?? 'Search failed. Please try again.');
     } finally {
       setSearching(false);
     }
