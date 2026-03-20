@@ -1,46 +1,18 @@
+/**
+ * Ask AI Hub — redesigned with 2 tools:
+ * 1. Clinical Research (treatments, drugs, trials, guidelines)
+ * 2. Health Chat (unified agent replacing 4 specialists)
+ */
+
 import { useState } from 'react';
 import {
-  View, Text, TouchableOpacity, ActivityIndicator,
-  ScrollView, TextInput,
+  View, Text, TouchableOpacity, ScrollView, TextInput, ActivityIndicator,
 } from 'react-native';
 import { router } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import { format } from 'date-fns';
 import { api } from '@/services/api';
-
-const AGENT_COLORS: Record<string, string> = {
-  health_coach: '#00D4AA',
-  nutrition_analyst: '#6EE7B7',
-  symptom_investigator: '#F5A623',
-  research_assistant: '#818CF8',
-  medication_advisor: '#EC4899',
-  general: '#00D4AA',
-};
-
-const AGENT_ICONS: Record<string, React.ComponentProps<typeof Ionicons>['name']> = {
-  health_coach: 'fitness-outline',
-  nutrition_analyst: 'nutrition-outline',
-  symptom_investigator: 'search-outline',
-  research_assistant: 'book-outline',
-  medication_advisor: 'medical-outline',
-  general: 'chatbubble-ellipses-outline',
-};
-
-const QUICK_SUGGESTIONS = [
-  'Why do I feel tired?',
-  'Review my medications',
-  'Explain my latest labs',
-  "What's affecting my sleep?",
-  'Am I improving this week?',
-];
-
-interface Agent {
-  id: string;
-  agent_name: string;
-  agent_description: string;
-  agent_type: string;
-}
 
 interface Conversation {
   id: string;
@@ -50,40 +22,58 @@ interface Conversation {
   messages: Array<{ role: string; content: string }>;
 }
 
-function askQuestion(question: string) {
+// Route keywords to the right tool
+function isResearchQuery(q: string): boolean {
+  const lower = q.toLowerCase();
+  const keywords = [
+    'treatment', 'trial', 'clinical', 'drug', 'medication option', 'alternative',
+    'guideline', 'study', 'research', 'evidence', 'compare', 'efficacy',
+    'side effect', 'cancer', 'therapy', 'immunotherapy', 'protocol',
+    'first-line', 'second-line', 'standard of care', 'nccn', 'acc', 'ada',
+  ];
+  return keywords.some((k) => lower.includes(k));
+}
+
+function askHealthChat(question: string) {
   router.push({
     pathname: '/(tabs)/chat/[conversationId]',
-    params: { conversationId: 'new', agentType: 'health_coach', initialMessage: question },
+    params: { conversationId: 'new', agentType: 'health_chat', initialMessage: question },
   } as never);
 }
 
-function startNewConversation(agentType: string) {
-  router.push({
-    pathname: '/(tabs)/chat/[conversationId]',
-    params: { conversationId: 'new', agentType },
-  } as never);
+function openResearch(query?: string) {
+  if (query) {
+    router.push({
+      pathname: '/(tabs)/chat/research',
+      params: { initialQuery: query },
+    } as never);
+  } else {
+    router.push('/(tabs)/chat/research' as never);
+  }
 }
 
-function resumeConversation(conv: Conversation) {
-  router.push({
-    pathname: '/(tabs)/chat/[conversationId]',
-    params: { conversationId: conv.id, agentType: conv.primary_agent_type },
-  } as never);
-}
+const QUICK_QUESTIONS = [
+  { label: 'Review my treatment plan', type: 'chat' },
+  { label: 'What should I eat today?', type: 'chat' },
+  { label: 'Am I improving this week?', type: 'chat' },
+  { label: 'Latest research on my condition', type: 'research' },
+];
 
-export default function AgentsListScreen() {
+const CONV_ICONS: Record<string, { icon: string; color: string }> = {
+  clinical_research: { icon: 'flask-outline', color: '#818CF8' },
+  research_assistant: { icon: 'flask-outline', color: '#818CF8' },
+  health_chat: { icon: 'chatbubble-outline', color: '#00D4AA' },
+  health_coach: { icon: 'chatbubble-outline', color: '#00D4AA' },
+  nutrition_analyst: { icon: 'nutrition-outline', color: '#6EE7B7' },
+  symptom_investigator: { icon: 'search-outline', color: '#F5A623' },
+  medication_advisor: { icon: 'medical-outline', color: '#EC4899' },
+  general: { icon: 'chatbubble-outline', color: '#00D4AA' },
+};
+
+export default function AskAIScreen() {
   const [question, setQuestion] = useState('');
-  const [specialistsExpanded, setSpecialistsExpanded] = useState(false);
 
-  const { data: agents, isLoading: agentsLoading } = useQuery({
-    queryKey: ['agents'],
-    queryFn: async () => {
-      const { data: resp } = await api.get('/api/v1/agents/agents');
-      return (resp?.agents ?? resp ?? []) as Agent[];
-    },
-  });
-
-  const { data: conversations, isLoading: convsLoading } = useQuery({
+  const { data: conversations, isLoading } = useQuery({
     queryKey: ['conversations'],
     queryFn: async () => {
       const { data: resp } = await api.get('/api/v1/agents/conversations');
@@ -96,15 +86,18 @@ export default function AgentsListScreen() {
     const q = question.trim();
     if (!q) return;
     setQuestion('');
-    askQuestion(q);
+    if (isResearchQuery(q)) {
+      openResearch(q);
+    } else {
+      askHealthChat(q);
+    }
   }
 
-  if (agentsLoading || convsLoading) {
-    return (
-      <View className="flex-1 bg-obsidian-900 items-center justify-center">
-        <ActivityIndicator color="#00D4AA" />
-      </View>
-    );
+  function resumeConversation(conv: Conversation) {
+    router.push({
+      pathname: '/(tabs)/chat/[conversationId]',
+      params: { conversationId: conv.id, agentType: conv.primary_agent_type },
+    } as never);
   }
 
   const recentConvs = (conversations ?? []).slice(0, 8);
@@ -116,24 +109,23 @@ export default function AgentsListScreen() {
       keyboardShouldPersistTaps="handled"
     >
       {/* Header */}
-      <View className="px-6 pt-14 pb-4">
-        <Text className="text-2xl font-display text-[#E8EDF5]">Agents</Text>
-        <Text className="text-[#526380] text-sm mt-1">Your AI health advisors</Text>
+      <View className="px-6 pt-14 pb-2">
+        <Text className="text-2xl font-display text-[#E8EDF5]">Ask AI</Text>
+        <Text className="text-[#526380] text-sm mt-1">Your health intelligence</Text>
       </View>
 
-      {/* Ask-anything bar */}
-      <View className="px-6 mb-4">
+      {/* Universal search bar */}
+      <View className="px-6 mb-5">
         <View className="flex-row items-center bg-surface-raised border border-primary-500/40 rounded-2xl px-4 py-3 gap-3">
           <Ionicons name="sparkles-outline" size={18} color="#00D4AA" />
           <TextInput
             className="flex-1 text-[#E8EDF5] text-base"
-            placeholder="Ask anything about your health…"
+            placeholder="Ask anything about your health..."
             placeholderTextColor="#526380"
             value={question}
             onChangeText={setQuestion}
             onSubmitEditing={handleAsk}
             returnKeyType="send"
-            multiline={false}
           />
           {question.trim().length > 0 && (
             <TouchableOpacity onPress={handleAsk} activeOpacity={0.7}>
@@ -143,72 +135,73 @@ export default function AgentsListScreen() {
             </TouchableOpacity>
           )}
         </View>
-
-        {/* Quick suggestion chips */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          className="mt-3 -mx-1"
-          contentContainerStyle={{ paddingHorizontal: 4, gap: 8 }}
-        >
-          {QUICK_SUGGESTIONS.map((s) => (
-            <TouchableOpacity
-              key={s}
-              onPress={() => askQuestion(s)}
-              className="bg-surface-raised border border-surface-border rounded-full px-3 py-1.5"
-              activeOpacity={0.7}
-            >
-              <Text className="text-[#526380] text-xs">{s}</Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
       </View>
 
-      {/* Choose a specialist (collapsible) */}
-      <View className="px-6 mb-4">
-        <TouchableOpacity
-          onPress={() => setSpecialistsExpanded((v) => !v)}
-          className="flex-row items-center justify-between py-2"
-          activeOpacity={0.7}
-        >
-          <Text className="text-[#526380] text-xs uppercase tracking-wider">Choose a specialist</Text>
-          <Ionicons
-            name={specialistsExpanded ? 'chevron-up' : 'chevron-down'}
-            size={14}
-            color="#526380"
-          />
-        </TouchableOpacity>
+      {/* Two main tools */}
+      <View className="px-6 mb-5">
+        <View className="flex-row gap-3">
+          {/* Clinical Research */}
+          <TouchableOpacity
+            onPress={() => openResearch()}
+            className="flex-1 bg-surface-raised border border-surface-border rounded-2xl p-4"
+            activeOpacity={0.7}
+          >
+            <View className="w-12 h-12 rounded-xl items-center justify-center mb-3" style={{ backgroundColor: '#818CF815' }}>
+              <Ionicons name="flask-outline" size={24} color="#818CF8" />
+            </View>
+            <Text className="text-[#E8EDF5] font-sansMedium text-sm mb-1">Clinical Research</Text>
+            <Text className="text-[#526380] text-[10px] leading-4">
+              Treatments, drugs, clinical trials, guidelines & evidence
+            </Text>
+          </TouchableOpacity>
 
-        {specialistsExpanded && (agents ?? []).map((agent) => {
-          const color = AGENT_COLORS[agent.agent_type] ?? '#00D4AA';
-          const icon = AGENT_ICONS[agent.agent_type] ?? 'chatbubble-ellipses-outline';
-          return (
+          {/* Health Chat */}
+          <TouchableOpacity
+            onPress={() => askHealthChat('')}
+            className="flex-1 bg-surface-raised border border-surface-border rounded-2xl p-4"
+            activeOpacity={0.7}
+          >
+            <View className="w-12 h-12 rounded-xl items-center justify-center mb-3" style={{ backgroundColor: '#00D4AA15' }}>
+              <Ionicons name="chatbubble-outline" size={24} color="#00D4AA" />
+            </View>
+            <Text className="text-[#E8EDF5] font-sansMedium text-sm mb-1">Health Chat</Text>
+            <Text className="text-[#526380] text-[10px] leading-4">
+              Ask anything about your health data, nutrition, symptoms, or meds
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {/* Quick questions */}
+      <View className="px-6 mb-5">
+        <Text className="text-[#526380] text-xs uppercase tracking-wider mb-2">Quick Questions</Text>
+        <View className="flex-row flex-wrap gap-2">
+          {QUICK_QUESTIONS.map((q) => (
             <TouchableOpacity
-              key={agent.id}
-              onPress={() => startNewConversation(agent.agent_type)}
-              className="flex-row items-center bg-surface-raised border border-surface-border rounded-xl p-4 mb-2"
+              key={q.label}
+              onPress={() => q.type === 'research' ? openResearch(q.label) : askHealthChat(q.label)}
+              className="bg-surface-raised border border-surface-border rounded-full px-3 py-1.5 flex-row items-center gap-1"
               activeOpacity={0.7}
             >
-              <View className="w-10 h-10 rounded-xl items-center justify-center mr-3" style={{ backgroundColor: `${color}20` }}>
-                <Ionicons name={icon} size={18} color={color} />
-              </View>
-              <View className="flex-1">
-                <Text className="text-[#E8EDF5] font-sansMedium text-sm">{agent.agent_name}</Text>
-                <Text className="text-[#526380] text-xs mt-0.5" numberOfLines={1}>{agent.agent_description}</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={14} color="#526380" />
+              <Ionicons
+                name={q.type === 'research' ? 'flask-outline' : 'chatbubble-outline'}
+                size={10}
+                color={q.type === 'research' ? '#818CF8' : '#00D4AA'}
+              />
+              <Text className="text-[#8B9BB4] text-xs">{q.label}</Text>
             </TouchableOpacity>
-          );
-        })}
+          ))}
+        </View>
       </View>
 
       {/* Recent conversations */}
-      {recentConvs.length > 0 && (
+      {isLoading ? (
+        <ActivityIndicator color="#00D4AA" className="mt-4" />
+      ) : recentConvs.length > 0 ? (
         <View className="px-6">
-          <Text className="text-[#526380] text-xs uppercase tracking-wider mb-3">Recent Chats</Text>
+          <Text className="text-[#526380] text-xs uppercase tracking-wider mb-3">Recent</Text>
           {recentConvs.map((conv) => {
-            const color = AGENT_COLORS[conv.primary_agent_type] ?? '#00D4AA';
-            const icon = AGENT_ICONS[conv.primary_agent_type] ?? 'chatbubble-ellipses-outline';
+            const cfg = CONV_ICONS[conv.primary_agent_type] ?? CONV_ICONS.general;
             const firstUserMsg = conv.messages?.find((m) => m.role === 'user');
             const snippet = firstUserMsg?.content ?? 'No messages yet';
             const dateLabel = conv.last_message_at ? format(new Date(conv.last_message_at), 'MMM d') : '';
@@ -220,21 +213,21 @@ export default function AgentsListScreen() {
                 className="flex-row items-center bg-surface-raised border border-surface-border rounded-xl p-3.5 mb-2"
                 activeOpacity={0.7}
               >
-                <View className="w-9 h-9 rounded-xl items-center justify-center mr-3" style={{ backgroundColor: `${color}18` }}>
-                  <Ionicons name={icon} size={16} color={color} />
+                <View className="w-9 h-9 rounded-xl items-center justify-center mr-3" style={{ backgroundColor: `${cfg.color}18` }}>
+                  <Ionicons name={cfg.icon as never} size={16} color={cfg.color} />
                 </View>
                 <View className="flex-1 mr-2">
-                  <Text className="text-[#E8EDF5] font-sansMedium text-sm">{conv.primary_agent_name}</Text>
-                  <Text className="text-[#526380] text-xs mt-0.5" numberOfLines={1}>
-                    {snippet.length > 55 ? `${snippet.slice(0, 55)}…` : snippet}
+                  <Text className="text-[#E8EDF5] text-sm" numberOfLines={1}>
+                    {snippet.length > 50 ? `${snippet.slice(0, 50)}...` : snippet}
                   </Text>
+                  <Text className="text-[#3D4F66] text-[10px] mt-0.5">{conv.primary_agent_name}</Text>
                 </View>
                 <Text className="text-[#3A4A5C] text-xs">{dateLabel}</Text>
               </TouchableOpacity>
             );
           })}
         </View>
-      )}
+      ) : null}
     </ScrollView>
   );
 }
