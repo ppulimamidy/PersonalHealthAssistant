@@ -208,10 +208,19 @@ async def log_symptom(
     """
     user_id = current_user["id"]
 
+    body_dict = body.dict(
+        exclude={"triggers", "associated_symptoms", "medications_taken"}
+    )
+    # Convert date/time objects to ISO strings for JSON serialization
+    if isinstance(body_dict.get("symptom_date"), date):
+        body_dict["symptom_date"] = body_dict["symptom_date"].isoformat()
+    if body_dict.get("symptom_time") is not None:
+        body_dict["symptom_time"] = str(body_dict["symptom_time"])
+
     data = {
         "id": str(uuid.uuid4()),
         "user_id": user_id,
-        **body.dict(exclude={"triggers", "associated_symptoms", "medications_taken"}),
+        **body_dict,
         "triggers": json.dumps(body.triggers),
         "associated_symptoms": json.dumps(body.associated_symptoms),
         "medications_taken": json.dumps(body.medications_taken),

@@ -25,11 +25,12 @@ export default function NewSymptomScreen() {
       await api.post('/api/v1/symptoms/journal', {
         symptom_type: type,
         severity,
+        symptom_date: new Date().toISOString().slice(0, 10),
         notes: notes.trim() || null,
       });
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       queryClient.invalidateQueries({ queryKey: ['symptoms'] });
-      router.back();
+      router.replace('/(tabs)/log/symptoms');
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to save');
     } finally {

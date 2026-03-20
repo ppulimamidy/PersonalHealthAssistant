@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { View, Text, FlatList, TouchableOpacity, RefreshControl, ActivityIndicator } from 'react-native';
 import { router } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
@@ -37,6 +37,7 @@ function SymptomCard({ item }: { item: SymptomJournalEntry }) {
 
 export default function SymptomsScreen() {
   const [insightData, setInsightData] = useState<any>(null);
+  const [lastInsightFor, setLastInsightFor] = useState<string>('');
 
   const { data, isLoading, refetch } = useQuery({
     queryKey: ['symptoms'],
@@ -44,27 +45,37 @@ export default function SymptomsScreen() {
       const { data: resp } = await api.get('/api/v1/symptoms/journal', {
         params: { days: 30 },
       });
-      const symptoms = Array.isArray(resp) ? resp : (resp?.symptoms ?? []);
-
-      // Auto-fetch insight for the most recent symptom if logged today
-      if (symptoms.length > 0 && !insightData) {
-        const latest = symptoms[0] as SymptomJournalEntry;
-        const today = new Date().toISOString().slice(0, 10);
-        if ((latest.symptom_date ?? latest.created_at ?? '').slice(0, 10) === today) {
-          try {
-            const { data: insight } = await api.post('/api/v1/symptom-intelligence/post-log-insight', {
-              symptom_type: latest.symptom_type,
-              severity: latest.severity,
-              notes: latest.notes,
-            });
-            setInsightData(insight);
-          } catch { /* silent */ }
-        }
-      }
-
-      return symptoms as SymptomJournalEntry[];
+      return (Array.isArray(resp) ? resp : (resp?.symptoms ?? [])) as SymptomJournalEntry[];
     },
   });
+
+  // Fetch insight when a new symptom is logged today
+  useEffect(() => {
+    if (__DEV__) console.log('[Symptoms] effect: data?.length=', data?.length, 'lastInsightFor=', lastInsightFor);
+    if (!data || data.length === 0) return;
+    const latest = data[0];
+    const latestId = latest.id;
+    if (__DEV__) console.log('[Symptoms] latest:', latestId, latest.symptom_date, latest.symptom_type);
+    if (latestId === lastInsightFor) return;
+
+    const today = new Date().toISOString().slice(0, 10);
+    const latestDate = (latest.symptom_date ?? (latest as any).created_at ?? '').slice(0, 10);
+    if (__DEV__) console.log('[Symptoms] today=', today, 'latestDate=', latestDate);
+    if (latestDate !== today) return;
+
+    setLastInsightFor(latestId);
+    if (__DEV__) console.log('[Symptoms] Fetching insight for', latest.symptom_type);
+    api.post('/api/v1/symptom-intelligence/post-log-insight', {
+      symptom_type: latest.symptom_type,
+      severity: latest.severity,
+      notes: latest.notes,
+    }).then(({ data: insight }) => {
+      if (__DEV__) console.log('[Symptoms] Insight received:', insight?.insight?.slice(0, 50));
+      setInsightData(insight);
+    }).catch((err) => {
+      if (__DEV__) console.warn('[Symptoms] Insight fetch failed:', err?.message);
+    });
+  }, [data, lastInsightFor]);
 
   const handleInsightAction = useCallback((action: string) => {
     if (action === 'Ask health coach') {
