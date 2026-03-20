@@ -146,6 +146,82 @@ function NutritionHomeCard() {
   );
 }
 
+function TreatmentHomeCard() {
+  const { data } = useQuery({
+    queryKey: ['treatment-summary'],
+    queryFn: async () => {
+      try {
+        const { data: resp } = await api.get('/api/v1/lab-intelligence/treatment-summary');
+        return resp;
+      } catch { return null; }
+    },
+    staleTime: 2 * 60_000,
+  });
+
+  if (!data || (!data.has_data && data.medications?.total === 0)) return null;
+
+  const meds = data.medications ?? { total: 0, taken_today: 0 };
+  const trends = data.lab_trends ?? [];
+  const gaps = data.supplement_gaps ?? [];
+  const retest = data.next_retest;
+
+  return (
+    <TouchableOpacity
+      onPress={() => router.push('/(tabs)/log/lab-results')}
+      className="bg-surface-raised border border-surface-border rounded-xl p-3 mb-4"
+      activeOpacity={0.7}
+    >
+      <View className="flex-row items-center gap-1.5 mb-2">
+        <Ionicons name="medkit-outline" size={14} color="#818CF8" />
+        <Text className="text-[#526380] text-xs uppercase tracking-wider">Treatment</Text>
+      </View>
+
+      {/* Meds adherence */}
+      {meds.total > 0 && (
+        <View className="flex-row items-center gap-1.5 mb-1">
+          <Text className="text-[#E8EDF5] text-xs">
+            {meds.taken_today}/{meds.total} meds taken today
+          </Text>
+        </View>
+      )}
+
+      {/* Lab trends */}
+      {trends.length > 0 && (
+        <View className="flex-row flex-wrap gap-2 mb-1">
+          {trends.map((t: any, i: number) => {
+            const color = t.direction === 'improving' ? '#6EE7B7' : t.direction === 'worsening' ? '#F87171' : '#526380';
+            const icon = t.direction === 'improving' ? 'trending-down' : t.direction === 'worsening' ? 'trending-up' : 'remove';
+            return (
+              <View key={i} className="flex-row items-center gap-0.5">
+                <Ionicons name={icon as never} size={10} color={color} />
+                <Text className="text-[10px]" style={{ color }}>{t.name}</Text>
+              </View>
+            );
+          })}
+        </View>
+      )}
+
+      {/* Gaps + retest */}
+      <View className="flex-row items-center gap-3">
+        {gaps.length > 0 && (
+          <View className="flex-row items-center gap-1">
+            <Ionicons name="alert-circle-outline" size={10} color="#F5A623" />
+            <Text className="text-[#F5A623] text-[10px]">{gaps.length} supplement gap{gaps.length > 1 ? 's' : ''}</Text>
+          </View>
+        )}
+        {retest && (
+          <View className="flex-row items-center gap-1">
+            <Ionicons name="calendar-outline" size={10} color={retest.status === 'overdue' ? '#F87171' : '#526380'} />
+            <Text className="text-[10px]" style={{ color: retest.status === 'overdue' ? '#F87171' : '#526380' }}>
+              {retest.test} {retest.status === 'overdue' ? 'overdue' : `in ${retest.days}d`}
+            </Text>
+          </View>
+        )}
+      </View>
+    </TouchableOpacity>
+  );
+}
+
 function QuickLogStrip() {
   return (
     <View className="flex-row gap-2 mb-4">
@@ -612,6 +688,9 @@ export default function HomeScreen() {
 
       {/* Nutrition Progress */}
       <NutritionHomeCard />
+
+      {/* Treatment Intelligence */}
+      <TreatmentHomeCard />
 
       {/* Quick Log */}
       <Text className="text-[#526380] text-xs uppercase tracking-wider mb-2">Quick Log</Text>

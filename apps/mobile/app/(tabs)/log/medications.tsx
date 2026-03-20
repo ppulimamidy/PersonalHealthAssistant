@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, RefreshControl, ActivityIndicator,
   Modal, ScrollView, TextInput, Alert, KeyboardAvoidingView, Platform,
@@ -9,6 +9,60 @@ import { router } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { api } from '@/services/api';
 import type { Medication } from '@/types';
+
+// ─── Lab Evidence Badge ──────────────────────────────────────────────────────
+
+function LabEvidenceBadge({ medicationId }: Readonly<{ medicationId: string }>) {
+  const { data } = useQuery({
+    queryKey: ['med-evidence', medicationId],
+    queryFn: async () => {
+      try {
+        const { data: resp } = await api.get(`/api/v1/lab-intelligence/med-evidence/${medicationId}`);
+        return resp;
+      } catch { return null; }
+    },
+    staleTime: 10 * 60_000,
+  });
+
+  if (!data?.evidence?.length) return null;
+
+  // Find the most significant evidence
+  const best = data.evidence.reduce((a: any, b: any) => {
+    if (b.verdict === 'improving') return b;
+    if (a.verdict === 'improving') return a;
+    return Math.abs(b.delta_pct ?? 0) > Math.abs(a.delta_pct ?? 0) ? b : a;
+  }, data.evidence[0]);
+
+  if (!best || best.verdict === 'insufficient_data') {
+    return (
+      <View className="flex-row items-center gap-1 bg-white/5 rounded-md px-2 py-0.5 mt-1.5">
+        <Ionicons name="hourglass-outline" size={10} color="#526380" />
+        <Text className="text-[#526380] text-[10px]">Monitoring — awaiting lab data</Text>
+      </View>
+    );
+  }
+
+  const isGood = best.verdict === 'improving';
+  const isStale = best.verdict === 'no_change';
+  const color = isGood ? '#6EE7B7' : isStale ? '#F5A623' : '#F87171';
+  const icon = isGood ? 'trending-down' : isStale ? 'remove-outline' : 'trending-up';
+  const deltaTxt = best.delta_pct != null ? `${best.delta_pct > 0 ? '+' : ''}${best.delta_pct}%` : '';
+
+  return (
+    <TouchableOpacity
+      onPress={() => router.push('/(tabs)/log/lab-results')}
+      className="flex-row items-center gap-1 rounded-md px-2 py-0.5 mt-1.5"
+      style={{ backgroundColor: `${color}12` }}
+      activeOpacity={0.7}
+    >
+      <Ionicons name={icon as never} size={10} color={color} />
+      <Text className="text-[10px] font-sansMedium" style={{ color }}>
+        {best.biomarker} {deltaTxt}
+      </Text>
+      <Text className="text-[#3D4F66] text-[9px]">since starting</Text>
+    </TouchableOpacity>
+  );
+}
 
 interface Supplement {
   id: string;
@@ -310,6 +364,7 @@ function AdherenceRow({ med, logged, onLog, onEdit, onDelete }: AdherenceRowProp
           {med.indication ? (
             <Text className="text-[#526380] text-xs mt-1 italic">{med.indication}</Text>
           ) : null}
+          <LabEvidenceBadge medicationId={med.id} />
         </View>
         <View className="flex-row gap-1">
           <TouchableOpacity

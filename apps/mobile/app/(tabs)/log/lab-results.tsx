@@ -18,6 +18,10 @@ import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
 import { format } from 'date-fns';
 import { api } from '@/services/api';
+import LabInsightCard from '@/components/LabInsightCard';
+import RetestScheduleCard from '@/components/RetestScheduleCard';
+import BiomarkerTrendChart from '@/components/BiomarkerTrendChart';
+import { router } from 'expo-router';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -682,6 +686,14 @@ export default function LabResultsScreen() {
   const queryClient = useQueryClient();
   const [showManual, setShowManual] = useState(false);
   const [showScan, setShowScan] = useState(false);
+  const [insightData, setInsightData] = useState<{
+    insight: string;
+    headline: string;
+    abnormalCount: number;
+    biomarkerCount: number;
+    supplementGaps: any[];
+    quickActions: string[];
+  } | null>(null);
 
   const { data: results, isLoading } = useQuery<LabResult[]>({
     queryKey: ['lab-results'],
@@ -691,17 +703,68 @@ export default function LabResultsScreen() {
     },
   });
 
+  const { data: retestSchedule } = useQuery({
+    queryKey: ['retest-schedule'],
+    queryFn: async () => {
+      try {
+        const { data } = await api.get('/api/v1/lab-intelligence/retest-schedule');
+        return data?.schedule ?? [];
+      } catch { return []; }
+    },
+    staleTime: 5 * 60_000,
+  });
+
+  const { data: supplementGaps } = useQuery({
+    queryKey: ['supplement-gaps'],
+    queryFn: async () => {
+      try {
+        const { data } = await api.get('/api/v1/lab-intelligence/supplement-gaps');
+        return data;
+      } catch { return null; }
+    },
+    staleTime: 5 * 60_000,
+  });
+
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.delete(`/api/v1/lab-results/lab-results/${id}`),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['lab-results'] }),
     onError: () => Alert.alert('Error', 'Could not delete lab result'),
   });
 
+  const fetchPostUploadInsight = useCallback(async (labResultId?: string) => {
+    try {
+      const { data } = await api.post('/api/v1/lab-intelligence/post-upload-insight', {
+        lab_result_id: labResultId,
+      });
+      setInsightData({
+        insight: data.insight,
+        headline: data.headline,
+        abnormalCount: data.abnormal_count ?? 0,
+        biomarkerCount: data.biomarker_count ?? 0,
+        supplementGaps: data.supplement_gaps ?? [],
+        quickActions: data.quick_actions ?? [],
+      });
+    } catch { /* silent */ }
+  }, []);
+
   const handleSaved = useCallback(() => {
     setShowManual(false);
     setShowScan(false);
     queryClient.invalidateQueries({ queryKey: ['lab-results'] });
-  }, [queryClient]);
+    queryClient.invalidateQueries({ queryKey: ['retest-schedule'] });
+    queryClient.invalidateQueries({ queryKey: ['supplement-gaps'] });
+    // Fetch post-upload insight
+    fetchPostUploadInsight();
+  }, [queryClient, fetchPostUploadInsight]);
+
+  const handleInsightAction = useCallback((action: string) => {
+    if (action === 'Share with doctor') {
+      router.push('/(tabs)/insights/doctor-prep');
+    } else if (action === 'Adjust supplements' || action.startsWith('add_supplement:')) {
+      router.push('/(tabs)/log/medications');
+    }
+    setInsightData(null);
+  }, []);
 
   return (
     <>
@@ -730,6 +793,24 @@ export default function LabResultsScreen() {
         </View>
 
         <View className="px-6 pt-5">
+          {/* Retest schedule */}
+          {retestSchedule && retestSchedule.length > 0 && (
+            <RetestScheduleCard schedule={retestSchedule} />
+          )}
+
+          {/* Post-upload AI insight */}
+          {insightData && (
+            <LabInsightCard
+              insight={insightData.insight}
+              headline={insightData.headline}
+              abnormalCount={insightData.abnormalCount}
+              biomarkerCount={insightData.biomarkerCount}
+              supplementGaps={insightData.supplementGaps}
+              quickActions={insightData.quickActions}
+              onAction={handleInsightAction}
+              onDismiss={() => setInsightData(null)}
+            />
+          )}
 
           {isLoading ? (
             <ActivityIndicator color="#00D4AA" className="mt-8" />

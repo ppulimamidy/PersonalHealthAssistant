@@ -7,7 +7,7 @@ smart prompts, and data completeness scoring.
 """
 
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -805,6 +805,39 @@ async def get_smart_prompt(
                     priority=50,
                 )
             )
+
+    # Lab retest reminder — check if any labs are overdue or due soon
+    if "lab_retest" not in dismissed_recently:
+        try:
+            from .lab_intelligence import CONDITION_TEST_MAP, MEDICATION_TEST_MAP
+
+            # Quick check: get last lab date
+            last_lab = await _supabase_get(
+                "lab_results",
+                f"user_id=eq.{user_id}&order=test_date.desc&limit=1&select=test_date,test_type",
+            )
+            if last_lab:
+                last_date = last_lab[0].get("test_date", "")
+                if last_date:
+                    try:
+                        days_since_lab = (
+                            datetime.now(timezone.utc).date()
+                            - date.fromisoformat(last_date[:10])
+                        ).days
+                        if days_since_lab >= 80:  # ~3 months
+                            prompts.append(
+                                SmartPrompt(
+                                    type="lab_retest",
+                                    title="Time for lab work",
+                                    body=f"Your last labs were {days_since_lab} days ago — a recheck may be due.",
+                                    action="lab-results",
+                                    priority=75 if days_since_lab >= 90 else 60,
+                                )
+                            )
+                    except (ValueError, TypeError):
+                        pass
+        except ImportError:
+            pass
 
     # Add a condition — for exploring users after 7 days
     if not condition and days_since >= 7 and "add_condition" not in dismissed_recently:

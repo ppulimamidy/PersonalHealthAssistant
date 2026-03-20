@@ -60,6 +60,7 @@ from .api.journeys import router as journeys_router
 from .api.cycle_tracking import router as cycle_tracking_router
 from .api.onboarding import router as onboarding_router
 from .api.batch import router as batch_router
+from .api.lab_intelligence import router as lab_intelligence_router
 from .api.nutrition_assistant import router as nutrition_assistant_router
 from .api.timeline_actions import router as timeline_actions_router
 from .api.weekly_review import router as weekly_review_router
@@ -238,6 +239,11 @@ app.include_router(
     tags=["Onboarding"],
 )
 app.include_router(batch_router, prefix="/api/v1/batch", tags=["Batch"])
+app.include_router(
+    lab_intelligence_router,
+    prefix="/api/v1/lab-intelligence",
+    tags=["Lab Intelligence"],
+)
 app.include_router(
     nutrition_assistant_router,
     prefix="/api/v1/nutrition-ai",
