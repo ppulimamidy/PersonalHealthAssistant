@@ -334,7 +334,7 @@ function ReportDetail({ report }: { report: HealthReport }) {
           <View className="bg-surface-raised border border-surface-border rounded-xl p-4 gap-1.5">
             {supplement_gaps.map((g, i) => (
               <View key={i} className="flex-row items-center gap-2">
-                <Ionicons name="alert-circle-outline" size={12} color="#F5A623" />
+                <Icon name="alert-circle-outline" size={12} color="#F5A623" />
                 <Text className="text-[#8B9BB4] text-xs flex-1">{g}</Text>
               </View>
             ))}
@@ -349,7 +349,7 @@ function ReportDetail({ report }: { report: HealthReport }) {
           <View className="bg-surface-raised border border-surface-border rounded-xl p-4 gap-1.5">
             {recommended_tests.map((t, i) => (
               <View key={i} className="flex-row items-center gap-2">
-                <Ionicons name="flask-outline" size={12} color="#818CF8" />
+                <Icon name="flask-outline" size={12} color="#818CF8" />
                 <Text className="text-[#8B9BB4] text-xs flex-1">{t}</Text>
               </View>
             ))}
