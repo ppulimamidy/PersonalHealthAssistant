@@ -18,6 +18,7 @@ import GoalJourneyCard from '@/components/GoalJourneyCard';
 import SpecialistInsightCard from '@/components/SpecialistInsightCard';
 import SmartPromptCard from '@/components/SmartPromptCard';
 import JourneyProposalCard from '@/components/JourneyProposalCard';
+import DailyBriefCard from '@/components/DailyBriefCard';
 
 function scoreColor(score: number): string {
   if (score >= 80) return '#00D4AA';
@@ -536,6 +537,9 @@ export default function HomeScreen() {
       {/* Role-specific quick-access cards */}
       {userRole === 'provider' && <ProviderHomeCards />}
       {userRole === 'caregiver' && <CaregiverHomeCards />}
+
+      {/* Daily Health Brief */}
+      <DailyBriefCard />
 
       {/* Smart prompt — replaces old getting started checklist */}
       <SmartPromptCard />

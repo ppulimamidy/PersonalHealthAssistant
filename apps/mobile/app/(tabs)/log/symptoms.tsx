@@ -1,3 +1,4 @@
+import { useState, useCallback } from 'react';
 import { View, Text, FlatList, TouchableOpacity, RefreshControl, ActivityIndicator } from 'react-native';
 import { router } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
@@ -5,6 +6,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { api } from '@/services/api';
 import type { SymptomJournalEntry } from '@/types';
 import { format } from 'date-fns';
+import SymptomInsightCard from '@/components/SymptomInsightCard';
 
 function SymptomCard({ item }: { item: SymptomJournalEntry }) {
   const severityColor =
@@ -34,6 +36,8 @@ function SymptomCard({ item }: { item: SymptomJournalEntry }) {
 }
 
 export default function SymptomsScreen() {
+  const [insightData, setInsightData] = useState<any>(null);
+
   const { data, isLoading, refetch } = useQuery({
     queryKey: ['symptoms'],
     queryFn: async () => {
@@ -41,9 +45,49 @@ export default function SymptomsScreen() {
         params: { days: 30 },
       });
       const symptoms = Array.isArray(resp) ? resp : (resp?.symptoms ?? []);
+
+      // Auto-fetch insight for the most recent symptom if logged today
+      if (symptoms.length > 0 && !insightData) {
+        const latest = symptoms[0] as SymptomJournalEntry;
+        const today = new Date().toISOString().slice(0, 10);
+        if ((latest.symptom_date ?? latest.created_at ?? '').slice(0, 10) === today) {
+          try {
+            const { data: insight } = await api.post('/api/v1/symptom-intelligence/post-log-insight', {
+              symptom_type: latest.symptom_type,
+              severity: latest.severity,
+              notes: latest.notes,
+            });
+            setInsightData(insight);
+          } catch { /* silent */ }
+        }
+      }
+
       return symptoms as SymptomJournalEntry[];
     },
   });
+
+  const handleInsightAction = useCallback((action: string) => {
+    if (action === 'Ask health coach') {
+      router.push('/(tabs)/chat');
+    }
+    setInsightData(null);
+  }, []);
+
+  const listHeader = (
+    <View>
+      {insightData && (
+        <SymptomInsightCard
+          insight={insightData.insight ?? ''}
+          frequencyThisWeek={insightData.frequency_this_week ?? 0}
+          severityTrend={insightData.severity_trend ?? 'stable'}
+          likelyTriggers={insightData.likely_triggers ?? []}
+          quickActions={insightData.quick_actions ?? []}
+          onAction={handleInsightAction}
+          onDismiss={() => setInsightData(null)}
+        />
+      )}
+    </View>
+  );
 
   return (
     <View className="flex-1 bg-obsidian-900">
@@ -69,6 +113,7 @@ export default function SymptomsScreen() {
           renderItem={({ item }) => <SymptomCard item={item} />}
           contentContainerStyle={{ padding: 16, paddingTop: 4 }}
           refreshControl={<RefreshControl refreshing={isLoading} onRefresh={refetch} tintColor="#00D4AA" />}
+          ListHeaderComponent={listHeader}
           ListEmptyComponent={
             <View className="items-center py-12">
               <Ionicons name="thermometer-outline" size={48} color="#526380" />
