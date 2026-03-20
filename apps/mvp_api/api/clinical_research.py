@@ -555,25 +555,73 @@ Generate a comprehensive clinical research response. Return ONLY valid JSON (no 
 }}
 
 Rules:
-- Reference specific clinical practice guidelines (ACC/AHA, NCCN, ADA, etc.)
-- Include guideline year in citations
-- Rank treatment options by evidence strength and guideline position
+- Reference specific clinical practice guidelines with year
+- Rank treatment options by evidence strength
 - Check drug interactions against patient's current medications
-- For cancer queries: include staging, biomarker-guided therapy, immunotherapy options
-- Be specific with efficacy numbers (NNT, reduction percentages, survival rates)
-- Generate 3-5 informed doctor discussion questions referencing guidelines and patient data
-- Maximum 4 treatment options, 3 drugs, 5 doctor questions"""
+- Be specific with efficacy numbers
+- Maximum 3 treatment options, 2 drugs, 3 doctor questions
+- Keep responses concise"""
 
-    raw = await _call_claude(prompt, max_tokens=3000)
+    raw = await _call_claude(prompt, max_tokens=2000)
 
-    # Parse response
+    # Parse response — robust JSON extraction
+    parsed = None
     try:
-        if "```" in raw:
-            raw = raw[raw.find("{") : raw.rfind("}") + 1]
-        parsed = json.loads(raw)
+        # Strip markdown fences
+        clean = raw
+        if "```json" in clean:
+            clean = clean[clean.find("```json") + 7 :]
+            if "```" in clean:
+                clean = clean[: clean.find("```")]
+        elif "```" in clean:
+            clean = clean[clean.find("```") + 3 :]
+            if "```" in clean:
+                clean = clean[: clean.find("```")]
+        clean = clean.strip()
+
+        # Find the outermost JSON object
+        if clean.startswith("{"):
+            # Try to find matching closing brace
+            depth = 0
+            end_idx = -1
+            for i, ch in enumerate(clean):
+                if ch == "{":
+                    depth += 1
+                elif ch == "}":
+                    depth -= 1
+                    if depth == 0:
+                        end_idx = i
+                        break
+            if end_idx > 0:
+                parsed = json.loads(clean[: end_idx + 1])
+            else:
+                parsed = json.loads(clean)
+        else:
+            parsed = json.loads(clean)
     except (json.JSONDecodeError, ValueError):
+        logger.warning("Failed to parse clinical search JSON, using raw text")
+
+    if not parsed:
+        # Extract ai_synthesis from raw text if JSON failed
+        synthesis = raw
+        if '"ai_synthesis"' in synthesis:
+            try:
+                start = synthesis.find('"ai_synthesis"')
+                # Find the value after the key
+                colon = synthesis.find(":", start)
+                quote1 = synthesis.find('"', colon + 1)
+                quote2 = synthesis.find('"', quote1 + 1)
+                # Handle escaped quotes
+                while quote2 > 0 and synthesis[quote2 - 1] == "\\":
+                    quote2 = synthesis.find('"', quote2 + 1)
+                if quote1 > 0 and quote2 > 0:
+                    synthesis = synthesis[quote1 + 1 : quote2]
+            except Exception:
+                synthesis = raw[:500]
+        else:
+            synthesis = raw[:500] if raw else "Unable to generate synthesis."
         parsed = {
-            "ai_synthesis": raw[:500] if raw else "Unable to generate synthesis.",
+            "ai_synthesis": synthesis,
             "treatment_report": None,
             "drugs_mentioned": [],
         }

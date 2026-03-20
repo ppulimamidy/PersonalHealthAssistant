@@ -181,7 +181,7 @@ export default function ClinicalResearchScreen() {
     setResult(null);
     try {
       const [searchResp, trialsResp] = await Promise.allSettled([
-        api.post('/api/v1/research/clinical-search', { query: searchQuery, search_type: 'all' }, { timeout: 60_000 }),
+        api.post('/api/v1/research/clinical-search', { query: searchQuery, search_type: 'all' }, { timeout: 90_000 }),
         api.get('/api/v1/research/trials', { params: { condition: searchQuery, max_results: 5 }, timeout: 15_000 }),
       ]);
       if (__DEV__) {
