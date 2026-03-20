@@ -13,7 +13,7 @@ import { api } from '@/services/api';
 import { useAuthStore } from '@/stores/authStore';
 
 const ROLES: Array<{ key: 'patient' | 'provider' | 'caregiver'; label: string; icon: React.ComponentProps<typeof Ionicons>['name'] }> = [
-  { key: 'patient',   label: 'Patient',   icon: 'person-outline' },
+  { key: 'patient',   label: 'Member',    icon: 'person-outline' },
   { key: 'provider',  label: 'Provider',  icon: 'medical-outline' },
   { key: 'caregiver', label: 'Caregiver', icon: 'people-outline' },
 ];

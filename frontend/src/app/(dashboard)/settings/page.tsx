@@ -557,7 +557,7 @@ export default function SettingsPage() {
             <div className="grid grid-cols-3 gap-2">
               {(
                 [
-                  { role: 'patient', label: 'Patient', desc: 'Tracking my own health' },
+                  { role: 'patient', label: 'Member', desc: 'Tracking my own health' },
                   { role: 'provider', label: 'Provider', desc: 'Clinician / practitioner' },
                   { role: 'caregiver', label: 'Caregiver', desc: 'Supporting someone else' },
                 ] as { role: UserRole; label: string; desc: string }[]
