@@ -48,6 +48,7 @@ async def _gather_insights_context(user_id: str) -> Dict[str, Any]:
 
     (
         metric_summaries,
+        native_health,
         medications,
         experiments,
         symptoms,
@@ -59,6 +60,12 @@ async def _gather_insights_context(user_id: str) -> Dict[str, Any]:
             "health_metric_summaries",
             f"user_id=eq.{user_id}&date=gte.{thirty_ago}"
             f"&select=metric_type,score,latest_value,date,trend_7d"
+            f"&order=date.desc&limit=500",
+        ),
+        _supabase_get(
+            "native_health_data",
+            f"user_id=eq.{user_id}&date=gte.{thirty_ago}"
+            f"&select=metric_type,value_json,date"
             f"&order=date.desc&limit=500",
         ),
         _supabase_get(
@@ -126,6 +133,20 @@ async def _gather_insights_context(user_id: str) -> Dict[str, Any]:
             metrics_by_type[mt] = []
         metrics_by_type[mt].append(m)
 
+    # Also pull from native_health_data
+    for nd in native_health:
+        mt = nd.get("metric_type", "")
+        d = (nd.get("date") or "")[:10]
+        vj = nd.get("value_json")
+        if isinstance(vj, dict):
+            val = vj.get("value") or vj.get("total") or vj.get("average")
+            if val and d:
+                if mt not in metrics_by_type:
+                    metrics_by_type[mt] = []
+                metrics_by_type[mt].append(
+                    {"metric_type": mt, "latest_value": val, "date": d}
+                )
+
     return {
         "metrics_by_type": metrics_by_type,
         "medications": medications,
@@ -159,7 +180,7 @@ async def trend_explanations(
     metrics_result: List[Dict[str, Any]] = []
 
     for metric_type, data_points in ctx["metrics_by_type"].items():
-        if len(data_points) < 3:
+        if len(data_points) < 2:
             continue
 
         label = METRIC_LABELS.get(metric_type, metric_type.replace("_", " ").title())
@@ -297,6 +318,11 @@ Rules:
         for m in metrics_result:
             m["explanation"] = explanations.get(m["metric"], "")
 
+    logger.info(
+        "Trend explanations: %d metric types found: %s",
+        len(ctx["metrics_by_type"]),
+        list(ctx["metrics_by_type"].keys()),
+    )
     return {"metrics": metrics_result}
 
 
@@ -310,11 +336,17 @@ async def day_summaries(
     start_date = (date.today() - timedelta(days=days)).isoformat()
 
     # Fetch timeline and actions in parallel
-    timeline_data, actions_data, symptoms = await asyncio.gather(
+    timeline_data, native_data, actions_data, symptoms = await asyncio.gather(
         _supabase_get(
             "health_metric_summaries",
             f"user_id=eq.{user_id}&date=gte.{start_date}"
             f"&select=metric_type,score,latest_value,date"
+            f"&order=date.desc&limit=300",
+        ),
+        _supabase_get(
+            "native_health_data",
+            f"user_id=eq.{user_id}&date=gte.{start_date}"
+            f"&select=metric_type,value_json,date"
             f"&order=date.desc&limit=300",
         ),
         _supabase_get(
@@ -331,8 +363,8 @@ async def day_summaries(
 
     # Group by date
     day_data: Dict[str, Dict[str, Any]] = {}
-    for m in timeline_data:
-        d = m.get("date", "")
+
+    def _ensure_day(d: str) -> Dict[str, Any]:
         if d not in day_data:
             day_data[d] = {
                 "metrics": {},
@@ -340,13 +372,32 @@ async def day_summaries(
                 "meds_taken": 0,
                 "meds_total": 0,
             }
-        mt = m.get("metric_type", "")
-        day_data[d]["metrics"][mt] = m.get("latest_value") or m.get("score")
+        return day_data[d]
+
+    for m in timeline_data:
+        d = m.get("date", "")
+        if d:
+            entry = _ensure_day(d)
+            mt = m.get("metric_type", "")
+            entry["metrics"][mt] = m.get("latest_value") or m.get("score")
+
+    # Also pull from native_health_data (Apple Health, etc.)
+    for nd in native_data:
+        d = (nd.get("date") or "")[:10]
+        if d:
+            entry = _ensure_day(d)
+            mt = nd.get("metric_type", "")
+            vj = nd.get("value_json")
+            if isinstance(vj, dict):
+                val = vj.get("value") or vj.get("total") or vj.get("average")
+                if val and mt not in entry["metrics"]:
+                    entry["metrics"][mt] = val
 
     for s in symptoms:
         d = (s.get("symptom_date") or "")[:10]
-        if d in day_data:
-            day_data[d]["symptoms"].append(
+        if d:
+            entry = _ensure_day(d)
+            entry["symptoms"].append(
                 f"{s.get('symptom_type', '')} ({s.get('severity', '?')}/10)"
             )
 

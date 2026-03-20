@@ -415,7 +415,7 @@ export default function TimelineScreen() {
   });
 
   const rawEntries = Array.isArray(data) ? data : (data?.entries ?? []);
-  const entries = [...rawEntries].reverse(); // most recent first
+  const entries = [...rawEntries].sort((a, b) => b.date.localeCompare(a.date)); // most recent first
   const actionsMap: ActionsMap = actionsData ?? {};
   const summariesMap: SummariesMap = summariesData ?? {};
 

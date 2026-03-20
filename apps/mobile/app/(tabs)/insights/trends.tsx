@@ -317,11 +317,25 @@ export default function TrendsScreen() {
     staleTime: 5 * 60_000,
   });
 
-  // Map metric type → explanation
+  // Map metric type → explanation (with aliases for different data sources)
   const explanationMap: Record<string, TrendExplanation> = {};
   if (explanationsData?.metrics) {
     for (const m of explanationsData.metrics) {
       explanationMap[m.metric] = m;
+      // Add common aliases
+      const aliases: Record<string, string[]> = {
+        sleep: ['sleep_score', 'sleep_analysis', 'sleep_duration'],
+        hrv_sdnn: ['hrv', 'hrv_balance', 'heart_rate_variability'],
+        resting_heart_rate: ['rhr', 'resting_hr'],
+        steps: ['step_count', 'daily_steps'],
+        active_calories: ['active_energy', 'calories_active'],
+        readiness: ['readiness_score', 'recovery'],
+        activity: ['activity_score'],
+      };
+      for (const [key, alts] of Object.entries(aliases)) {
+        if (m.metric === key) alts.forEach((a) => { explanationMap[a] = m; });
+        if (alts.includes(m.metric)) explanationMap[key] = m;
+      }
     }
   }
 
