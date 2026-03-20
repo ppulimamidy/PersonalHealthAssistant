@@ -128,6 +128,13 @@ class CarePlanProgress(BaseModel):
     days_remaining: Optional[int] = None
 
 
+class MedicationEvidence(BaseModel):
+    name: str
+    dosage: Optional[str] = None
+    start_date: Optional[str] = None
+    lab_evidence: Optional[str] = None  # "A1C improved from 7.2 to 6.8"
+
+
 class DoctorPrepReport(BaseModel):
     id: str
     user_id: str
@@ -139,6 +146,10 @@ class DoctorPrepReport(BaseModel):
     nutrition_correlations: Optional[List[CorrelationHighlight]] = None
     condition_specific_notes: Optional[List[str]] = None
     care_plan_progress: Optional[List[CarePlanProgress]] = None
+    medications_with_evidence: Optional[List[MedicationEvidence]] = None
+    supplement_gaps: Optional[List[str]] = None
+    recommended_tests: Optional[List[str]] = None
+    cycle_context: Optional[str] = None
 
 
 class GenerateReportRequest(BaseModel):
@@ -861,6 +872,95 @@ async def generate_report(
                 f"macro balance could be improved"
             )
 
+    # --- Medication evidence, supplement gaps, recommended tests, cycle ---
+    medications_with_evidence: List[MedicationEvidence] = []
+    supplement_gap_notes: List[str] = []
+    recommended_test_notes: List[str] = []
+    cycle_context_note: Optional[str] = None
+
+    try:
+        # Medications with lab evidence
+        meds = await _supabase_get(
+            "medications",
+            f"user_id=eq.{user_id}&is_active=eq.true"
+            f"&select=medication_name,dosage,start_date",
+        )
+        for m in meds:
+            medications_with_evidence.append(
+                MedicationEvidence(
+                    name=m.get("medication_name", ""),
+                    dosage=m.get("dosage"),
+                    start_date=m.get("start_date"),
+                )
+            )
+
+        # Lab-based supplement gaps
+        latest_lab = await _supabase_get(
+            "lab_results",
+            f"user_id=eq.{user_id}&order=test_date.desc&limit=1" f"&select=biomarkers",
+        )
+        if latest_lab:
+            import json as _json
+
+            bms = latest_lab[0].get("biomarkers") or []
+            if isinstance(bms, str):
+                try:
+                    bms = _json.loads(bms)
+                except Exception:
+                    bms = []
+            for bm in bms:
+                if isinstance(bm, dict) and bm.get("status") in (
+                    "abnormal",
+                    "critical",
+                    "borderline",
+                ):
+                    supplement_gap_notes.append(
+                        f"{bm.get('name', '?')}: {bm.get('value', '?')} {bm.get('unit', '')} ({bm.get('status')})"
+                    )
+
+        # Recommended tests from conditions/medications
+        conditions_list = await _supabase_get(
+            "health_conditions",
+            f"user_id=eq.{user_id}&is_active=eq.true&select=condition_name",
+        )
+        if conditions_list:
+            for c in conditions_list:
+                cname = c.get("condition_name", "")
+                recommended_test_notes.append(
+                    f"Monitor for {cname} — discuss appropriate lab panel"
+                )
+
+        # Cycle context
+        cycle_logs = await _supabase_get(
+            "cycle_logs",
+            f"user_id=eq.{user_id}&event_type=eq.period_start"
+            f"&order=event_date.desc&select=event_date&limit=3",
+        )
+        if cycle_logs:
+            try:
+                last_period = date.fromisoformat(cycle_logs[0]["event_date"][:10])
+                day_in_cycle = (date.today() - last_period).days
+                phases = {
+                    range(0, 6): "menstrual",
+                    range(6, 14): "follicular",
+                    range(14, 17): "ovulatory",
+                    range(17, 35): "luteal",
+                }
+                phase_name = "unknown"
+                for r, p in phases.items():
+                    if day_in_cycle in r:
+                        phase_name = p
+                        break
+                cycle_context_note = (
+                    f"Currently in {phase_name} phase (day {day_in_cycle}). "
+                    f"Cycles tracked: {len(cycle_logs)}. "
+                    f"Note: hormone-sensitive labs may be affected by cycle phase."
+                )
+            except (ValueError, TypeError, KeyError):
+                pass
+    except Exception as e:
+        logger.warning("Failed to gather extended doctor prep context: %s", e)
+
     # Build report
     report = DoctorPrepReport(
         id=str(uuid.uuid4()),
@@ -884,6 +984,12 @@ async def generate_report(
         nutrition_correlations=nutrition_correlations,
         condition_specific_notes=condition_notes,
         care_plan_progress=care_plan_progress if care_plan_progress else None,
+        medications_with_evidence=medications_with_evidence
+        if medications_with_evidence
+        else None,
+        supplement_gaps=supplement_gap_notes if supplement_gap_notes else None,
+        recommended_tests=recommended_test_notes if recommended_test_notes else None,
+        cycle_context=cycle_context_note,
     )
 
     logger.info(f"Generated doctor prep report for user {user_id}")

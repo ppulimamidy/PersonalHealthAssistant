@@ -59,6 +59,15 @@ interface HealthReport extends ReportSummary {
     progress_pct: number;
     on_track: boolean;
   }>;
+  medications_with_evidence?: Array<{
+    name: string;
+    dosage?: string;
+    start_date?: string;
+    lab_evidence?: string;
+  }>;
+  supplement_gaps?: string[];
+  recommended_tests?: string[];
+  cycle_context?: string;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -135,7 +144,10 @@ function ReportDetail({ report }: { report: HealthReport }) {
     }
   }
 
-  const { summary, health_intelligence: hi, condition_specific_notes, care_plan_progress } = report;
+  const {
+    summary, health_intelligence: hi, condition_specific_notes, care_plan_progress,
+    medications_with_evidence, supplement_gaps, recommended_tests, cycle_context,
+  } = report;
 
   return (
     <View>
@@ -291,6 +303,66 @@ function ReportDetail({ report }: { report: HealthReport }) {
                 </View>
               );
             })}
+          </View>
+        </View>
+      )}
+
+      {/* Medications with Lab Evidence */}
+      {medications_with_evidence && medications_with_evidence.length > 0 && (
+        <View className="mb-4">
+          <Text className="text-[#526380] text-xs uppercase tracking-wider mb-2">Current Medications</Text>
+          <View className="bg-surface-raised border border-surface-border rounded-xl p-4 gap-2">
+            {medications_with_evidence.map((m, i) => (
+              <View key={i} className="flex-row items-center justify-between">
+                <View className="flex-1">
+                  <Text className="text-[#E8EDF5] text-sm font-sansMedium">{m.name}</Text>
+                  {m.dosage && <Text className="text-[#526380] text-xs">{m.dosage}{m.start_date ? ` · since ${m.start_date}` : ''}</Text>}
+                </View>
+                {m.lab_evidence && (
+                  <Text className="text-[#6EE7B7] text-[10px] ml-2">{m.lab_evidence}</Text>
+                )}
+              </View>
+            ))}
+          </View>
+        </View>
+      )}
+
+      {/* Supplement Gaps */}
+      {supplement_gaps && supplement_gaps.length > 0 && (
+        <View className="mb-4">
+          <Text className="text-[#F5A623] text-xs uppercase tracking-wider mb-2">Lab Findings to Discuss</Text>
+          <View className="bg-surface-raised border border-surface-border rounded-xl p-4 gap-1.5">
+            {supplement_gaps.map((g, i) => (
+              <View key={i} className="flex-row items-center gap-2">
+                <Ionicons name="alert-circle-outline" size={12} color="#F5A623" />
+                <Text className="text-[#8B9BB4] text-xs flex-1">{g}</Text>
+              </View>
+            ))}
+          </View>
+        </View>
+      )}
+
+      {/* Recommended Tests */}
+      {recommended_tests && recommended_tests.length > 0 && (
+        <View className="mb-4">
+          <Text className="text-[#818CF8] text-xs uppercase tracking-wider mb-2">Recommended Lab Work</Text>
+          <View className="bg-surface-raised border border-surface-border rounded-xl p-4 gap-1.5">
+            {recommended_tests.map((t, i) => (
+              <View key={i} className="flex-row items-center gap-2">
+                <Ionicons name="flask-outline" size={12} color="#818CF8" />
+                <Text className="text-[#8B9BB4] text-xs flex-1">{t}</Text>
+              </View>
+            ))}
+          </View>
+        </View>
+      )}
+
+      {/* Cycle Context */}
+      {cycle_context && (
+        <View className="mb-4">
+          <Text className="text-[#A78BFA] text-xs uppercase tracking-wider mb-2">Cycle Context</Text>
+          <View className="bg-surface-raised border border-surface-border rounded-xl p-4">
+            <Text className="text-[#8B9BB4] text-xs leading-5">{cycle_context}</Text>
           </View>
         </View>
       )}
