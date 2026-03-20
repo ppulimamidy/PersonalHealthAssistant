@@ -196,14 +196,22 @@ export default function ClinicalResearchScreen() {
           api.get('/api/v1/research/trials', { params: { condition: searchQuery, max_results: 5 }, timeout: 15_000 }),
         ]);
         if (detailsResp.status === 'fulfilled') {
-          setResult((prev) => prev ? {
-            ...prev,
-            treatment_report: detailsResp.value.data?.treatment_report ?? prev.treatment_report,
-            drugs_mentioned: detailsResp.value.data?.drugs_mentioned ?? prev.drugs_mentioned,
-          } : prev);
+          const details = detailsResp.value.data;
+          if (__DEV__) console.log('[Research] details:', JSON.stringify(details)?.slice(0, 200));
+          if (details?.treatment_report || details?.drugs_mentioned?.length) {
+            setResult((prev) => ({
+              ...(prev ?? {}),
+              ai_synthesis: prev?.ai_synthesis ?? '',
+              articles: prev?.articles ?? [],
+              treatment_report: details.treatment_report ?? null,
+              drugs_mentioned: details.drugs_mentioned ?? [],
+            } as SearchResult));
+          }
         }
         if (trialsResp.status === 'fulfilled') setTrials(trialsResp.value.data?.trials ?? []);
-      } catch { /* details are bonus, synthesis already shown */ }
+      } catch (e) {
+        if (__DEV__) console.warn('[Research] Phase 2 failed:', e);
+      }
     } catch (e: any) {
       setError(e?.message ?? 'Search failed. Please try again.');
       setSearching(false);
