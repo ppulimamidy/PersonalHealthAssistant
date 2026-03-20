@@ -844,6 +844,751 @@ async def treatment_summary(
 
 
 # ---------------------------------------------------------------------------
+# Session 1-4: Lab Summary, Recommended Tests, Doctor Note
+# ---------------------------------------------------------------------------
+
+# Biomarker → body system mapping
+BIOMARKER_SYSTEM_MAP: Dict[str, str] = {
+    # Metabolic
+    "glucose": "metabolic",
+    "fasting_glucose": "metabolic",
+    "hba1c": "metabolic",
+    "a1c": "metabolic",
+    "insulin": "metabolic",
+    "fasting_insulin": "metabolic",
+    "c_peptide": "metabolic",
+    # Cardiovascular
+    "total_cholesterol": "cardiovascular",
+    "ldl": "cardiovascular",
+    "ldl_cholesterol": "cardiovascular",
+    "hdl": "cardiovascular",
+    "hdl_cholesterol": "cardiovascular",
+    "triglycerides": "cardiovascular",
+    "apob": "cardiovascular",
+    "lp_a": "cardiovascular",
+    "lpa": "cardiovascular",
+    "homocysteine": "cardiovascular",
+    "hs_crp": "inflammation",
+    "crp": "inflammation",
+    # Blood
+    "hemoglobin": "blood",
+    "hematocrit": "blood",
+    "wbc": "blood",
+    "white_blood_cells": "blood",
+    "rbc": "blood",
+    "red_blood_cells": "blood",
+    "platelets": "blood",
+    "mcv": "blood",
+    "mch": "blood",
+    "mchc": "blood",
+    # Thyroid
+    "tsh": "thyroid",
+    "free_t4": "thyroid",
+    "free_t3": "thyroid",
+    "t4": "thyroid",
+    "t3": "thyroid",
+    "reverse_t3": "thyroid",
+    "tpo": "thyroid",
+    "tpo_antibodies": "thyroid",
+    # Liver
+    "alt": "liver",
+    "ast": "liver",
+    "alp": "liver",
+    "bilirubin": "liver",
+    "albumin": "liver",
+    "ggt": "liver",
+    "alanine_aminotransferase": "liver",
+    "aspartate_aminotransferase": "liver",
+    # Kidney
+    "creatinine": "kidney",
+    "bun": "kidney",
+    "egfr": "kidney",
+    "uric_acid": "kidney",
+    "microalbumin": "kidney",
+    # Nutrients
+    "vitamin_d": "nutrients",
+    "25_oh_vitamin_d": "nutrients",
+    "b12": "nutrients",
+    "vitamin_b12": "nutrients",
+    "folate": "nutrients",
+    "folic_acid": "nutrients",
+    "ferritin": "nutrients",
+    "iron": "nutrients",
+    "serum_iron": "nutrients",
+    "magnesium": "nutrients",
+    "zinc": "nutrients",
+    # Hormones
+    "estradiol": "hormones",
+    "progesterone": "hormones",
+    "testosterone": "hormones",
+    "free_testosterone": "hormones",
+    "fsh": "hormones",
+    "lh": "hormones",
+    "dhea_s": "hormones",
+    "shbg": "hormones",
+    "cortisol": "hormones",
+    "amh": "hormones",
+    "prolactin": "hormones",
+}
+
+SYSTEM_LABELS: Dict[str, str] = {
+    "metabolic": "Metabolic",
+    "cardiovascular": "Cardiovascular",
+    "blood": "Blood",
+    "thyroid": "Thyroid",
+    "liver": "Liver",
+    "kidney": "Kidney",
+    "nutrients": "Nutrients",
+    "hormones": "Hormones",
+    "inflammation": "Inflammation",
+}
+
+SYSTEM_ICONS: Dict[str, str] = {
+    "metabolic": "flame-outline",
+    "cardiovascular": "heart-outline",
+    "blood": "water-outline",
+    "thyroid": "body-outline",
+    "liver": "fitness-outline",
+    "kidney": "medical-outline",
+    "nutrients": "leaf-outline",
+    "hormones": "pulse-outline",
+    "inflammation": "alert-circle-outline",
+}
+
+# Optimal ranges (tighter than "normal")
+OPTIMAL_RANGES: Dict[str, Dict[str, float]] = {
+    "ferritin": {"optimal_min": 50, "optimal_max": 150},
+    "vitamin_d": {"optimal_min": 50, "optimal_max": 80},
+    "25_oh_vitamin_d": {"optimal_min": 50, "optimal_max": 80},
+    "b12": {"optimal_min": 500, "optimal_max": 900},
+    "vitamin_b12": {"optimal_min": 500, "optimal_max": 900},
+    "tsh": {"optimal_min": 1.0, "optimal_max": 2.5},
+    "hs_crp": {"optimal_min": 0, "optimal_max": 1.0},
+    "hba1c": {"optimal_min": 4.0, "optimal_max": 5.4},
+    "a1c": {"optimal_min": 4.0, "optimal_max": 5.4},
+    "fasting_insulin": {"optimal_min": 2, "optimal_max": 8},
+}
+
+# Advanced biomarker recommendations
+ADVANCED_BIOMARKERS: List[Dict[str, Any]] = [
+    {
+        "test_name": "ApoB",
+        "system": "cardiovascular",
+        "why": "Better CV risk predictor than LDL — counts atherogenic particles. 'Normal' LDL + high ApoB = hidden risk.",
+        "who": "Anyone with CV risk factors, family history, or metabolic syndrome",
+        "frequency": "annually",
+        "one_time": False,
+        "conditions": [
+            "heart_disease",
+            "metabolic_syndrome",
+            "type_2_diabetes",
+            "pcos",
+        ],
+        "priority": "high",
+    },
+    {
+        "test_name": "Lp(a)",
+        "system": "cardiovascular",
+        "why": "Genetic lipoprotein — 20% of people have elevated levels. Dramatically increases heart attack risk. Standard lipids miss it entirely.",
+        "who": "Everyone once, especially with family history of early heart disease",
+        "frequency": "one-time",
+        "one_time": True,
+        "conditions": [],
+        "priority": "high",
+    },
+    {
+        "test_name": "Fasting Insulin",
+        "system": "metabolic",
+        "why": "Catches insulin resistance 10-15 years before glucose goes abnormal. Standard panels only show glucose.",
+        "who": "Everyone 35+, PCOS, family diabetes history, weight concerns",
+        "frequency": "annually",
+        "one_time": False,
+        "conditions": ["pcos", "type_2_diabetes", "metabolic_syndrome", "weight_loss"],
+        "priority": "high",
+    },
+    {
+        "test_name": "hs-CRP",
+        "system": "inflammation",
+        "why": "High-sensitivity CRP measures chronic low-grade inflammation — a key driver of heart disease, metabolic issues, and autoimmune flares.",
+        "who": "Everyone 40+, autoimmune conditions, metabolic syndrome",
+        "frequency": "annually",
+        "one_time": False,
+        "conditions": ["autoimmune", "heart_disease", "type_2_diabetes"],
+        "priority": "medium",
+    },
+    {
+        "test_name": "Homocysteine",
+        "system": "cardiovascular",
+        "why": "Elevated = cardiovascular + neurological risk. Often fixable with B6, B12, and folate supplementation.",
+        "who": "Everyone 40+, CV risk, MTHFR mutations",
+        "frequency": "annually",
+        "one_time": False,
+        "conditions": ["heart_disease"],
+        "priority": "medium",
+    },
+    {
+        "test_name": "RBC Magnesium",
+        "system": "nutrients",
+        "why": "Serum magnesium is nearly useless — body maintains levels by pulling from cells. RBC magnesium shows true cellular status.",
+        "who": "Muscle cramps, anxiety, sleep issues, heart palpitations",
+        "frequency": "annually",
+        "one_time": False,
+        "conditions": ["sleep_optimization", "mental_health"],
+        "priority": "medium",
+    },
+    {
+        "test_name": "Omega-3 Index",
+        "system": "cardiovascular",
+        "why": "RBC membrane omega-3 content. Predicts CV risk better than counting fish oil pills. Target: 8-12%.",
+        "who": "Everyone, especially if not eating fatty fish 2x/week",
+        "frequency": "annually",
+        "one_time": False,
+        "conditions": [],
+        "priority": "low",
+    },
+    {
+        "test_name": "Free T3",
+        "system": "thyroid",
+        "why": "Active thyroid hormone. TSH + Free T4 can look normal while Free T3 is low (poor conversion). Explains persistent fatigue.",
+        "who": "Anyone with fatigue, weight issues, cold intolerance with 'normal' TSH",
+        "frequency": "with thyroid panel",
+        "one_time": False,
+        "conditions": ["hypothyroidism"],
+        "priority": "high",
+    },
+    {
+        "test_name": "Reverse T3",
+        "system": "thyroid",
+        "why": "Blocks T3 from working even when levels look normal. Elevated by stress, illness, calorie restriction.",
+        "who": "Thyroid symptoms with normal standard panel",
+        "frequency": "with thyroid panel",
+        "one_time": False,
+        "conditions": ["hypothyroidism"],
+        "priority": "medium",
+    },
+    {
+        "test_name": "TPO Antibodies",
+        "system": "thyroid",
+        "why": "Catches autoimmune thyroid (Hashimoto's) years before TSH goes abnormal. 1 in 8 women affected.",
+        "who": "Women 30+, family history of autoimmune disease, thyroid symptoms",
+        "frequency": "one-time (unless positive, then monitor)",
+        "one_time": True,
+        "conditions": ["hypothyroidism", "autoimmune"],
+        "priority": "high",
+    },
+    {
+        "test_name": "DHEA-S",
+        "system": "hormones",
+        "why": "Adrenal health marker. Declines with age. Correlates with energy, immunity, and hormone balance.",
+        "who": "Women 35+, chronic fatigue, low libido, chronic stress",
+        "frequency": "annually",
+        "one_time": False,
+        "conditions": ["pcos", "mental_health"],
+        "priority": "medium",
+    },
+    {
+        "test_name": "Ferritin",
+        "system": "nutrients",
+        "why": "Iron storage — not just 'are you anemic.' Low ferritin (even 'in range') causes fatigue, hair loss, brain fog. Optimal: 50-150.",
+        "who": "Menstruating women, athletes, vegetarians",
+        "frequency": "annually",
+        "one_time": False,
+        "conditions": [],
+        "priority": "medium",
+    },
+    {
+        "test_name": "Urine Microalbumin",
+        "system": "kidney",
+        "why": "Earliest marker of kidney damage. Standard panels (creatinine/BUN) only catch damage after significant loss.",
+        "who": "Diabetics, hypertensives, long-term NSAID users",
+        "frequency": "annually",
+        "one_time": False,
+        "conditions": ["type_2_diabetes", "hypertension"],
+        "priority": "high",
+    },
+    {
+        "test_name": "GGT",
+        "system": "liver",
+        "why": "Liver enzyme indicating oxidative stress. Goes abnormal before ALT/AST. Also reflects alcohol impact and metabolic liver disease.",
+        "who": "Metabolic syndrome, alcohol consumption, liver concerns",
+        "frequency": "annually",
+        "one_time": False,
+        "conditions": ["metabolic_syndrome"],
+        "priority": "low",
+    },
+]
+
+# Standard age/sex screening
+STANDARD_SCREENING: List[Dict[str, Any]] = [
+    {
+        "test_name": "CBC",
+        "age_min": 18,
+        "sex": "all",
+        "frequency": "annually",
+        "reason": "General health baseline",
+    },
+    {
+        "test_name": "Metabolic Panel",
+        "age_min": 18,
+        "sex": "all",
+        "frequency": "annually",
+        "reason": "Organ function + electrolytes",
+    },
+    {
+        "test_name": "Lipid Panel",
+        "age_min": 20,
+        "sex": "all",
+        "frequency": "annually",
+        "reason": "Cardiovascular risk",
+    },
+    {
+        "test_name": "Thyroid Panel (TSH)",
+        "age_min": 35,
+        "sex": "female",
+        "frequency": "every 5 years",
+        "reason": "Thyroid screening — risk increases with age",
+    },
+    {
+        "test_name": "Thyroid Panel (TSH)",
+        "age_min": 40,
+        "sex": "all",
+        "frequency": "every 5 years",
+        "reason": "Thyroid screening",
+    },
+    {
+        "test_name": "Vitamin D",
+        "age_min": 30,
+        "sex": "all",
+        "frequency": "annually",
+        "reason": "Widespread deficiency affecting immunity, bones, mood",
+    },
+    {
+        "test_name": "Hemoglobin A1C",
+        "age_min": 35,
+        "sex": "all",
+        "frequency": "every 3 years",
+        "reason": "Diabetes screening",
+    },
+    {
+        "test_name": "FSH + Estradiol",
+        "age_min": 40,
+        "age_max": 55,
+        "sex": "female",
+        "frequency": "as needed",
+        "reason": "Perimenopause assessment",
+    },
+    {
+        "test_name": "DEXA Bone Density",
+        "age_min": 50,
+        "sex": "female",
+        "frequency": "every 2 years",
+        "reason": "Post-menopausal bone loss screening",
+    },
+    {
+        "test_name": "Estradiol + FSH + Calcium + Vitamin D",
+        "age_min": 50,
+        "sex": "female",
+        "frequency": "annually",
+        "reason": "Post-menopausal health monitoring",
+    },
+    {
+        "test_name": "PSA (discuss with doctor)",
+        "age_min": 50,
+        "sex": "male",
+        "frequency": "annually",
+        "reason": "Prostate screening",
+    },
+    {
+        "test_name": "Testosterone (Total + Free)",
+        "age_min": 40,
+        "sex": "male",
+        "frequency": "as needed",
+        "reason": "Andropause assessment if symptoms present",
+    },
+    {
+        "test_name": "B12",
+        "age_min": 50,
+        "sex": "all",
+        "frequency": "annually",
+        "reason": "Absorption decreases with age",
+    },
+    {
+        "test_name": "Ferritin",
+        "age_min": 18,
+        "sex": "female",
+        "frequency": "annually",
+        "reason": "Iron stores — menstrual blood loss risk",
+    },
+]
+
+
+@router.get("/lab-summary")
+async def lab_summary(
+    current_user: dict = Depends(get_current_user),
+):
+    """Structured summary of latest labs grouped by body system."""
+    user_id = current_user["id"]
+    ctx = await _gather_lab_context(user_id)
+
+    if not ctx["labs"]:
+        return {"systems": [], "watch_items": [], "doctor_discussion": []}
+
+    latest = ctx["labs"][0]
+    biomarkers = latest.get("biomarkers", [])
+    test_type = latest.get("test_type", "Lab Panel")
+    test_date = latest.get("test_date", "")
+
+    # Find previous lab of same type for deltas
+    prev_map: Dict[str, float] = {}
+    for lab in ctx["labs"][1:]:
+        if lab.get("test_type") == test_type:
+            for bm in lab.get("biomarkers", []):
+                if isinstance(bm, dict) and bm.get("name"):
+                    norm = _normalize_biomarker_name(bm["name"])
+                    if norm not in prev_map and bm.get("value") is not None:
+                        prev_map[norm] = bm["value"]
+            break
+
+    # Group by system
+    systems_data: Dict[str, List[Dict[str, Any]]] = {}
+    for bm in biomarkers:
+        if not isinstance(bm, dict):
+            continue
+        name = bm.get("name", "")
+        norm = _normalize_biomarker_name(name)
+        system = BIOMARKER_SYSTEM_MAP.get(norm, "other")
+        if system not in systems_data:
+            systems_data[system] = []
+
+        entry: Dict[str, Any] = {
+            "name": name,
+            "value": bm.get("value"),
+            "unit": bm.get("unit", ""),
+            "status": bm.get("status", "unknown"),
+            "reference_range": bm.get("reference_range"),
+        }
+
+        # Delta vs previous
+        if norm in prev_map and bm.get("value") is not None:
+            entry["previous"] = prev_map[norm]
+            entry["delta"] = round(bm["value"] - prev_map[norm], 2)
+
+        # Optimal range check
+        if norm in OPTIMAL_RANGES and bm.get("status") == "normal":
+            opt = OPTIMAL_RANGES[norm]
+            val = bm.get("value", 0)
+            if val < opt["optimal_min"] or val > opt["optimal_max"]:
+                entry["optimal_flag"] = True
+                entry["optimal_range"] = f"{opt['optimal_min']}-{opt['optimal_max']}"
+
+        systems_data[system].append(entry)
+
+    # Build system summaries
+    systems: List[Dict[str, Any]] = []
+    for sys_key, bms in systems_data.items():
+        normal_count = sum(1 for b in bms if b["status"] == "normal")
+        has_abnormal = any(b["status"] in ("abnormal", "critical") for b in bms)
+        has_borderline = any(b["status"] == "borderline" for b in bms)
+        status = (
+            "has_abnormal"
+            if has_abnormal
+            else "has_borderline"
+            if has_borderline
+            else "all_normal"
+        )
+        systems.append(
+            {
+                "key": sys_key,
+                "name": SYSTEM_LABELS.get(sys_key, sys_key.title()),
+                "icon": SYSTEM_ICONS.get(sys_key, "ellipse-outline"),
+                "status": status,
+                "total": len(bms),
+                "normal_count": normal_count,
+                "biomarkers": bms,
+            }
+        )
+    systems.sort(
+        key=lambda s: {"has_abnormal": 0, "has_borderline": 1, "all_normal": 2}[
+            s["status"]
+        ]
+    )
+
+    # Watch items
+    watch_items: List[Dict[str, Any]] = []
+    for bm in biomarkers:
+        if not isinstance(bm, dict):
+            continue
+        if bm.get("status") in ("abnormal", "critical", "borderline"):
+            norm = _normalize_biomarker_name(bm.get("name", ""))
+            delta_text = ""
+            if norm in prev_map and bm.get("value") is not None:
+                d = bm["value"] - prev_map[norm]
+                delta_text = f" ({'↑' if d > 0 else '↓'}{abs(round(d, 1))} vs previous)"
+
+            watch_items.append(
+                {
+                    "biomarker": bm.get("name", ""),
+                    "value": bm.get("value"),
+                    "unit": bm.get("unit", ""),
+                    "status": bm.get("status"),
+                    "delta_text": delta_text,
+                }
+            )
+
+    # HOMA-IR auto-calculation
+    glucose_val = None
+    insulin_val = None
+    for bm in biomarkers:
+        if not isinstance(bm, dict):
+            continue
+        norm = _normalize_biomarker_name(bm.get("name", ""))
+        if norm in ("glucose", "fasting_glucose") and bm.get("value"):
+            glucose_val = bm["value"]
+        elif norm in ("insulin", "fasting_insulin") and bm.get("value"):
+            insulin_val = bm["value"]
+    homa_ir = None
+    if glucose_val and insulin_val:
+        homa_ir = round((glucose_val * insulin_val) / 405, 2)
+
+    # Doctor discussion — AI-generated
+    first_name = ctx["demographics"].get("first_name") or "there"
+    demo = ctx["demographics"]
+    conditions_text = ", ".join(ctx["conditions"]) or "None"
+    meds_text = (
+        ", ".join(m.get("medication_name", "") for m in ctx["medications"]) or "None"
+    )
+
+    if watch_items:
+        watch_text = "\n".join(
+            f"- {w['biomarker']}: {w['value']} {w['unit']} ({w['status']}){w['delta_text']}"
+            for w in watch_items
+        )
+        prompt = f"""You are a lab results analyst for {first_name} ({demo.get('age', '?')}yo {demo.get('sex', '?')}).
+Conditions: {conditions_text}. Medications: {meds_text}.
+
+These biomarkers need attention:
+{watch_text}
+{"HOMA-IR calculated: " + str(homa_ir) if homa_ir else ""}
+
+Generate a JSON array of the top 3 doctor discussion items. Each item:
+{{"finding": "short title", "what_it_means": "1 sentence plain language", "what_to_ask": "specific question for doctor", "follow_up": "recommended action"}}
+
+Return ONLY valid JSON array, no markdown."""
+
+        raw = await _call_claude(prompt, max_tokens=500)
+        try:
+            if "```" in raw:
+                raw = raw[raw.find("[") : raw.rfind("]") + 1]
+            doctor_discussion = json.loads(raw)
+            if not isinstance(doctor_discussion, list):
+                doctor_discussion = []
+        except (json.JSONDecodeError, ValueError):
+            doctor_discussion = []
+    else:
+        doctor_discussion = []
+
+    return {
+        "test_type": test_type,
+        "test_date": test_date,
+        "systems": systems,
+        "watch_items": watch_items,
+        "doctor_discussion": doctor_discussion,
+        "homa_ir": homa_ir,
+    }
+
+
+@router.get("/recommended-tests")
+async def recommended_tests(
+    current_user: dict = Depends(get_current_user),
+):
+    """Age/sex/condition-based test recommendations + advanced biomarkers."""
+    user_id = current_user["id"]
+    ctx = await _gather_lab_context(user_id)
+    demo = ctx["demographics"]
+    age = demo.get("age") or 30
+    sex = demo.get("sex") or "all"
+    conditions = [c.lower().replace(" ", "_") for c in ctx["conditions"]]
+    first_name = demo.get("first_name") or "there"
+
+    # Collect all biomarkers ever tested
+    tested_biomarkers: set = set()
+    tested_test_types: set = set()
+    for lab in ctx["labs"]:
+        tt = (lab.get("test_type") or "").lower()
+        if tt:
+            tested_test_types.add(tt)
+        for bm in lab.get("biomarkers", []):
+            if isinstance(bm, dict) and bm.get("name"):
+                tested_biomarkers.add(_normalize_biomarker_name(bm["name"]))
+
+    # Standard screening recommendations
+    standard: List[Dict[str, Any]] = []
+    for s in STANDARD_SCREENING:
+        if age < s.get("age_min", 0):
+            continue
+        if s.get("age_max") and age > s["age_max"]:
+            continue
+        if s.get("sex", "all") != "all" and s["sex"] != sex:
+            continue
+        test_lower = s["test_name"].lower()
+        ever_tested = any(t in test_lower or test_lower in t for t in tested_test_types)
+        standard.append(
+            {
+                "test_name": s["test_name"],
+                "category": "standard",
+                "reason": s["reason"],
+                "frequency": s.get("frequency", "annually"),
+                "ever_tested": ever_tested,
+                "priority": "medium",
+            }
+        )
+
+    # Advanced biomarker recommendations
+    advanced: List[Dict[str, Any]] = []
+    for ab in ADVANCED_BIOMARKERS:
+        norm = _normalize_biomarker_name(ab["test_name"])
+        ever_tested = norm in tested_biomarkers
+
+        # Compute relevance for this user
+        relevant = False
+        personalized_reason = ab["why"]
+
+        # Check condition relevance
+        if ab.get("conditions"):
+            for cond in conditions:
+                if any(c in cond for c in ab["conditions"]):
+                    relevant = True
+                    personalized_reason = (
+                        f"With your {cond.replace('_', ' ')}, {ab['why'][:100]}"
+                    )
+                    break
+
+        # Age/sex relevance
+        if not relevant:
+            if (
+                sex == "female"
+                and age >= 35
+                and ab["system"] in ("hormones", "thyroid")
+            ):
+                relevant = True
+            elif age >= 40 and ab["system"] in ("cardiovascular", "metabolic"):
+                relevant = True
+            elif ab["priority"] == "high":
+                relevant = True
+
+        if relevant or not ab.get("conditions"):
+            advanced.append(
+                {
+                    "test_name": ab["test_name"],
+                    "category": "advanced",
+                    "system": ab["system"],
+                    "why": ab["why"],
+                    "who": ab["who"],
+                    "personalized_reason": personalized_reason,
+                    "frequency": ab["frequency"],
+                    "one_time": ab.get("one_time", False),
+                    "ever_tested": ever_tested,
+                    "priority": ab["priority"],
+                }
+            )
+
+    # Sort by priority
+    priority_order = {"high": 0, "medium": 1, "low": 2}
+    advanced.sort(
+        key=lambda x: (priority_order.get(x["priority"], 3), x["ever_tested"])
+    )
+
+    return {
+        "user_profile": f"{first_name}, {age}yo {sex}",
+        "conditions": ctx["conditions"],
+        "standard": standard,
+        "advanced": advanced,
+    }
+
+
+@router.post("/doctor-note")
+async def generate_doctor_note(
+    current_user: dict = Depends(get_current_user),
+):
+    """Generate a shareable doctor discussion note."""
+    user_id = current_user["id"]
+    ctx = await _gather_lab_context(user_id)
+    demo = ctx["demographics"]
+    first_name = demo.get("first_name") or "Patient"
+    age = demo.get("age") or "?"
+    sex = demo.get("sex") or "?"
+
+    # Get recommended tests
+    recs = await recommended_tests(current_user=current_user)
+    retest = await retest_schedule(current_user=current_user)
+
+    # Build note
+    lines: List[str] = [
+        f"Lab Test Discussion Notes for {first_name}",
+        f"Generated by Vitalix · {date.today().strftime('%B %d, %Y')}",
+        f"Profile: {age}yo {sex}",
+    ]
+    if ctx["conditions"]:
+        lines.append(f"Conditions: {', '.join(ctx['conditions'])}")
+    if ctx["medications"]:
+        lines.append(
+            f"Medications: {', '.join(m.get('medication_name', '') + ' ' + m.get('dosage', '') for m in ctx['medications'])}"
+        )
+    lines.append("")
+
+    # Recommended tests not yet done
+    untested_advanced = [
+        t for t in recs.get("advanced", []) if not t.get("ever_tested")
+    ]
+    if untested_advanced:
+        lines.append("RECOMMENDED TESTS TO DISCUSS:")
+        for t in untested_advanced[:8]:
+            lines.append(
+                f"  ○ {t['test_name']} — {t.get('personalized_reason', t.get('why', ''))[:100]}"
+            )
+        lines.append("")
+
+    # Retest due
+    due_tests = [
+        t for t in retest.get("schedule", []) if t["status"] in ("overdue", "due_soon")
+    ]
+    if due_tests:
+        lines.append("RETEST DUE:")
+        for t in due_tests:
+            status_txt = (
+                f"{abs(t['days_until_due'])}d overdue"
+                if t["status"] == "overdue"
+                else f"due in {t['days_until_due']}d"
+            )
+            lines.append(f"  ○ {t['test_type']} — {status_txt} ({t['reason']})")
+        lines.append("")
+
+    # Watch items from latest labs
+    if ctx["labs"]:
+        latest = ctx["labs"][0]
+        abnormals = [
+            bm
+            for bm in latest.get("biomarkers", [])
+            if isinstance(bm, dict)
+            and bm.get("status") in ("abnormal", "critical", "borderline")
+        ]
+        if abnormals:
+            lines.append("CURRENT WATCH ITEMS:")
+            for bm in abnormals[:5]:
+                lines.append(
+                    f"  ○ {bm.get('name', '?')}: {bm.get('value', '?')} {bm.get('unit', '')} ({bm.get('status', '')})"
+                )
+            lines.append("")
+
+    lines.append("---")
+    lines.append(
+        "Note: This is not medical advice. Discuss all findings with your healthcare provider."
+    )
+
+    return {"note_text": "\n".join(lines)}
+
+
+# ---------------------------------------------------------------------------
 # Claude helper
 # ---------------------------------------------------------------------------
 

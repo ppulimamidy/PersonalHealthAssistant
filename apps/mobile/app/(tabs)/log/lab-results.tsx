@@ -21,6 +21,8 @@ import { api } from '@/services/api';
 import LabInsightCard from '@/components/LabInsightCard';
 import RetestScheduleCard from '@/components/RetestScheduleCard';
 import BiomarkerTrendChart from '@/components/BiomarkerTrendChart';
+import LabSummaryCard from '@/components/LabSummaryCard';
+import RecommendedTestsCard from '@/components/RecommendedTestsCard';
 import { router } from 'expo-router';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -725,6 +727,38 @@ export default function LabResultsScreen() {
     staleTime: 5 * 60_000,
   });
 
+  const { data: labSummary } = useQuery({
+    queryKey: ['lab-summary'],
+    queryFn: async () => {
+      try {
+        const { data } = await api.get('/api/v1/lab-intelligence/lab-summary');
+        return data;
+      } catch { return null; }
+    },
+    staleTime: 5 * 60_000,
+  });
+
+  const { data: recommendedTests } = useQuery({
+    queryKey: ['recommended-tests'],
+    queryFn: async () => {
+      try {
+        const { data } = await api.get('/api/v1/lab-intelligence/recommended-tests');
+        return data;
+      } catch { return null; }
+    },
+    staleTime: 10 * 60_000,
+  });
+
+  const handleGenerateDoctorNote = useCallback(async () => {
+    try {
+      const { data } = await api.post('/api/v1/lab-intelligence/doctor-note');
+      if (data?.note_text) {
+        const { Share: RNShare } = require('react-native');
+        await RNShare.share({ message: data.note_text, title: 'Lab Discussion Notes' });
+      }
+    } catch { Alert.alert('Error', 'Could not generate note'); }
+  }, []);
+
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.delete(`/api/v1/lab-results/lab-results/${id}`),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['lab-results'] }),
@@ -753,6 +787,8 @@ export default function LabResultsScreen() {
     queryClient.invalidateQueries({ queryKey: ['lab-results'] });
     queryClient.invalidateQueries({ queryKey: ['retest-schedule'] });
     queryClient.invalidateQueries({ queryKey: ['supplement-gaps'] });
+    queryClient.invalidateQueries({ queryKey: ['lab-summary'] });
+    queryClient.invalidateQueries({ queryKey: ['recommended-tests'] });
     // Fetch post-upload insight
     fetchPostUploadInsight();
   }, [queryClient, fetchPostUploadInsight]);
@@ -809,6 +845,28 @@ export default function LabResultsScreen() {
               quickActions={insightData.quickActions}
               onAction={handleInsightAction}
               onDismiss={() => setInsightData(null)}
+            />
+          )}
+
+          {/* Lab Summary */}
+          {labSummary && labSummary.systems?.length > 0 && (
+            <LabSummaryCard
+              systems={labSummary.systems}
+              watchItems={labSummary.watch_items ?? []}
+              doctorDiscussion={labSummary.doctor_discussion ?? []}
+              homaIr={labSummary.homa_ir}
+              testDate={labSummary.test_date}
+            />
+          )}
+
+          {/* Recommended Tests */}
+          {recommendedTests && (recommendedTests.standard?.length > 0 || recommendedTests.advanced?.length > 0) && (
+            <RecommendedTestsCard
+              standard={recommendedTests.standard ?? []}
+              advanced={recommendedTests.advanced ?? []}
+              conditions={recommendedTests.conditions ?? []}
+              userProfile={recommendedTests.user_profile ?? ''}
+              onGenerateNote={handleGenerateDoctorNote}
             />
           )}
 
