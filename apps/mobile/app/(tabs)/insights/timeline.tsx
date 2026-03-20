@@ -183,7 +183,7 @@ function ActionOverlay({ actions }: Readonly<{ actions?: DayActions }>) {
 
 // ─── Timeline Day Card ────────────────────────────────────────────────────────
 
-function DayCard({ entry, actions }: Readonly<{ entry: TimelineEntry; actions?: DayActions }>) {
+function DayCard({ entry, actions, daySummary }: Readonly<{ entry: TimelineEntry; actions?: DayActions; daySummary?: string }>) {
   const d = new Date(entry.date);
   let dateLabel = format(d, 'EEE, MMM d');
   if (isToday(d)) dateLabel = 'Today';
@@ -249,6 +249,13 @@ function DayCard({ entry, actions }: Readonly<{ entry: TimelineEntry; actions?: 
           />
         </View>
       </View>
+
+      {/* Day summary */}
+      {daySummary ? (
+        <Text className="text-[#526380] text-[11px] mb-2 leading-4" style={{ fontStyle: 'italic' }}>
+          {daySummary}
+        </Text>
+      ) : null}
 
       {/* Scores row */}
       {(sleep != null || readiness != null || activity != null) && (
@@ -338,7 +345,9 @@ function DayCard({ entry, actions }: Readonly<{ entry: TimelineEntry; actions?: 
 
 // ─── Screen ────────────────────────────────────────────────────────────────────
 
-function TimelineBody({ isLoading, entries, actionsMap }: Readonly<{ isLoading: boolean; entries: TimelineEntry[]; actionsMap: ActionsMap }>) {
+type SummariesMap = Record<string, string>;
+
+function TimelineBody({ isLoading, entries, actionsMap, summariesMap }: Readonly<{ isLoading: boolean; entries: TimelineEntry[]; actionsMap: ActionsMap; summariesMap: SummariesMap }>) {
   if (isLoading) return <ActivityIndicator color="#00D4AA" className="mt-10" />;
   if (entries.length === 0) {
     return (
@@ -360,7 +369,7 @@ function TimelineBody({ isLoading, entries, actionsMap }: Readonly<{ isLoading: 
       </View>
     );
   }
-  return <>{entries.map((entry) => <DayCard key={entry.date} entry={entry} actions={actionsMap[entry.date]} />)}</>;
+  return <>{entries.map((entry) => <DayCard key={entry.date} entry={entry} actions={actionsMap[entry.date]} daySummary={summariesMap[entry.date]} />)}</>;
 }
 
 export default function TimelineScreen() {
@@ -390,9 +399,25 @@ export default function TimelineScreen() {
     staleTime: 30_000,
   });
 
+  const { data: summariesData } = useQuery<SummariesMap>({
+    queryKey: ['day-summaries', days],
+    queryFn: async () => {
+      try {
+        const { data: resp } = await api.get(`/api/v1/insights-intelligence/day-summaries?days=${days}`);
+        const map: SummariesMap = {};
+        for (const s of resp?.summaries ?? []) {
+          if (s.date && s.summary) map[s.date] = s.summary;
+        }
+        return map;
+      } catch { return {}; }
+    },
+    staleTime: 5 * 60_000,
+  });
+
   const rawEntries = Array.isArray(data) ? data : (data?.entries ?? []);
   const entries = [...rawEntries].reverse(); // most recent first
   const actionsMap: ActionsMap = actionsData ?? {};
+  const summariesMap: SummariesMap = summariesData ?? {};
 
   return (
     <ScrollView className="flex-1 bg-obsidian-900" contentContainerStyle={{ paddingBottom: 40 }}>
@@ -423,7 +448,7 @@ export default function TimelineScreen() {
       </View>
 
       <View className="px-6 pt-5">
-        <TimelineBody isLoading={isLoading} entries={entries} actionsMap={actionsMap} />
+        <TimelineBody isLoading={isLoading} entries={entries} actionsMap={actionsMap} summariesMap={summariesMap} />
       </View>
     </ScrollView>
   );

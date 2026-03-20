@@ -40,6 +40,7 @@ interface TimelineEntry {
 
 interface MetricConfig {
   label: string;
+  apiKey?: string; // matches metric_type from insights-intelligence API
   key: (e: TimelineEntry) => number | undefined;
   unit: string;
   color: string;
@@ -61,6 +62,7 @@ const METRICS: MetricConfig[] = [
   // ── Core (from wearable or computed) ──
   {
     label: 'Sleep Score',
+    apiKey: 'sleep',
     key: (e) => e.sleep?.sleep_score,
     unit: 'pts',
     color: '#818CF8',
@@ -69,6 +71,7 @@ const METRICS: MetricConfig[] = [
   },
   {
     label: 'Readiness',
+    apiKey: 'readiness',
     key: (e) => e.readiness?.readiness_score,
     unit: 'pts',
     color: '#6EE7B7',
@@ -77,6 +80,7 @@ const METRICS: MetricConfig[] = [
   },
   {
     label: 'Activity Score',
+    apiKey: 'activity',
     key: (e) => e.activity?.activity_score,
     unit: 'pts',
     color: '#F5A623',
@@ -86,6 +90,7 @@ const METRICS: MetricConfig[] = [
   // ── Heart & Vitals ──
   {
     label: 'Resting HR',
+    apiKey: 'resting_heart_rate',
     key: (e) => e.readiness?.resting_heart_rate,
     unit: 'bpm',
     color: '#F87171',
@@ -94,6 +99,7 @@ const METRICS: MetricConfig[] = [
   },
   {
     label: 'HRV',
+    apiKey: 'hrv_sdnn',
     key: (e) => e.readiness?.hrv_balance,
     unit: 'ms',
     color: '#00D4AA',
@@ -102,6 +108,7 @@ const METRICS: MetricConfig[] = [
   },
   {
     label: 'SpO₂',
+    apiKey: 'spo2',
     key: (e) => e.native?.spo2,
     unit: '%',
     color: '#60A5FA',
@@ -110,6 +117,7 @@ const METRICS: MetricConfig[] = [
   },
   {
     label: 'Respiratory Rate',
+    apiKey: 'respiratory_rate',
     key: (e) => e.native?.respiratory_rate,
     unit: '/min',
     color: '#A78BFA',
@@ -119,6 +127,7 @@ const METRICS: MetricConfig[] = [
   // ── Activity ──
   {
     label: 'Daily Steps',
+    apiKey: 'steps',
     key: (e) => e.activity?.steps,
     unit: 'steps',
     color: '#34D399',
@@ -127,6 +136,7 @@ const METRICS: MetricConfig[] = [
   },
   {
     label: 'Active Calories',
+    apiKey: 'active_calories',
     key: (e) => e.native?.active_calories ?? e.activity?.active_calories,
     unit: 'kcal',
     color: '#FB923C',
@@ -135,6 +145,7 @@ const METRICS: MetricConfig[] = [
   },
   {
     label: 'Workouts',
+    apiKey: 'workout_minutes',
     key: (e) => e.native?.workout_minutes,
     unit: 'min',
     color: '#F59E0B',
@@ -143,6 +154,7 @@ const METRICS: MetricConfig[] = [
   },
   {
     label: 'VO₂ Max',
+    apiKey: 'vo2_max',
     key: (e) => e.native?.vo2_max,
     unit: 'mL/kg/min',
     color: '#2DD4BF',
@@ -155,7 +167,17 @@ const DAY_OPTIONS = [7, 14, 30, 60, 90] as const;
 
 // ─── Metric Chart Card ────────────────────────────────────────────────────────
 
-function MetricCard({ metric, entries }: Readonly<{ metric: MetricConfig; entries: TimelineEntry[] }>) {
+interface TrendExplanation {
+  explanation?: string;
+  markers?: Array<{ index: number; type: string; label?: string }>;
+  contributing_factors?: string[];
+}
+
+function MetricCard({ metric, entries, trendExplanation }: Readonly<{
+  metric: MetricConfig;
+  entries: TimelineEntry[];
+  trendExplanation?: TrendExplanation;
+}>) {
   const data = entries
     .map((e) => metric.key(e))
     .filter((v): v is number => v != null && !Number.isNaN(v));
@@ -219,7 +241,24 @@ function MetricCard({ metric, entries }: Readonly<{ metric: MetricConfig; entrie
         </View>
       </View>
 
-      <MiniLineChart data={data} color={metric.color} height={64} showLastValue={false} />
+      <MiniLineChart
+        data={data}
+        color={metric.color}
+        height={64}
+        showLastValue={false}
+        markers={trendExplanation?.markers?.map((m) => ({
+          index: m.index,
+          type: m.type as any,
+          label: m.label,
+        }))}
+      />
+
+      {/* AI explanation */}
+      {trendExplanation?.explanation ? (
+        <Text className="text-[#526380] text-[10px] mt-1.5 leading-4" style={{ fontStyle: 'italic' }}>
+          {trendExplanation.explanation}
+        </Text>
+      ) : null}
 
       <View className="flex-row justify-between items-center mt-2">
         <Text className="text-[#526380] text-xs">
@@ -265,6 +304,26 @@ export default function TrendsScreen() {
   });
 
   const entries = Array.isArray(data) ? data : (data?.entries ?? []);
+
+  // Trend explanations
+  const { data: explanationsData } = useQuery({
+    queryKey: ['trend-explanations'],
+    queryFn: async () => {
+      try {
+        const { data: resp } = await api.get('/api/v1/insights-intelligence/trend-explanations');
+        return resp;
+      } catch { return null; }
+    },
+    staleTime: 5 * 60_000,
+  });
+
+  // Map metric type → explanation
+  const explanationMap: Record<string, TrendExplanation> = {};
+  if (explanationsData?.metrics) {
+    for (const m of explanationsData.metrics) {
+      explanationMap[m.metric] = m;
+    }
+  }
 
   return (
     <ScrollView className="flex-1 bg-obsidian-900" contentContainerStyle={{ paddingBottom: 40 }}>
@@ -336,7 +395,12 @@ export default function TrendsScreen() {
           );
         })()}
         {!isLoading && entries.length > 0 && METRICS.map((m) => (
-          <MetricCard key={m.label} metric={m} entries={entries} />
+          <MetricCard
+            key={m.label}
+            metric={m}
+            entries={entries}
+            trendExplanation={m.apiKey ? explanationMap[m.apiKey] : undefined}
+          />
         ))}
 
         {/* Daily Timeline Cards */}
