@@ -311,10 +311,14 @@ export default function TrendsScreen() {
     queryFn: async () => {
       try {
         const { data: resp } = await api.get('/api/v1/insights-intelligence/trend-explanations');
+        if (__DEV__) console.log('[Trends] explanations response:', JSON.stringify(resp)?.slice(0, 200));
         return resp;
-      } catch { return null; }
+      } catch (e) {
+        if (__DEV__) console.warn('[Trends] explanations fetch failed:', e);
+        return null;
+      }
     },
-    staleTime: 5 * 60_000,
+    staleTime: 30_000, // 30s for debugging
   });
 
   // Map metric type → explanation (with aliases for different data sources)
@@ -337,6 +341,7 @@ export default function TrendsScreen() {
         if (alts.includes(m.metric)) explanationMap[key] = m;
       }
     }
+    if (__DEV__) console.log('[Trends] explanationMap keys:', Object.keys(explanationMap));
   }
 
   return (

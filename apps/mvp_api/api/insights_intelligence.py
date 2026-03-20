@@ -46,9 +46,16 @@ async def _gather_insights_context(user_id: str) -> Dict[str, Any]:
     today = date.today().isoformat()
     thirty_ago = (date.today() - timedelta(days=30)).isoformat()
 
+    # Use timeline API (same source as trends screen) for metric data
+    try:
+        from .timeline import get_timeline
+
+        timeline_entries = await get_timeline(days=30, current_user={"id": user_id})
+    except Exception as e:
+        logger.warning("Timeline fetch failed for trend explanations: %s", e)
+        timeline_entries = []
+
     (
-        metric_summaries,
-        native_health,
         medications,
         experiments,
         symptoms,
@@ -56,18 +63,6 @@ async def _gather_insights_context(user_id: str) -> Dict[str, Any]:
         conditions,
         cycle_logs,
     ) = await asyncio.gather(
-        _supabase_get(
-            "health_metric_summaries",
-            f"user_id=eq.{user_id}&date=gte.{thirty_ago}"
-            f"&select=metric_type,score,latest_value,date,trend_7d"
-            f"&order=date.desc&limit=500",
-        ),
-        _supabase_get(
-            "native_health_data",
-            f"user_id=eq.{user_id}&date=gte.{thirty_ago}"
-            f"&select=metric_type,value_json,date"
-            f"&order=date.desc&limit=500",
-        ),
         _supabase_get(
             "medications",
             f"user_id=eq.{user_id}&is_active=eq.true"
@@ -125,26 +120,44 @@ async def _gather_insights_context(user_id: str) -> Dict[str, Any]:
         except (ValueError, TypeError, KeyError):
             pass
 
-    # Group metrics by type → time series
+    # Extract metrics from timeline entries (same source as trends screen)
     metrics_by_type: Dict[str, List[Dict[str, Any]]] = {}
-    for m in metric_summaries:
-        mt = m.get("metric_type", "")
-        if mt not in metrics_by_type:
-            metrics_by_type[mt] = []
-        metrics_by_type[mt].append(m)
 
-    # Also pull from native_health_data
-    for nd in native_health:
-        mt = nd.get("metric_type", "")
-        d = (nd.get("date") or "")[:10]
-        vj = nd.get("value_json")
-        if isinstance(vj, dict):
-            val = vj.get("value") or vj.get("total") or vj.get("average")
-            if val and d:
-                if mt not in metrics_by_type:
-                    metrics_by_type[mt] = []
-                metrics_by_type[mt].append(
-                    {"metric_type": mt, "latest_value": val, "date": d}
+    for entry in timeline_entries:
+        d = entry.date if isinstance(entry, object) and hasattr(entry, "date") else ""
+        if hasattr(entry, "sleep") and entry.sleep:
+            s = entry.sleep
+            if s.sleep_score is not None:
+                metrics_by_type.setdefault("sleep", []).append(
+                    {"date": d, "latest_value": s.sleep_score}
+                )
+        if hasattr(entry, "readiness") and entry.readiness:
+            r = entry.readiness
+            if r.readiness_score is not None:
+                metrics_by_type.setdefault("readiness", []).append(
+                    {"date": d, "latest_value": r.readiness_score}
+                )
+            if r.hrv_balance is not None:
+                metrics_by_type.setdefault("hrv_sdnn", []).append(
+                    {"date": d, "latest_value": r.hrv_balance}
+                )
+            if r.resting_heart_rate is not None:
+                metrics_by_type.setdefault("resting_heart_rate", []).append(
+                    {"date": d, "latest_value": r.resting_heart_rate}
+                )
+        if hasattr(entry, "activity") and entry.activity:
+            a = entry.activity
+            if a.activity_score is not None:
+                metrics_by_type.setdefault("activity", []).append(
+                    {"date": d, "latest_value": a.activity_score}
+                )
+            if a.steps is not None:
+                metrics_by_type.setdefault("steps", []).append(
+                    {"date": d, "latest_value": a.steps}
+                )
+            if a.active_calories is not None:
+                metrics_by_type.setdefault("active_calories", []).append(
+                    {"date": d, "latest_value": a.active_calories}
                 )
 
     return {
@@ -307,16 +320,30 @@ Rules:
 - Address {first_name} naturally"""
 
         raw = await _call_claude(prompt, max_tokens=500)
+        logger.info("Trend explanations raw Claude response: %s", raw[:300])
         try:
             if "```" in raw:
                 raw = raw[raw.find("{") : raw.rfind("}") + 1]
             parsed = json.loads(raw)
             explanations = parsed.get("explanations", {})
         except (json.JSONDecodeError, ValueError):
+            logger.warning("Failed to parse trend explanations JSON: %s", raw[:200])
             explanations = {}
 
+        logger.info("Parsed explanations keys: %s", list(explanations.keys()))
         for m in metrics_result:
-            m["explanation"] = explanations.get(m["metric"], "")
+            # Try metric type key first, then display label, then case-insensitive
+            exp = explanations.get(m["metric"]) or explanations.get(m["label"]) or ""
+            if not exp:
+                # Case-insensitive fallback
+                for k, v in explanations.items():
+                    if (
+                        k.lower().replace(" ", "_") == m["metric"]
+                        or k.lower() == m["label"].lower()
+                    ):
+                        exp = v
+                        break
+            m["explanation"] = exp
 
     logger.info(
         "Trend explanations: %d metric types found: %s",
