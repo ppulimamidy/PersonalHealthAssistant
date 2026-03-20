@@ -734,6 +734,284 @@ async def screening_schedule(
 
 
 # ---------------------------------------------------------------------------
+# Session 5: ClinicalTrials.gov Integration
+# ---------------------------------------------------------------------------
+
+CLINICALTRIALS_API = "https://clinicaltrials.gov/api/v2/studies"
+
+
+@router.get("/trials")
+async def search_trials(
+    condition: str = Query(..., min_length=2),
+    status: str = Query(default="RECRUITING"),
+    phase: str = Query(default="PHASE2,PHASE3"),
+    max_results: int = Query(default=10, ge=1, le=50),
+    current_user: dict = Depends(get_current_user),
+):
+    """Search ClinicalTrials.gov for relevant trials."""
+    import certifi
+    import ssl
+
+    ssl_ctx = ssl.create_default_context(cafile=certifi.where())
+
+    params = {
+        "query.cond": condition,
+        "filter.overallStatus": status,
+        "filter.phase": phase,
+        "pageSize": str(max_results),
+        "fields": "NCTId,BriefTitle,Phase,OverallStatus,BriefSummary,"
+        "LeadSponsorName,LocationCity,LocationState,LocationCountry,"
+        "EligibilityCriteria,EnrollmentCount,StartDate,CompletionDate",
+        "format": "json",
+    }
+
+    trials: List[Dict[str, Any]] = []
+    try:
+        timeout = aiohttp.ClientTimeout(total=15)
+        connector = aiohttp.TCPConnector(ssl=ssl_ctx)
+        async with aiohttp.ClientSession(
+            timeout=timeout, connector=connector
+        ) as session:
+            async with session.get(CLINICALTRIALS_API, params=params) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    studies = data.get("studies", [])
+                    for study in studies:
+                        proto = study.get("protocolSection", {})
+                        ident = proto.get("identificationModule", {})
+                        status_mod = proto.get("statusModule", {})
+                        design = proto.get("designModule", {})
+                        desc = proto.get("descriptionModule", {})
+                        sponsor = proto.get("sponsorCollaboratorsModule", {})
+                        eligibility = proto.get("eligibilityModule", {})
+                        locations = proto.get("contactsLocationsModule", {}).get(
+                            "locations", []
+                        )
+
+                        loc_strs: List[str] = []
+                        for loc in locations[:3]:
+                            city = loc.get("city", "")
+                            state = loc.get("state", "")
+                            country = loc.get("country", "")
+                            loc_strs.append(f"{city}, {state} {country}".strip(", "))
+
+                        trials.append(
+                            {
+                                "nct_id": ident.get("nctId", ""),
+                                "title": ident.get("briefTitle", ""),
+                                "phase": ",".join(design.get("phases", [])),
+                                "status": status_mod.get("overallStatus", ""),
+                                "summary": desc.get("briefSummary", "")[:300],
+                                "sponsor": sponsor.get("leadSponsor", {}).get(
+                                    "name", ""
+                                ),
+                                "enrollment": design.get("enrollmentInfo", {}).get(
+                                    "count"
+                                ),
+                                "locations": loc_strs,
+                                "eligibility_criteria": (
+                                    eligibility.get("eligibilityCriteria") or ""
+                                )[:500],
+                                "start_date": status_mod.get("startDateStruct", {}).get(
+                                    "date"
+                                ),
+                                "completion_date": status_mod.get(
+                                    "completionDateStruct", {}
+                                ).get("date"),
+                            }
+                        )
+                else:
+                    logger.warning("ClinicalTrials.gov returned %d", resp.status)
+    except Exception as e:
+        logger.warning("ClinicalTrials.gov search failed: %s", e)
+
+    return {"condition": condition, "trials": trials, "total": len(trials)}
+
+
+@router.post("/trials/{nct_id}/eligibility")
+async def check_trial_eligibility(
+    nct_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Check if user likely qualifies for a clinical trial."""
+    user_id = current_user["id"]
+    ctx = await _gather_research_context(user_id)
+
+    # Fetch trial details
+    trial_data = await search_trials(
+        condition="", status="", phase="", max_results=1, current_user=current_user
+    )
+    # Find by NCT ID from cached or re-fetch
+    # For now, use AI to assess eligibility based on user profile
+    prompt = f"""A patient wants to know if they might qualify for clinical trial {nct_id}.
+
+PATIENT PROFILE:
+{_format_context(ctx)}
+
+Based on typical eligibility criteria for clinical trials and this patient's profile,
+assess eligibility. Return ONLY valid JSON:
+{{
+  "likely_eligible": true/false,
+  "confidence": "high/medium/low",
+  "matching_criteria": ["criterion that the patient likely meets"],
+  "potential_exclusions": ["criterion that might exclude the patient"],
+  "recommendation": "One sentence recommendation"
+}}"""
+
+    raw = await _call_claude(prompt, max_tokens=500)
+    try:
+        if "```" in raw:
+            raw = raw[raw.find("{") : raw.rfind("}") + 1]
+        return json.loads(raw)
+    except (json.JSONDecodeError, ValueError):
+        return {"likely_eligible": None, "recommendation": "Discuss with your doctor."}
+
+
+# ---------------------------------------------------------------------------
+# Session 6: Saved Reports + Cancer Enhancement
+# ---------------------------------------------------------------------------
+
+
+@router.post("/reports/save")
+async def save_report(
+    body: dict,
+    current_user: dict = Depends(get_current_user),
+):
+    """Save a clinical research report for later reference."""
+    from ..dependencies.usage_gate import _supabase_upsert
+    import uuid
+
+    user_id = current_user["id"]
+    report_id = str(uuid.uuid4())
+
+    await _supabase_upsert(
+        "saved_research_reports",
+        {
+            "id": report_id,
+            "user_id": user_id,
+            "query": body.get("query", ""),
+            "report_data": json.dumps(body.get("report_data", {})),
+            "created_at": date.today().isoformat(),
+        },
+    )
+
+    return {"id": report_id, "saved": True}
+
+
+@router.get("/reports")
+async def list_reports(
+    current_user: dict = Depends(get_current_user),
+):
+    """List saved research reports."""
+    user_id = current_user["id"]
+    rows = await _supabase_get(
+        "saved_research_reports",
+        f"user_id=eq.{user_id}&order=created_at.desc&limit=20"
+        f"&select=id,query,created_at",
+    )
+    return {"reports": rows}
+
+
+@router.post("/cancer-pathways")
+async def cancer_pathways(
+    body: dict,
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Cancer-specific treatment intelligence.
+    Includes staging, biomarker-guided therapy, immunotherapy, supportive care.
+    """
+    user_id = current_user["id"]
+    ctx = await _gather_research_context(user_id)
+    context_text = _format_context(ctx)
+    first_name = ctx.get("first_name") or "there"
+
+    cancer_type = body.get("cancer_type", "cancer")
+    stage = body.get("stage", "")
+    biomarkers = body.get("biomarkers", [])
+
+    biomarker_text = f"\nBiomarkers: {', '.join(biomarkers)}" if biomarkers else ""
+    stage_text = f"\nStage: {stage}" if stage else ""
+
+    prompt = f"""You are a clinical oncology research analyst for {first_name}.
+
+CANCER TYPE: {cancer_type}{stage_text}{biomarker_text}
+
+PATIENT CONTEXT:
+{context_text}
+
+Generate a comprehensive cancer treatment pathway. Return ONLY valid JSON:
+{{
+  "cancer_type": "{cancer_type}",
+  "stage": "{stage or 'unspecified'}",
+  "guidelines_referenced": ["NCCN 2026", "ASCO"],
+  "standard_of_care": {{
+    "primary_treatment": "Surgery/chemo/radiation recommendation",
+    "adjuvant_therapy": "Post-primary treatment if applicable",
+    "maintenance": "Long-term management"
+  }},
+  "treatment_options": [
+    {{
+      "name": "Treatment name",
+      "type": "surgery|chemotherapy|immunotherapy|targeted_therapy|radiation|hormone_therapy",
+      "evidence_level": "strong|moderate",
+      "efficacy": "Survival/response rates",
+      "guideline_position": "Per NCCN/ASCO",
+      "biomarker_requirement": "Required biomarker status or null",
+      "side_effects": "Key side effects"
+    }}
+  ],
+  "immunotherapy_options": [
+    {{
+      "name": "Drug name",
+      "target": "PD-1/PD-L1/CTLA-4/etc",
+      "approved_for": "Specific indication",
+      "biomarker_required": "PD-L1 ≥50%, MSI-H, etc.",
+      "efficacy": "Response rate / survival data"
+    }}
+  ],
+  "clinical_trials": "Recommend searching ClinicalTrials.gov for [specific trial types]",
+  "supportive_care": [
+    "Pain management recommendations",
+    "Nutrition guidance for cancer patients",
+    "Mental health support resources"
+  ],
+  "biomarker_tests_to_request": [
+    "Specific biomarker tests that could guide therapy selection"
+  ],
+  "doctor_questions": [
+    "Stage-specific questions for oncologist"
+  ],
+  "financial_resources": [
+    "Patient assistance programs",
+    "Foundation support"
+  ],
+  "disclaimer": "This is not medical advice. Cancer treatment decisions should be made with your oncology team."
+}}
+
+Rules:
+- Reference NCCN and ASCO guidelines specifically
+- Include biomarker-guided therapy options (HER2, BRCA, PD-L1, MSI, etc.)
+- Include immunotherapy landscape for this cancer type
+- Mention clinical trial options
+- Include supportive care recommendations
+- Be sensitive with survival statistics — present with context
+- Generate specific oncologist questions"""
+
+    raw = await _call_claude(prompt, max_tokens=3000)
+    try:
+        if "```" in raw:
+            raw = raw[raw.find("{") : raw.rfind("}") + 1]
+        return json.loads(raw)
+    except (json.JSONDecodeError, ValueError):
+        return {
+            "cancer_type": cancer_type,
+            "error": "Unable to generate cancer pathway",
+            "recommendation": "Please consult with your oncology team for personalized treatment planning.",
+        }
+
+
+# ---------------------------------------------------------------------------
 # Claude helper
 # ---------------------------------------------------------------------------
 

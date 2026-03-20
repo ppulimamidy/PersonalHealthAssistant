@@ -11,6 +11,7 @@ import {
 import { router, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { api } from '@/services/api';
+import ClinicalTrialCard from '@/components/ClinicalTrialCard';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -163,6 +164,8 @@ export default function ClinicalResearchScreen() {
   const [searching, setSearching] = useState(false);
   const [result, setResult] = useState<SearchResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [trials, setTrials] = useState<any[]>([]);
+  const [trialsLoading, setTrialsLoading] = useState(false);
 
   useEffect(() => {
     if (params.initialQuery) {
@@ -177,11 +180,12 @@ export default function ClinicalResearchScreen() {
     setError(null);
     setResult(null);
     try {
-      const { data } = await api.post('/api/v1/research/clinical-search', {
-        query: searchQuery,
-        search_type: 'all',
-      });
-      setResult(data);
+      const [searchResp, trialsResp] = await Promise.allSettled([
+        api.post('/api/v1/research/clinical-search', { query: searchQuery, search_type: 'all' }),
+        api.get('/api/v1/research/trials', { params: { condition: searchQuery, status: 'RECRUITING', max_results: 5 } }),
+      ]);
+      if (searchResp.status === 'fulfilled') setResult(searchResp.value.data);
+      if (trialsResp.status === 'fulfilled') setTrials(trialsResp.value.data?.trials ?? []);
     } catch (e) {
       setError('Search failed. Please try again.');
     } finally {
@@ -342,6 +346,18 @@ export default function ClinicalResearchScreen() {
                       {a.evidence_level && ` · ${a.evidence_level}`}
                     </Text>
                   </View>
+                ))}
+              </View>
+            )}
+
+            {/* Clinical Trials */}
+            {trials.length > 0 && (
+              <View className="mb-4">
+                <Text className="text-[#526380] text-xs uppercase tracking-wider mb-2">
+                  Clinical Trials ({trials.length} recruiting)
+                </Text>
+                {trials.map((trial, i) => (
+                  <ClinicalTrialCard key={trial.nct_id || i} trial={trial} />
                 ))}
               </View>
             )}
