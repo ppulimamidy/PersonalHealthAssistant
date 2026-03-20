@@ -81,7 +81,6 @@ export default function ProfileScreen() {
       <ProfileRow icon="flask-outline" label="What Works for Me" onPress={() => router.push('/(tabs)/profile/efficacy' as never)} />
       <ProfileRow icon="flag-outline" label="My Journeys" onPress={() => router.push('/(tabs)/profile/journeys' as never)} />
       <ProfileRow icon="document-text-outline" label="Visit Prep" onPress={() => router.push('/(tabs)/insights/doctor-prep' as never)} />
-      <ProfileRow icon="flask-outline" label="Research" onPress={() => router.push('/(tabs)/insights/meta-analysis' as never)} />
       <ProfileRow icon="body-outline" label="Simulate Changes" onPress={() => router.push('/(tabs)/profile/health-twin')} />
       {userRole === 'caregiver' && (
         <ProfileRow icon="share-social-outline" label="Care Team Sharing" onPress={() => router.push('/(tabs)/profile/sharing' as never)} />
