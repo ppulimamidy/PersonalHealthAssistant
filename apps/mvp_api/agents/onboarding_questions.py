@@ -271,7 +271,7 @@ GOAL_QUESTIONS: Dict[str, List[QuestionDef]] = {
         },
         {
             "id": "dietary",
-            "question": "Any foods you avoid?",
+            "question": "Any dietary needs?",
             "input_type": "multi_choice",
             "options": [
                 "Vegetarian",
@@ -279,6 +279,7 @@ GOAL_QUESTIONS: Dict[str, List[QuestionDef]] = {
                 "Gluten-free",
                 "Dairy-free",
                 "Low-carb",
+                "Nut allergy",
                 "None",
             ],
             "data_field": "dietary_preferences",
@@ -447,9 +448,16 @@ DEFAULT_CONDITION_QUESTIONS: List[QuestionDef] = [
     },
     {
         "id": "dietary",
-        "question": "Any dietary restrictions?",
+        "question": "Any dietary needs?",
         "input_type": "multi_choice",
-        "options": ["Vegetarian", "Vegan", "Gluten-free", "Dairy-free", "None"],
+        "options": [
+            "Vegetarian",
+            "Vegan",
+            "Gluten-free",
+            "Dairy-free",
+            "Nut allergy",
+            "None",
+        ],
         "data_field": "dietary_preferences",
     },
 ]

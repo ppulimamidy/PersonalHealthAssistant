@@ -236,7 +236,9 @@ async def _compute_completeness(user_id: str) -> DataCompleteness:
     breakdown["health_data_7d"] = bool(health_data)
 
     # Meals (5 pts)
-    meals = await _supabase_get("meal_entries", f"user_id=eq.{user_id}&limit=1")
+    meals = await _supabase_get("meal_logs", f"user_id=eq.{user_id}&limit=1")
+    if not meals:
+        meals = await _supabase_get("meal_entries", f"user_id=eq.{user_id}&limit=1")
     if not meals:
         meals = await _supabase_get("nutrition_logs", f"user_id=eq.{user_id}&limit=1")
     breakdown["meals"] = bool(meals)
@@ -760,7 +762,9 @@ async def get_smart_prompt(
 
     # Meals — always relevant (not just after 2 days)
     if "meals" not in dismissed_recently:
-        meals = await _supabase_get("meal_entries", f"user_id=eq.{user_id}&limit=1")
+        meals = await _supabase_get("meal_logs", f"user_id=eq.{user_id}&limit=1")
+        if not meals:
+            meals = await _supabase_get("meal_entries", f"user_id=eq.{user_id}&limit=1")
         if not meals:
             meals = await _supabase_get(
                 "nutrition_logs", f"user_id=eq.{user_id}&limit=1"

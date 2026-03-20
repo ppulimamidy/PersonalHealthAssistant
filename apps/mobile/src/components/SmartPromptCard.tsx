@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { View, Text, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
@@ -27,6 +28,35 @@ const ACTION_ROUTES: Record<string, string> = {
   chat: '/(tabs)/chat',
   'health-profile': '/(tabs)/profile/health',
 };
+
+function CompletenessBar({ score }: Readonly<{ score: number }>) {
+  const [showTip, setShowTip] = useState(false);
+  return (
+    <View className="mt-3 pt-3" style={{ borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.04)' }}>
+      <TouchableOpacity
+        onPress={() => setShowTip((s) => !s)}
+        className="flex-row items-center justify-between mb-1"
+        activeOpacity={0.7}
+      >
+        <View className="flex-row items-center gap-1">
+          <Text className="text-[10px] text-[#526380]">Your health picture</Text>
+          <Ionicons name="information-circle-outline" size={11} color="#3D4F66" />
+        </View>
+        <Text className="text-[10px] text-[#526380]">{score}%</Text>
+      </TouchableOpacity>
+      {showTip && (
+        <View className="bg-[#1E2A3B] rounded-lg px-3 py-2 mb-2">
+          <Text className="text-[#8B9BB4] text-[10px] leading-4">
+            This shows how much health data you've shared — devices connected, conditions, medications, meals, labs, and more. The more complete your picture, the more personalized your insights become.
+          </Text>
+        </View>
+      )}
+      <View className="h-1 rounded-full" style={{ backgroundColor: 'rgba(255,255,255,0.05)' }}>
+        <View className="h-1 rounded-full" style={{ width: `${score}%`, backgroundColor: '#00D4AA' }} />
+      </View>
+    </View>
+  );
+}
 
 export default function SmartPromptCard() {
   const queryClient = useQueryClient();
@@ -91,15 +121,7 @@ export default function SmartPromptCard() {
 
       {/* Data completeness bar */}
       {completeness && completeness.score < 80 && (
-        <View className="mt-3 pt-3" style={{ borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.04)' }}>
-          <View className="flex-row items-center justify-between mb-1">
-            <Text className="text-[10px] text-[#526380]">Your health picture</Text>
-            <Text className="text-[10px] text-[#526380]">{completeness.score}%</Text>
-          </View>
-          <View className="h-1 rounded-full" style={{ backgroundColor: 'rgba(255,255,255,0.05)' }}>
-            <View className="h-1 rounded-full" style={{ width: `${completeness.score}%`, backgroundColor: '#00D4AA' }} />
-          </View>
-        </View>
+        <CompletenessBar score={completeness.score} />
       )}
     </View>
   );

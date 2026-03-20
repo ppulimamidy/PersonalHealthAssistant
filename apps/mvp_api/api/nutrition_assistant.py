@@ -36,8 +36,10 @@ NUTRITION_SERVICE_URL = os.environ.get(
 
 
 async def _fetch_todays_meals(user_id: str, bearer: Optional[str]) -> list:
-    """Fetch today's meals from nutrition service."""
+    """Fetch today's meals — tries nutrition service first, falls back to Supabase."""
     today = date.today().isoformat()
+
+    # Try nutrition service (has full nutrition data)
     url = (
         f"{NUTRITION_SERVICE_URL}/api/v1/nutrition/nutrition-history"
         f"?start_date={today}&end_date={today}"
@@ -51,10 +53,21 @@ async def _fetch_todays_meals(user_id: str, bearer: Optional[str]) -> list:
             async with session.get(url, headers=headers) as resp:
                 if resp.status == 200:
                     data = await resp.json()
-                    return data if isinstance(data, list) else (data.get("data") or [])
+                    meals = data if isinstance(data, list) else (data.get("data") or [])
+                    if meals:
+                        return meals
     except Exception as e:
-        logger.warning("Failed to fetch today's meals: %s", e)
-    return []
+        logger.debug("Nutrition service fetch failed, falling back to Supabase: %s", e)
+
+    # Fallback: query Supabase meal_logs directly
+    rows = await _supabase_get(
+        "meal_logs",
+        f"user_id=eq.{user_id}&order=timestamp.desc&limit=20"
+        f"&select=meal_name,food_name,meal_type,calories,timestamp",
+    )
+    # Filter to today only (timestamp may be full ISO datetime)
+    today_rows = [r for r in rows if (r.get("timestamp") or "")[:10] == today]
+    return today_rows
 
 
 async def _fetch_nutrition_targets(user_id: str) -> dict:
@@ -99,6 +112,7 @@ async def _gather_nutrition_context(
     (
         meals_raw,
         targets,
+        profile_rows,
         conditions,
         medications,
         supplements,
@@ -113,6 +127,11 @@ async def _gather_nutrition_context(
     ) = await asyncio.gather(
         _fetch_todays_meals(user_id, bearer),
         _fetch_nutrition_targets(user_id),
+        _supabase_get(
+            "profiles",
+            f"id=eq.{user_id}"
+            f"&select=date_of_birth,biological_sex,weight_kg,height_cm,full_name",
+        ),
         _supabase_get(
             "health_conditions",
             f"user_id=eq.{user_id}&is_active=eq.true"
@@ -168,6 +187,24 @@ async def _gather_nutrition_context(
             f"&select=pattern_label,metric_pair,effect_direction&limit=5",
         ),
     )
+
+    # Demographics
+    profile = profile_rows[0] if profile_rows else {}
+    dob = profile.get("date_of_birth")
+    age = None
+    if dob:
+        try:
+            birth = date.fromisoformat(str(dob)[:10])
+            age = (date.today() - birth).days // 365
+        except (ValueError, TypeError):
+            pass
+    demographics = {
+        "age": age,
+        "sex": profile.get("biological_sex"),
+        "weight_kg": profile.get("weight_kg"),
+        "height_cm": profile.get("height_cm"),
+        "first_name": (profile.get("full_name") or "").split(" ")[0] or None,
+    }
 
     # Compute daily totals from meals
     daily_totals = {
@@ -296,6 +333,7 @@ async def _gather_nutrition_context(
                 pass
 
     return {
+        "demographics": demographics,
         "today_meals": meals_summary,
         "daily_totals": {k: round(v) for k, v in daily_totals.items()},
         "targets": targets,
@@ -330,6 +368,60 @@ async def _gather_nutrition_context(
 def _format_context_for_prompt(ctx: dict) -> str:
     """Format nutrition context dict into concise prompt text."""
     parts = []
+
+    # Demographics — critical for age/sex-appropriate nutrition
+    demo = ctx.get("demographics", {})
+    demo_parts = []
+    if demo.get("age"):
+        demo_parts.append(f"age {demo['age']}")
+    if demo.get("sex"):
+        sex_label = {
+            "male": "male",
+            "female": "female",
+            "other": "non-binary",
+        }.get(demo["sex"], demo["sex"])
+        demo_parts.append(sex_label)
+    if demo.get("weight_kg"):
+        demo_parts.append(f"{demo['weight_kg']}kg")
+    if demo.get("height_cm"):
+        demo_parts.append(f"{demo['height_cm']}cm")
+    if demo.get("first_name"):
+        demo_parts.insert(0, demo["first_name"])
+    if demo_parts:
+        parts.append(f"Profile: {', '.join(demo_parts)}")
+
+    # Infer life stage for nutrition guidance
+    age = demo.get("age")
+    sex = demo.get("sex")
+    if age and sex:
+        if sex == "female" and age >= 45:
+            # Check cycle data — if no recent periods, likely peri/post-menopausal
+            if not ctx.get("cycle_phase"):
+                parts.append(
+                    "Life stage: likely peri/post-menopausal — prioritize calcium, "
+                    "vitamin D, iron awareness (lower need post-menopause), omega-3, "
+                    "and adequate protein for bone/muscle preservation"
+                )
+            elif age >= 55:
+                parts.append(
+                    "Life stage: post-menopausal — prioritize calcium (1200mg/d), "
+                    "vitamin D (800-1000 IU/d), protein for sarcopenia prevention"
+                )
+        elif sex == "female" and age < 25:
+            parts.append(
+                "Life stage: young adult female — ensure adequate iron, folate, "
+                "calcium for peak bone mass, and sufficient calories for activity level"
+            )
+        elif sex == "male" and age < 25:
+            parts.append(
+                "Life stage: young adult male — higher calorie/protein needs for "
+                "growth, ensure zinc, magnesium, and vitamin D adequacy"
+            )
+        elif age >= 65:
+            parts.append(
+                "Life stage: older adult — prioritize protein (1.2-1.5g/kg) to "
+                "prevent sarcopenia, vitamin B12, vitamin D, calcium, hydration"
+            )
 
     if ctx.get("today_meals"):
         meal_strs = [
@@ -462,9 +554,10 @@ async def post_log_insight(
 
     macros = {k: round(v, 1) for k, v in macros.items()}
     context_text = _format_context_for_prompt(ctx)
+    first_name = ctx.get("demographics", {}).get("first_name") or "there"
 
     # Build prompt
-    prompt = f"""You are a nutrition analyst for this user. They just logged a meal.
+    prompt = f"""You are a nutrition analyst. The user's name is {first_name}.
 
 MEAL LOGGED:
 {body.meal_type.title()}: {', '.join(food_lines) or 'meal logged'}
@@ -474,6 +567,7 @@ HEALTH CONTEXT:
 {context_text}
 
 Generate a 1-2 sentence personalized insight about this meal. Rules:
+- Address {first_name} by name naturally (e.g. "Nice choice, {first_name}!")
 - Reference at least one specific health data point (condition, lab, medication, wearable, or experiment)
 - Be encouraging but honest — flag concerns gently
 - If a medication should be taken with/around this meal, mention timing
@@ -578,9 +672,10 @@ async def suggest_meal(
             meal_type = "dinner"
 
     context_text = _format_context_for_prompt(ctx)
+    first_name = ctx.get("demographics", {}).get("first_name") or "there"
     r = ctx.get("remaining", {})
 
-    prompt = f"""You are a nutrition analyst. Suggest a {meal_type} for this user.
+    prompt = f"""You are a nutrition analyst. The user's name is {first_name}. Suggest a {meal_type}.
 
 TODAY SO FAR:
 {context_text}
@@ -594,7 +689,7 @@ Suggest ONE specific meal. Return ONLY valid JSON (no markdown fences):
     {{"name": "ingredient", "portion": "amount", "unit": "unit"}},
   ],
   "macros": {{"calories": 0, "protein_g": 0, "carbs_g": 0, "fat_g": 0}},
-  "rationale": "One sentence explaining why this meal is good for their specific situation"
+  "rationale": "One sentence addressing {first_name} by name explaining why this meal is good for their specific situation"
 }}
 
 Rules:
@@ -652,9 +747,10 @@ async def swap_food(
     ctx = await _gather_nutrition_context(user_id, bearer)
     context_text = _format_context_for_prompt(ctx)
 
+    first_name = ctx.get("demographics", {}).get("first_name") or "there"
     reason_text = f" that is {body.reason.replace('_', ' ')}" if body.reason else ""
 
-    prompt = f"""Suggest 3 food alternatives for "{body.food_name}"{reason_text}.
+    prompt = f"""Suggest 3 food alternatives for "{body.food_name}"{reason_text} for {first_name}.
 
 USER CONTEXT:
 {context_text}
@@ -707,9 +803,10 @@ async def generate_meal_plan(
     bearer = request.headers.get("Authorization")
     ctx = await _gather_nutrition_context(user_id, bearer)
     context_text = _format_context_for_prompt(ctx)
+    first_name = ctx.get("demographics", {}).get("first_name") or "there"
     targets = ctx.get("targets", {})
 
-    prompt = f"""Generate a {body.days}-day meal plan for this user.
+    prompt = f"""Generate a {body.days}-day meal plan for {first_name}.
 
 USER CONTEXT:
 {context_text}
