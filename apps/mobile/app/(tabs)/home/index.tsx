@@ -19,6 +19,7 @@ import SpecialistInsightCard from '@/components/SpecialistInsightCard';
 import SmartPromptCard from '@/components/SmartPromptCard';
 import JourneyProposalCard from '@/components/JourneyProposalCard';
 import DailyBriefCard from '@/components/DailyBriefCard';
+import CyclePhaseIndicator from '@/components/CyclePhaseIndicator';
 
 function scoreColor(score: number): string {
   if (score >= 80) return '#00D4AA';
@@ -531,7 +532,10 @@ export default function HomeScreen() {
       {/* Greeting */}
       <View className="mb-5">
         <Text className="text-2xl font-display text-[#E8EDF5]">{greeting}, {firstName}</Text>
-        <Text className="text-[#526380] text-sm mt-1">{format(new Date(), 'EEEE, MMMM d')}</Text>
+        <View className="flex-row items-center gap-3 mt-1">
+          <Text className="text-[#526380] text-sm">{format(new Date(), 'EEEE, MMMM d')}</Text>
+          <CyclePhaseIndicator />
+        </View>
       </View>
 
       {/* Role-specific quick-access cards */}

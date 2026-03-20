@@ -447,3 +447,128 @@ async def get_cycle_recommendations(
             "avoid": guidance.get("avoid", []),
         },
     }
+
+
+# ---------------------------------------------------------------------------
+# Comprehensive cycle context for cross-screen use
+# ---------------------------------------------------------------------------
+
+PHASE_EXPECTATIONS: Dict[str, Dict[str, Any]] = {
+    "menstrual": {
+        "hrv": "May drop 5-10% vs follicular. This is normal hormonal variation.",
+        "rhr": "May be slightly elevated. Don't worry about 2-5 bpm increase.",
+        "sleep": "Quality may decrease. Cramps and discomfort can disrupt sleep.",
+        "weight": "Bloating often resolves as period begins. Weight may drop.",
+        "mood": "Fatigue and low energy are common. Be gentle with yourself.",
+        "energy": "Lowest point in cycle. Light movement helps, but rest is priority.",
+        "cravings": "Iron-rich foods are especially important now.",
+        "symptoms": "Cramps, fatigue, headaches, and lower back pain are phase-typical.",
+        "nutrition": "Focus on iron-rich foods (spinach, lentils, red meat). Anti-inflammatory foods help with cramps. Stay hydrated.",
+        "exercise": "Low intensity: yoga, walking, gentle stretching. Listen to your body.",
+        "supplements": "Iron needs highest now. Magnesium for cramps. Ginger or turmeric for inflammation.",
+    },
+    "follicular": {
+        "hrv": "Typically at your highest. Great recovery capacity.",
+        "rhr": "At its lowest. Cardiovascular system is primed.",
+        "sleep": "Best sleep quality of the cycle. Take advantage.",
+        "weight": "Most stable weight period. Good time for baseline measurements.",
+        "mood": "Rising estrogen boosts mood, motivation, and confidence.",
+        "energy": "Energy climbing. Best phase for challenging tasks and new habits.",
+        "cravings": "Appetite often lower. Insulin sensitivity is highest.",
+        "symptoms": "Fewest symptoms. If you still have issues, they're likely not cycle-related.",
+        "nutrition": "Your body handles carbs best now. Good time for varied, balanced meals. Fermented foods support estrogen metabolism.",
+        "exercise": "Peak phase for strength training and high-intensity workouts. Push your limits.",
+        "supplements": "Standard supplementation. Probiotics for estrogen metabolism.",
+    },
+    "ovulation": {
+        "hrv": "Still good but may start dipping. Peak performance window.",
+        "rhr": "Starting to rise slightly. Normal transition.",
+        "sleep": "Still good. Temperature may start rising.",
+        "weight": "Stable. Some women retain slight fluid.",
+        "mood": "Peak confidence and social energy. Highest libido.",
+        "energy": "Peak energy and strength. Natural performance high.",
+        "cravings": "Appetite still controlled. Enjoy balanced meals.",
+        "symptoms": "Mild ovulation pain (mittelschmerz) is normal. Cervical mucus changes.",
+        "nutrition": "Balanced meals. Cruciferous vegetables help metabolize estrogen peak. Zinc supports egg quality.",
+        "exercise": "Peak performance. Best for PRs and challenging workouts.",
+        "supplements": "Zinc, B vitamins. Antioxidants support egg quality if TTC.",
+    },
+    "luteal": {
+        "hrv": "Expect 5-10% drop from follicular baseline. Progesterone effect.",
+        "rhr": "2-5 bpm higher. Don't mistake this for overtraining.",
+        "sleep": "May be disrupted. Body temperature rises, affecting sleep quality.",
+        "weight": "1-3 lbs water retention is normal. Not fat gain.",
+        "mood": "PMS symptoms peak days 24-28. Irritability, anxiety, sadness are hormonal.",
+        "energy": "Lower energy, especially late luteal. Scale back intensity.",
+        "cravings": "Carb and sugar cravings are hormonal (serotonin drops). Choose complex carbs.",
+        "symptoms": "Bloating, breast tenderness, headaches, mood changes. All phase-typical.",
+        "nutrition": "Complex carbs for serotonin (sweet potato, oats). Magnesium-rich foods. Calcium helps PMS. Avoid excess salt (worsens bloating).",
+        "exercise": "Moderate intensity. Yoga, pilates, steady-state cardio. Don't push through fatigue.",
+        "supplements": "Magnesium (cramps + sleep + mood). Calcium (PMS). B6 (mood). Evening primrose oil (breast tenderness).",
+    },
+}
+
+
+@router.get("/context")
+async def get_cycle_context(
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Comprehensive cycle context for cross-screen use.
+    Returns phase, expectations, nutrition/exercise/supplement guidance.
+    """
+    user_id = current_user["id"]
+    today = date.today()
+    phase_info = await get_cycle_phase_for_date(user_id, today)
+
+    if not phase_info or phase_info.phase == "unknown":
+        return {
+            "has_cycle_data": False,
+            "phase": None,
+            "cycle_day": None,
+        }
+
+    expectations = PHASE_EXPECTATIONS.get(phase_info.phase, {})
+
+    # Get cycle stats for context
+    period_starts = await _supabase_get(
+        "cycle_logs",
+        f"user_id=eq.{user_id}&event_type=eq.period_start"
+        f"&order=event_date.desc&limit=12&select=event_date",
+    )
+    cycles_tracked = max(0, len(period_starts) - 1)
+    avg_length = 28
+    if cycles_tracked >= 1:
+        lengths = []
+        dates_sorted = sorted(
+            [p["event_date"] for p in period_starts if p.get("event_date")],
+        )
+        for i in range(1, len(dates_sorted)):
+            try:
+                d1 = date.fromisoformat(dates_sorted[i - 1][:10])
+                d2 = date.fromisoformat(dates_sorted[i][:10])
+                length = (d2 - d1).days
+                if 20 <= length <= 45:
+                    lengths.append(length)
+            except (ValueError, TypeError):
+                pass
+        if lengths:
+            avg_length = round(sum(lengths) / len(lengths))
+
+    return {
+        "has_cycle_data": True,
+        "phase": phase_info.phase,
+        "cycle_day": phase_info.cycle_day,
+        "days_until_next_period": phase_info.days_until_next_period,
+        "confidence": phase_info.confidence,
+        "avg_cycle_length": avg_length,
+        "cycles_tracked": cycles_tracked,
+        "phase_expectations": {
+            k: v
+            for k, v in expectations.items()
+            if k not in ("nutrition", "exercise", "supplements")
+        },
+        "nutrition_guidance": expectations.get("nutrition", ""),
+        "exercise_guidance": expectations.get("exercise", ""),
+        "supplement_timing": expectations.get("supplements", ""),
+    }

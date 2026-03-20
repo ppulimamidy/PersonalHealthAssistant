@@ -21,6 +21,19 @@ logger = get_logger(__name__)
 router = APIRouter()
 
 
+async def _fetch_cycle_phase_for_symptom(user_id: str) -> Optional[str]:
+    """Fetch current cycle phase using canonical function."""
+    try:
+        from .cycle_tracking import get_cycle_phase_for_date
+
+        phase_info = await get_cycle_phase_for_date(user_id, date.today())
+        if phase_info and phase_info.phase != "unknown":
+            return phase_info.phase
+    except Exception:
+        pass
+    return None
+
+
 async def _gather_symptom_context(user_id: str) -> Dict[str, Any]:
     """Gather context for symptom intelligence — all parallel."""
     today = date.today().isoformat()
@@ -37,7 +50,7 @@ async def _gather_symptom_context(user_id: str) -> Dict[str, Any]:
         profile_rows,
         patterns,
         correlations,
-        cycle_logs,
+        cycle_phase_data,
     ) = await asyncio.gather(
         _supabase_get(
             "symptom_journal",
@@ -80,10 +93,8 @@ async def _gather_symptom_context(user_id: str) -> Dict[str, Any]:
             f"&select=symptom_type,correlated_variable,correlation_coefficient,effect_description,correlation_type"
             f"&limit=20",
         ),
-        _supabase_get(
-            "cycle_logs",
-            f"user_id=eq.{user_id}&order=event_date.desc"
-            f"&select=event_type,event_date&limit=1",
+        _fetch_cycle_phase_for_symptom(
+            user_id,
         ),
     )
 
@@ -112,24 +123,10 @@ async def _gather_symptom_context(user_id: str) -> Dict[str, Any]:
         m for m in meals_yesterday if (m.get("timestamp") or "")[:10] == yesterday
     ]
 
-    # Cycle phase
-    cycle_phase = None
-    if cycle_logs:
-        last = cycle_logs[0]
-        if last.get("event_type") == "period_start":
-            try:
-                period_start = date.fromisoformat(last["event_date"][:10])
-                day_in_cycle = (date.today() - period_start).days
-                if day_in_cycle <= 5:
-                    cycle_phase = "menstrual"
-                elif day_in_cycle <= 13:
-                    cycle_phase = "follicular"
-                elif day_in_cycle <= 16:
-                    cycle_phase = "ovulatory"
-                elif day_in_cycle <= 28:
-                    cycle_phase = "luteal"
-            except (ValueError, TypeError):
-                pass
+    # Cycle phase (from canonical function)
+    cycle_phase = (
+        cycle_phase_data  # Already computed via _fetch_cycle_phase_for_symptom
+    )
 
     return {
         "symptoms_30d": symptoms_30d,

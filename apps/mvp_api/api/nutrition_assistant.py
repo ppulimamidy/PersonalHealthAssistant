@@ -35,6 +35,19 @@ NUTRITION_SERVICE_URL = os.environ.get(
 # ---------------------------------------------------------------------------
 
 
+async def _fetch_cycle_phase(user_id: str) -> Optional[Dict[str, Any]]:
+    """Fetch cycle phase using canonical function."""
+    try:
+        from .cycle_tracking import get_cycle_phase_for_date
+
+        phase_info = await get_cycle_phase_for_date(user_id, date.today())
+        if phase_info and phase_info.phase != "unknown":
+            return {"phase": phase_info.phase, "day": phase_info.cycle_day}
+    except Exception:
+        pass
+    return None
+
+
 async def _fetch_todays_meals(user_id: str, bearer: Optional[str]) -> list:
     """Fetch today's meals — tries nutrition service first, falls back to Supabase."""
     today = date.today().isoformat()
@@ -122,7 +135,7 @@ async def _gather_nutrition_context(
         experiments,
         journeys,
         goals,
-        cycle_logs,
+        cycle_phase_data,
         efficacy,
     ) = await asyncio.gather(
         _fetch_todays_meals(user_id, bearer),
@@ -176,11 +189,7 @@ async def _gather_nutrition_context(
             f"user_id=eq.{user_id}&status=eq.active&category=eq.diet"
             f"&select=goal_text&limit=3",
         ),
-        _supabase_get(
-            "cycle_logs",
-            f"user_id=eq.{user_id}&order=event_date.desc"
-            f"&select=event_type,event_date&limit=1",
-        ),
+        _fetch_cycle_phase(user_id),
         _supabase_get(
             "efficacy_patterns",
             f"user_id=eq.{user_id}&verdict=eq.proven"
@@ -313,24 +322,8 @@ async def _gather_nutrition_context(
             "phase": phase_name,
         }
 
-    # Cycle phase estimation
-    cycle_phase = None
-    if cycle_logs:
-        last_event = cycle_logs[0]
-        if last_event.get("event_type") == "period_start":
-            try:
-                period_start = date.fromisoformat(last_event["event_date"][:10])
-                day_in_cycle = (date.today() - period_start).days
-                if day_in_cycle <= 5:
-                    cycle_phase = {"phase": "menstrual", "day": day_in_cycle}
-                elif day_in_cycle <= 13:
-                    cycle_phase = {"phase": "follicular", "day": day_in_cycle}
-                elif day_in_cycle <= 16:
-                    cycle_phase = {"phase": "ovulatory", "day": day_in_cycle}
-                elif day_in_cycle <= 28:
-                    cycle_phase = {"phase": "luteal", "day": day_in_cycle}
-            except (ValueError, TypeError):
-                pass
+    # Cycle phase (from canonical function)
+    cycle_phase = cycle_phase_data  # Already computed via _fetch_cycle_phase
 
     return {
         "demographics": demographics,
