@@ -208,19 +208,28 @@ async def get_shared_summary(token: str):
 
         # Health conditions
         condition_rows = await _supabase_get(
-            "user_health_profile",
-            f"user_id=eq.{grantor_id}&select=conditions&limit=1",
+            "health_conditions",
+            f"user_id=eq.{grantor_id}&is_active=eq.true&select=condition_name,condition_category",
         )
-        if condition_rows:
-            summary["conditions"] = condition_rows[0].get("conditions") or []
+        summary["conditions"] = [c.get("condition_name", "") for c in condition_rows]
 
     # Medications
     if "medications" in permissions:
         med_rows = await _supabase_get(
             "medications",
-            f"user_id=eq.{grantor_id}&status=eq.active&select=name,dosage,frequency,prescribed_by&order=name.asc",
+            f"user_id=eq.{grantor_id}&is_active=eq.true"
+            f"&select=medication_name,dosage,frequency,prescribing_doctor"
+            f"&order=medication_name.asc",
         )
-        summary["medications"] = med_rows
+        summary["medications"] = [
+            {
+                "name": m.get("medication_name", ""),
+                "dosage": m.get("dosage", ""),
+                "frequency": m.get("frequency", ""),
+                "prescribed_by": m.get("prescribing_doctor"),
+            }
+            for m in med_rows
+        ]
 
         # 30-day adherence
         from datetime import date, timedelta
@@ -239,13 +248,37 @@ async def get_shared_summary(token: str):
     # Lab results
     if "lab_results" in permissions:
         from datetime import date, timedelta
+        import json as _json
 
         one_year_ago = (date.today() - timedelta(days=365)).isoformat()
         lab_rows = await _supabase_get(
             "lab_results",
-            f"user_id=eq.{grantor_id}&test_date=gte.{one_year_ago}&order=test_date.desc&select=test_name,test_date,value,unit,is_abnormal,reference_range&limit=50",
+            f"user_id=eq.{grantor_id}&test_date=gte.{one_year_ago}"
+            f"&order=test_date.desc&select=test_type,test_date,biomarkers,abnormal_count"
+            f"&limit=20",
         )
-        summary["lab_results"] = lab_rows
+        # Flatten biomarkers for display
+        flat_labs = []
+        for lab in lab_rows:
+            bms = lab.get("biomarkers") or []
+            if isinstance(bms, str):
+                try:
+                    bms = _json.loads(bms)
+                except Exception:
+                    bms = []
+            for bm in bms:
+                if isinstance(bm, dict):
+                    flat_labs.append(
+                        {
+                            "test_name": f"{lab.get('test_type', '')} — {bm.get('name', '')}",
+                            "test_date": lab.get("test_date", ""),
+                            "value": bm.get("value"),
+                            "unit": bm.get("unit", ""),
+                            "is_abnormal": bm.get("status") in ("abnormal", "critical"),
+                            "reference_range": bm.get("reference_range"),
+                        }
+                    )
+        summary["lab_results"] = flat_labs
 
     # Symptoms
     if "symptoms" in permissions:
@@ -254,9 +287,19 @@ async def get_shared_summary(token: str):
         thirty_ago = (date.today() - timedelta(days=30)).isoformat()
         symptom_rows = await _supabase_get(
             "symptom_journal",
-            f"user_id=eq.{grantor_id}&date=gte.{thirty_ago}&order=date.desc&select=symptom_name,severity,date,notes&limit=50",
+            f"user_id=eq.{grantor_id}&symptom_date=gte.{thirty_ago}"
+            f"&order=symptom_date.desc&select=symptom_type,severity,symptom_date,notes"
+            f"&limit=50",
         )
-        summary["symptoms"] = symptom_rows
+        summary["symptoms"] = [
+            {
+                "symptom_name": s.get("symptom_type", ""),
+                "severity": s.get("severity"),
+                "date": s.get("symptom_date", ""),
+                "notes": s.get("notes"),
+            }
+            for s in symptom_rows
+        ]
 
         if symptom_rows:
             severities = [
@@ -288,9 +331,17 @@ async def get_shared_summary(token: str):
     # Insights
     if "insights" in permissions:
         insight_rows = await _supabase_get(
-            "ai_insights",
-            f"user_id=eq.{grantor_id}&is_dismissed=eq.false&order=created_at.desc&select=title,summary,insight_type,category,created_at&limit=5",
+            "saved_insights",
+            f"user_id=eq.{grantor_id}&order=created_at.desc"
+            f"&select=title,summary,insight_type,category,created_at&limit=5",
         )
+        if not insight_rows:
+            # Fallback to ai_insights table
+            insight_rows = await _supabase_get(
+                "ai_insights",
+                f"user_id=eq.{grantor_id}&order=created_at.desc"
+                f"&select=title,summary,insight_type,category,created_at&limit=5",
+            )
         summary["insights"] = insight_rows
 
     # N-of-1 intervention outcomes — completed trials with deltas + AI summaries
