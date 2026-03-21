@@ -46,6 +46,7 @@ async def daily_brief(
         cycle_logs,
         health_score,
         conditions,
+        medical_records,
     ) = await asyncio.gather(
         _supabase_get(
             "profiles",
@@ -114,6 +115,11 @@ async def daily_brief(
         _supabase_get(
             "health_conditions",
             f"user_id=eq.{user_id}&is_active=eq.true&select=condition_name",
+        ),
+        _supabase_get(
+            "medical_records",
+            f"user_id=eq.{user_id}&order=created_at.desc&limit=3"
+            f"&select=record_type,title,ai_summary",
         ),
     )
 
@@ -251,6 +257,19 @@ async def daily_brief(
     cond_names = [c.get("condition_name", "") for c in conditions]
     if cond_names:
         parts.append(f"Conditions: {', '.join(cond_names)}")
+
+    # 12. Medical records (pathology, genomic, imaging)
+    if medical_records:
+        for rec in medical_records:
+            rtype = rec.get("record_type", "")
+            title = rec.get("title", "")
+            summary = rec.get("ai_summary", "")
+            if rtype == "genomic":
+                parts.append(f"Genomic profile: {title}. {summary}")
+            elif rtype == "pathology":
+                parts.append(f"Pathology: {title}. {summary}")
+            elif rtype == "imaging":
+                parts.append(f"Imaging: {title}. {summary}")
 
     # Build prompt
     context_block = (
