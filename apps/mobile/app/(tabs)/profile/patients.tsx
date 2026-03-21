@@ -84,20 +84,6 @@ function PatientDetail({ shareToken, onClose }: { shareToken: string; onClose: (
 
       {data && (
         <ScrollView className="flex-1" contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
-          {/* 6E: Visit Prep shortcut */}
-          <TouchableOpacity
-            onPress={() => router.push('/(tabs)/insights/doctor-prep')}
-            className="flex-row items-center gap-3 bg-primary-500/10 border border-primary-500/30 rounded-xl p-4 mb-4"
-            activeOpacity={0.8}
-          >
-            <Ionicons name="document-text-outline" size={20} color="#00D4AA" />
-            <View className="flex-1">
-              <Text className="text-primary-500 font-sansMedium text-sm">Generate Visit Prep Report</Text>
-              <Text className="text-[#526380] text-xs mt-0.5">Create a report to share with your doctor</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={16} color="#00D4AA" />
-          </TouchableOpacity>
-
           {/* Stat chips */}
           <View className="flex-row gap-2 mb-4">
             {[
