@@ -23,7 +23,11 @@ import {
   Copy,
   Check,
   GitCompare,
+  Heart,
+  Plus,
+  Lightbulb,
 } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import { ReferralCard } from '@/components/referral/ReferralCard';
 import { exportService } from '@/services/export';
@@ -140,6 +144,76 @@ function DataSourcesCard() {
             </p>
           )}
         </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function HealthProfileSummary() {
+  const { user } = useAuthStore();
+  const { data } = useQuery({
+    queryKey: ['health-summary'],
+    queryFn: async () => {
+      try { const { data: resp } = await api.get('/api/v1/profile-intelligence/health-summary'); return resp; }
+      catch { return null; }
+    },
+    enabled: Boolean(user),
+    staleTime: 2 * 60_000,
+  });
+
+  return (
+    <Card>
+      <CardContent className="pt-4">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <Heart className="w-4 h-4 text-primary-500" />
+            <span className="font-semibold text-sm text-slate-900 dark:text-slate-100">My Health Profile</span>
+          </div>
+          <Link href="/health-profile" className="text-xs text-primary-500 hover:underline">Manage →</Link>
+        </div>
+        <div className="grid grid-cols-3 gap-3">
+          <div className="p-2 rounded-lg bg-slate-50 dark:bg-slate-700/50">
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-slate-500">Conditions</span>
+              <Link href="/health-profile" className="text-primary-500"><Plus className="w-3 h-3" /></Link>
+            </div>
+            <p className="text-sm font-medium text-slate-900 dark:text-slate-100 mt-0.5">
+              {data?.conditions_count ?? 0}
+            </p>
+            {data?.conditions?.length > 0 && (
+              <p className="text-xs text-slate-400 truncate mt-0.5">
+                {data.conditions.map((c: any) => c.name).join(', ')}
+              </p>
+            )}
+          </div>
+          <div className="p-2 rounded-lg bg-slate-50 dark:bg-slate-700/50">
+            <span className="text-xs text-slate-500">Goals</span>
+            <p className="text-sm font-medium text-slate-900 dark:text-slate-100 mt-0.5">
+              {data?.active_goals_count ?? 0} active
+            </p>
+          </div>
+          <div className="p-2 rounded-lg bg-slate-50 dark:bg-slate-700/50">
+            <span className="text-xs text-slate-500">Specialists</span>
+            <p className="text-sm font-medium text-slate-900 dark:text-slate-100 mt-0.5">
+              {data?.specialists_count ?? 0}
+            </p>
+            {data?.specialists?.length > 0 && (
+              <div className="flex gap-1 mt-0.5 flex-wrap">
+                {data.specialists.slice(0, 2).map((s: any, i: number) => (
+                  <span key={i} className="text-xs px-1.5 py-0.5 rounded" style={{ backgroundColor: `${s.color}15`, color: s.color }}>
+                    {s.name}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+        {data?.hint && (
+          <div className="flex items-center gap-1.5 mt-3 pt-3 border-t border-slate-200 dark:border-slate-700">
+            <Lightbulb className="w-3.5 h-3.5 text-amber-500 flex-shrink-0" />
+            <p className="text-xs text-amber-600 dark:text-amber-400">{data.hint}</p>
+          </div>
+        )}
       </CardContent>
     </Card>
   );
@@ -405,6 +479,9 @@ export default function SettingsPage() {
       </div>
 
       <div className="space-y-6 max-w-2xl">
+        {/* Health Profile Summary */}
+        <HealthProfileSummary />
+
         {/* Profile */}
         <Card>
           <CardHeader>

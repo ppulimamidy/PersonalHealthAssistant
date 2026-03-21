@@ -139,12 +139,14 @@ function MetricChart({
   dataKey,
   color,
   unit,
+  explanation,
 }: {
   data: ChartDataPoint[];
   title: string;
   dataKey: keyof ChartDataPoint;
   color: string;
   unit?: string;
+  explanation?: string;
 }) {
   return (
     <Card>
@@ -185,6 +187,9 @@ function MetricChart({
             </LineChart>
           </ResponsiveContainer>
         </div>
+        {explanation && (
+          <p className="text-xs text-slate-500 dark:text-slate-400 italic mt-2 leading-relaxed">{explanation}</p>
+        )}
       </CardContent>
     </Card>
   );
@@ -194,6 +199,7 @@ export function TrendCharts() {
   const [data, setData] = useState<ChartDataPoint[]>([]);
   const [loading, setLoading] = useState(true);
   const [range, setRange] = useState<14 | 30 | 60 | 90>(30);
+  const [explanations, setExplanations] = useState<Record<string, string>>({});
   const tier = useSubscriptionStore((s) => s.getTier());
   const isPro = tier === 'pro' || tier === 'pro_plus';
 
@@ -207,6 +213,20 @@ export function TrendCharts() {
       })
       .catch(() => {})
       .finally(() => setLoading(false));
+
+    // Fetch trend explanations
+    api.get('/api/v1/insights-intelligence/trend-explanations')
+      .then(({ data: resp }) => {
+        const map: Record<string, string> = {};
+        for (const m of resp?.metrics ?? []) {
+          if (m.explanation) {
+            map[m.metric] = m.explanation;
+            map[m.label] = m.explanation;
+          }
+        }
+        setExplanations(map);
+      })
+      .catch(() => {});
   }, [range]);
 
   if (!isPro) {
@@ -293,20 +313,20 @@ export function TrendCharts() {
 
       {/* Core metrics */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <MetricChart data={data} title="Sleep Duration" dataKey="sleepHours" color="#6366f1" unit="hrs" />
-        <MetricChart data={data} title="Daily Steps" dataKey="steps" color="#f59e0b" unit="steps" />
-        <MetricChart data={data} title="Resting Heart Rate" dataKey="rhr" color="#ef4444" unit="bpm" />
-        <MetricChart data={data} title="HRV Balance" dataKey="hrv" color="#22c55e" />
+        <MetricChart data={data} title="Sleep Duration" dataKey="sleepHours" color="#6366f1" unit="hrs" explanation={explanations['sleep'] || explanations['Sleep Score']} />
+        <MetricChart data={data} title="Daily Steps" dataKey="steps" color="#f59e0b" unit="steps" explanation={explanations['steps'] || explanations['Daily Steps']} />
+        <MetricChart data={data} title="Resting Heart Rate" dataKey="rhr" color="#ef4444" unit="bpm" explanation={explanations['resting_heart_rate'] || explanations['Resting HR']} />
+        <MetricChart data={data} title="HRV Balance" dataKey="hrv" color="#22c55e" explanation={explanations['hrv_sdnn'] || explanations['HRV']} />
       </div>
 
       {/* Extended vitals & activity */}
       <h3 className="text-sm font-semibold text-[#526380] uppercase tracking-wider mt-2">Vitals & Activity</h3>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <MetricChart data={data} title="SpO₂" dataKey="spo2" color="#60A5FA" unit="%" />
-        <MetricChart data={data} title="Respiratory Rate" dataKey="respiratoryRate" color="#A78BFA" unit="/min" />
-        <MetricChart data={data} title="Active Calories" dataKey="activeCals" color="#FB923C" unit="kcal" />
-        <MetricChart data={data} title="Workouts" dataKey="workoutMin" color="#F59E0B" unit="min" />
-        <MetricChart data={data} title="VO₂ Max" dataKey="vo2Max" color="#2DD4BF" unit="mL/kg/min" />
+        <MetricChart data={data} title="SpO₂" dataKey="spo2" color="#60A5FA" unit="%" explanation={explanations['spo2'] || explanations['SpO₂']} />
+        <MetricChart data={data} title="Respiratory Rate" dataKey="respiratoryRate" color="#A78BFA" unit="/min" explanation={explanations['respiratory_rate'] || explanations['Respiratory Rate']} />
+        <MetricChart data={data} title="Active Calories" dataKey="activeCals" color="#FB923C" unit="kcal" explanation={explanations['active_calories'] || explanations['Active Calories']} />
+        <MetricChart data={data} title="Workouts" dataKey="workoutMin" color="#F59E0B" unit="min" explanation={explanations['workout_minutes'] || explanations['Workouts']} />
+        <MetricChart data={data} title="VO₂ Max" dataKey="vo2Max" color="#2DD4BF" unit="mL/kg/min" explanation={explanations['vo2_max'] || explanations['VO₂ Max']} />
       </div>
     </div>
   );

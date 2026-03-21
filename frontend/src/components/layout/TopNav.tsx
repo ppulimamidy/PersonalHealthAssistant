@@ -50,7 +50,7 @@ const TABS: TabDef[] = [
   {
     name: 'Ask AI',
     href: '/agents',
-    subRoutes: ['/agents'],
+    subRoutes: ['/agents', '/clinical-research'],
   },
   {
     name: 'Profile',
