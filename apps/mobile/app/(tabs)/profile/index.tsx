@@ -4,6 +4,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { useAuthStore } from '@/stores/authStore';
 import { supabase } from '@/lib/supabase';
 import { unregisterPushToken } from '@/services/notifications';
+import HealthProfileCard from '@/components/HealthProfileCard';
+import MySpecialistsSection from '@/components/MySpecialistsSection';
 
 function ProfileRow({ icon, label, onPress }: { icon: React.ComponentProps<typeof Ionicons>['name']; label: string; onPress: () => void }) {
   return (
@@ -74,13 +76,20 @@ export default function ProfileScreen() {
         </TouchableOpacity>
       )}
 
-      <ProfileRow icon="fitness-outline" label="Health Profile" onPress={() => router.push('/(tabs)/profile/health')} />
+      {/* Health Profile Card with conditions + goals + specialists */}
+      <HealthProfileCard />
+
+      {/* My Specialists */}
+      <MySpecialistsSection />
+
+      {/* Navigation rows */}
+      <ProfileRow icon="flag-outline" label="My Goals" onPress={() => router.push('/(tabs)/profile/goals')} />
       <ProfileRow icon="phone-portrait-outline" label="Health Devices" onPress={() => router.push('/(tabs)/profile/devices')} />
       <ProfileRow icon="git-compare-outline" label="Data Sources" onPress={() => router.push('/(tabs)/profile/data-sources' as never)} />
-      <ProfileRow icon="card-outline" label="Plan & Billing" onPress={() => router.push('/(tabs)/profile/billing')} />
       <ProfileRow icon="flask-outline" label="What Works for Me" onPress={() => router.push('/(tabs)/profile/efficacy' as never)} />
       <ProfileRow icon="flag-outline" label="My Journeys" onPress={() => router.push('/(tabs)/profile/journeys' as never)} />
       <ProfileRow icon="document-text-outline" label="Visit Prep" onPress={() => router.push('/(tabs)/insights/doctor-prep' as never)} />
+      <ProfileRow icon="card-outline" label="Plan & Billing" onPress={() => router.push('/(tabs)/profile/billing')} />
       <ProfileRow icon="body-outline" label="Simulate Changes" onPress={() => router.push('/(tabs)/profile/health-twin')} />
       {userRole === 'caregiver' && (
         <ProfileRow icon="share-social-outline" label="Care Team Sharing" onPress={() => router.push('/(tabs)/profile/sharing' as never)} />
