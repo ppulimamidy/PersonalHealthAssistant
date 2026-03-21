@@ -9,12 +9,13 @@
 import { useState } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, ActivityIndicator,
-  FlatList,
+  FlatList, TextInput, Alert,
 } from 'react-native';
 import { router } from 'expo-router';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import { format } from 'date-fns';
+import * as Haptics from 'expo-haptics';
 import { api } from '@/services/api';
 import type { ManagedProfile, SharedHealthSummary } from '@/types';
 
@@ -236,7 +237,29 @@ function PatientRow({ profile, onPress }: { profile: ManagedProfile; onPress: ()
 // ─── Screen ────────────────────────────────────────────────────────────────────
 
 export default function PatientsScreen() {
+  const queryClient = useQueryClient();
   const [selectedToken, setSelectedToken] = useState<string | null>(null);
+  const [addInput, setAddInput] = useState('');
+  const [adding, setAdding] = useState(false);
+
+  async function handleAddPatient() {
+    const raw = addInput.trim();
+    if (!raw) return;
+    // Parse token from URL or use raw
+    const token = raw.includes('/share/') ? raw.split('/share/')[1].split(/[/?#]/)[0] : raw;
+    if (!token) return;
+    setAdding(true);
+    try {
+      await api.post('/api/v1/caregiver/managed', { token });
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setAddInput('');
+      queryClient.invalidateQueries({ queryKey: ['managed-profiles'] });
+    } catch {
+      Alert.alert('Error', 'Could not add patient. Check the share code or URL.');
+    } finally {
+      setAdding(false);
+    }
+  }
 
   const { data: profiles = [], isLoading, isError, refetch } = useQuery({
     queryKey: ['managed-profiles'],
@@ -260,6 +283,33 @@ export default function PatientsScreen() {
         <View className="flex-1">
           <Text className="text-xl font-display text-[#E8EDF5]">Patients</Text>
           <Text className="text-[#526380] text-xs mt-0.5">Shared health summaries</Text>
+        </View>
+      </View>
+
+      {/* Add patient input */}
+      <View className="px-4 py-3 border-b border-surface-border">
+        <View className="flex-row gap-2">
+          <TextInput
+            value={addInput}
+            onChangeText={setAddInput}
+            placeholder="Paste share code or URL..."
+            placeholderTextColor="#3D4F66"
+            onSubmitEditing={handleAddPatient}
+            returnKeyType="done"
+            className="flex-1 bg-surface-raised border border-surface-border rounded-xl px-3 py-2.5 text-[#E8EDF5] text-sm"
+          />
+          <TouchableOpacity
+            onPress={handleAddPatient}
+            disabled={adding || !addInput.trim()}
+            className="bg-primary-500 rounded-xl px-4 items-center justify-center"
+            activeOpacity={0.8}
+          >
+            {adding ? (
+              <ActivityIndicator color="#080B10" size="small" />
+            ) : (
+              <Ionicons name="add" size={18} color="#080B10" />
+            )}
+          </TouchableOpacity>
         </View>
       </View>
 

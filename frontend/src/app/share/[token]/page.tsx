@@ -2,8 +2,10 @@
 
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
-import { Activity, AlertTriangle, HeartPulse, TrendingUp, TrendingDown, FlaskConical } from 'lucide-react';
+import { Activity, AlertTriangle, HeartPulse, TrendingUp, TrendingDown, FlaskConical, UserPlus, CheckCircle2 } from 'lucide-react';
 import { sharingService } from '@/services/sharing';
+import { supabase } from '@/lib/supabase';
+import { api } from '@/services/api';
 import type { SharedHealthSummary } from '@/types';
 
 // ── Small UI helpers ──────────────────────────────────────────────────────────
@@ -69,6 +71,9 @@ export default function SharePage() {
   const [data, setData] = useState<SharedHealthSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [addedToPatients, setAddedToPatients] = useState(false);
+  const [addingToPatients, setAddingToPatients] = useState(false);
 
   useEffect(() => {
     if (!token) return;
@@ -77,7 +82,25 @@ export default function SharePage() {
       .then(setData)
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
+
+    // Check if user is authenticated (for "Add to Patients" CTA)
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setIsAuthenticated(Boolean(session?.user));
+    });
   }, [token]);
+
+  async function handleAddToPatients() {
+    setAddingToPatients(true);
+    try {
+      await api.post('/api/v1/caregiver/managed', { token });
+      setAddedToPatients(true);
+    } catch {
+      // Might already be linked or other error
+      setAddedToPatients(true);
+    } finally {
+      setAddingToPatients(false);
+    }
+  }
 
   // Dark base
   const bg = '#080B10';
@@ -96,8 +119,25 @@ export default function SharePage() {
         <span className="text-sm font-semibold" style={{ color: '#E8EDF5' }}>
           Health<span style={{ color: '#00D4AA' }}>AI</span>
         </span>
-        <span className="ml-auto text-xs" style={{ color: '#526380' }}>
-          Read-only health summary
+        <span className="ml-auto flex items-center gap-3">
+          <span className="text-xs" style={{ color: '#526380' }}>Read-only health summary</span>
+          {isAuthenticated && !addedToPatients && (
+            <button
+              onClick={handleAddToPatients}
+              disabled={addingToPatients}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
+              style={{ backgroundColor: 'rgba(0,212,170,0.15)', color: '#00D4AA', border: '1px solid rgba(0,212,170,0.3)' }}
+            >
+              <UserPlus style={{ width: 14, height: 14 }} />
+              {addingToPatients ? 'Adding...' : 'Add to My Patients'}
+            </button>
+          )}
+          {addedToPatients && (
+            <span className="flex items-center gap-1 text-xs" style={{ color: '#6EE7B7' }}>
+              <CheckCircle2 style={{ width: 14, height: 14 }} />
+              Added
+            </span>
+          )}
         </span>
       </div>
 

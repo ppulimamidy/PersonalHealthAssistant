@@ -16,7 +16,7 @@ import {
 import { router } from 'expo-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
-import { format, parseISO } from 'date-fns';
+import { format, parseISO, formatDistanceToNow } from 'date-fns';
 import { api } from '@/services/api';
 import type { ShareLink, SharePermission, CreateShareRequest } from '@/types';
 
@@ -162,7 +162,8 @@ function CreateShareModal({ onClose, onCreate }: {
 
 function ShareCard({ link, onRevoke }: { link: ShareLink; onRevoke: (id: string) => void }) {
   const isExpired = link.expires_at ? new Date(link.expires_at) < new Date() : false;
-  const shareUrl = `${process.env.EXPO_PUBLIC_API_URL?.replace('8100', '3000') ?? 'https://app.vitalix.health'}/share/${link.token}`;
+  const frontendUrl = process.env.EXPO_PUBLIC_FRONTEND_URL ?? 'http://localhost:3000';
+  const shareUrl = `${frontendUrl}/share/${link.token}`;
 
   const handleShare = async () => {
     try {
@@ -179,8 +180,10 @@ function ShareCard({ link, onRevoke }: { link: ShareLink; onRevoke: (id: string)
             {link.label || 'Unnamed share'}
           </Text>
           <Text className="text-[#526380] text-xs mt-0.5">
-            {link.access_count} view{link.access_count !== 1 ? 's' : ''} ·{' '}
-            Created {format(parseISO(link.created_at), 'MMM d')}
+            {link.access_count > 0
+              ? `${link.access_count} view${link.access_count !== 1 ? 's' : ''}${link.last_accessed_at ? ` · Last viewed ${formatDistanceToNow(parseISO(link.last_accessed_at), { addSuffix: true })}` : ''}`
+              : 'Not viewed yet'
+            } · Created {format(parseISO(link.created_at), 'MMM d')}
           </Text>
         </View>
         {isExpired ? (
