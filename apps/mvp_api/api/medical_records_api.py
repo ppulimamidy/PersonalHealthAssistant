@@ -130,6 +130,9 @@ async def create_record(
     user_id = current_user["id"]
     record_id = str(uuid.uuid4())
 
+    # Sanitize report_date to YYYY-MM-DD
+    report_date = _parse_date(body.report_date)
+
     # Generate AI summary
     ai_summary = await _generate_record_summary(
         body.record_type, body.extracted_data, user_id
@@ -142,7 +145,7 @@ async def create_record(
             "user_id": user_id,
             "record_type": body.record_type,
             "title": body.title or _auto_title(body.record_type, body.extracted_data),
-            "report_date": body.report_date,
+            "report_date": report_date,
             "provider_name": body.provider_name,
             "facility_name": body.facility_name,
             "extracted_data": json.dumps(body.extracted_data),
@@ -412,6 +415,41 @@ Return ONLY the interpretation text."""
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _parse_date(date_str: Optional[str]) -> Optional[str]:
+    """Parse various date formats to YYYY-MM-DD for PostgreSQL."""
+    if not date_str:
+        return None
+    # Already YYYY-MM-DD
+    if len(date_str) == 10 and date_str[4] == "-":
+        return date_str
+    # Try common formats
+    from datetime import datetime as _dt
+
+    for fmt in (
+        "%Y-%m-%d",
+        "%d/%m/%Y",
+        "%m/%d/%Y",
+        "%d-%m-%Y",
+        "%d/%m/%Y %I:%M %p",
+        "%d/%m/%Y %H:%M",
+        "%Y-%m-%dT%H:%M:%S",
+        "%B %d, %Y",
+        "%b %d, %Y",
+    ):
+        try:
+            return _dt.strptime(date_str.strip(), fmt).strftime("%Y-%m-%d")
+        except ValueError:
+            continue
+    # Last resort: try dateutil if available
+    try:
+        from dateutil.parser import parse as _parse  # type: ignore[import-untyped]
+
+        return _parse(date_str, dayfirst=True).strftime("%Y-%m-%d")
+    except Exception:
+        pass
+    return None
 
 
 def _auto_title(record_type: str, data: dict) -> str:
