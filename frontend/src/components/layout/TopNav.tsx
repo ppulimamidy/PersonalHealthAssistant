@@ -28,12 +28,13 @@ const TABS: TabDef[] = [
   {
     name: 'Track',
     href: '/nutrition',
-    subRoutes: ['/nutrition', '/medications', '/symptoms', '/lab-results', '/cycle'],
+    subRoutes: ['/nutrition', '/medications', '/symptoms', '/lab-results', '/medical-records', '/cycle'],
     subItems: [
       { name: 'Nutrition', href: '/nutrition' },
       { name: 'Medications', href: '/medications' },
       { name: 'Symptoms', href: '/symptoms' },
       { name: 'Lab Results', href: '/lab-results' },
+      { name: 'Medical Records', href: '/medical-records' },
       { name: 'Cycle', href: '/cycle' },
     ],
   },

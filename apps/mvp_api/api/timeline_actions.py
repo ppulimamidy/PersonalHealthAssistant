@@ -229,11 +229,17 @@ async def get_timeline_actions(
         (meds, adherence_logs),
         (interventions, checkins),
         journeys_raw,
+        medical_records_raw,
     ) = await asyncio.gather(
         _fetch_symptoms(user_id, start_date),
         _fetch_adherence(user_id, start_dt),
         _fetch_interventions(user_id),
         _fetch_journeys(user_id),
+        _supabase_get(
+            "medical_records",
+            f"user_id=eq.{user_id}&order=created_at.desc&limit=20"
+            f"&select=record_type,title,report_date,created_at",
+        ),
     )
 
     # Group by date
@@ -242,12 +248,25 @@ async def get_timeline_actions(
     experiments_by_date = _group_experiments(interventions, checkins)
     journey_events_by_date = _group_journey_events(journeys_raw)
 
+    # Group medical records by date
+    records_by_date: Dict[str, list] = defaultdict(list)
+    for rec in medical_records_raw:
+        d = (rec.get("report_date") or rec.get("created_at", ""))[:10]
+        if d:
+            records_by_date[d].append(
+                {
+                    "type": rec.get("record_type", ""),
+                    "title": rec.get("title", "Medical Record"),
+                }
+            )
+
     # Merge all dates
     all_dates: set[str] = set()
     all_dates.update(symptoms_by_date.keys())
     all_dates.update(adherence_by_date.keys())
     all_dates.update(experiments_by_date.keys())
     all_dates.update(journey_events_by_date.keys())
+    all_dates.update(records_by_date.keys())
 
     result: Dict[str, Any] = {}
     for d in sorted(all_dates, reverse=True):
@@ -260,6 +279,8 @@ async def get_timeline_actions(
             entry["experiments"] = experiments_by_date[d]
         if d in journey_events_by_date:
             entry["journey_events"] = journey_events_by_date[d]
+        if d in records_by_date:
+            entry["medical_records"] = records_by_date[d]
         if entry:
             result[d] = entry
 

@@ -352,7 +352,14 @@ USPSTF_SCREENINGS: List[Dict[str, Any]] = [
 
 async def _gather_research_context(user_id: str) -> Dict[str, Any]:
     """Gather user context for personalized research."""
-    (conditions, medications, supplements, labs, profile_rows,) = await asyncio.gather(
+    (
+        conditions,
+        medications,
+        supplements,
+        labs,
+        profile_rows,
+        genomic_records,
+    ) = await asyncio.gather(
         _supabase_get(
             "health_conditions",
             f"user_id=eq.{user_id}&is_active=eq.true&select=condition_name",
@@ -371,6 +378,10 @@ async def _gather_research_context(user_id: str) -> Dict[str, Any]:
         ),
         _supabase_get(
             "profiles", f"id=eq.{user_id}&select=full_name,date_of_birth,biological_sex"
+        ),
+        _supabase_get(
+            "medical_records",
+            f"user_id=eq.{user_id}&record_type=eq.genomic&order=created_at.desc&limit=3&select=extracted_data,report_date",
         ),
     )
 
@@ -434,7 +445,34 @@ async def _gather_research_context(user_id: str) -> Dict[str, Any]:
         "abnormal_labs": abnormal_labs[:5],
         "guidelines": relevant_guidelines,
         "treatment_ladders": relevant_ladders,
+        "genomic_mutations": _extract_mutations(genomic_records),
     }
+
+
+def _extract_mutations(genomic_records: list) -> List[Dict[str, Any]]:
+    """Extract mutations from genomic medical records."""
+    mutations: List[Dict[str, Any]] = []
+    for rec in genomic_records:
+        ed = rec.get("extracted_data") or {}
+        if isinstance(ed, str):
+            try:
+                ed = json.loads(ed)
+            except Exception:
+                continue
+        for m in ed.get("mutations", []):
+            if isinstance(m, dict):
+                mutations.append(
+                    {
+                        "gene": m.get("gene", ""),
+                        "variant": m.get("protein_change") or m.get("variant", ""),
+                        "tier": m.get("classification", {}).get("tier", "")
+                        if isinstance(m.get("classification"), dict)
+                        else "",
+                        "sensitivity": m.get("sensitivity", ""),
+                        "therapies": m.get("sensitive_therapies", []),
+                    }
+                )
+    return mutations
 
 
 def _format_context(ctx: Dict[str, Any]) -> str:
@@ -462,6 +500,16 @@ def _format_context(ctx: Dict[str, Any]) -> str:
                 f"{s['step']}: {s['treatment']}" for s in ladder["ladder"]
             )
             parts.append(f"Treatment ladder ({ladder['condition']}): {steps}")
+    if ctx.get("genomic_mutations"):
+        mut_strs = []
+        for m in ctx["genomic_mutations"]:
+            therapies = ", ".join(m.get("therapies", [])[:3])
+            mut_strs.append(
+                f"{m.get('gene', '?')} {m.get('variant', '')}"
+                f" [{m.get('tier', '')}] — {m.get('sensitivity', '')}"
+                f"{f' → {therapies}' if therapies else ''}"
+            )
+        parts.append(f"MOLECULAR PROFILE:\n" + "\n".join(f"  • {s}" for s in mut_strs))
     return "\n".join(parts)
 
 

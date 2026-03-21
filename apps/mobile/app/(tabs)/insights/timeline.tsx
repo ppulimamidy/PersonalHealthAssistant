@@ -79,11 +79,17 @@ interface JourneyEvent {
   phase_number: number;
 }
 
+interface MedicalRecordAction {
+  type: string;
+  title: string;
+}
+
 interface DayActions {
   symptoms?: SymptomAction[];
   adherence?: AdherenceAction;
   experiments?: ExperimentAction[];
   journey_events?: JourneyEvent[];
+  medical_records?: MedicalRecordAction[];
 }
 
 type ActionsMap = Record<string, DayActions>;
@@ -107,8 +113,8 @@ function ScoreChip({ value, label, color }: Readonly<{ value: number; label: str
 
 function ActionOverlay({ actions }: Readonly<{ actions?: DayActions }>) {
   if (!actions) return null;
-  const { symptoms, adherence, experiments, journey_events } = actions;
-  const hasAny = (symptoms?.length ?? 0) > 0 || adherence || (experiments?.length ?? 0) > 0 || (journey_events?.length ?? 0) > 0;
+  const { symptoms, adherence, experiments, journey_events, medical_records } = actions;
+  const hasAny = (symptoms?.length ?? 0) > 0 || adherence || (experiments?.length ?? 0) > 0 || (journey_events?.length ?? 0) > 0 || (medical_records?.length ?? 0) > 0;
   if (!hasAny) return null;
 
   return (
@@ -177,6 +183,22 @@ function ActionOverlay({ actions }: Readonly<{ actions?: DayActions }>) {
           </View>
         );
       })()}
+
+      {/* Medical records */}
+      {medical_records && medical_records.length > 0 && medical_records.map((rec, i) => {
+        const iconMap: Record<string, { icon: string; color: string }> = {
+          pathology: { icon: 'cut-outline', color: '#F87171' },
+          genomic: { icon: 'code-working-outline', color: '#818CF8' },
+          imaging: { icon: 'scan-outline', color: '#60A5FA' },
+        };
+        const cfg = iconMap[rec.type] ?? { icon: 'document-outline', color: '#526380' };
+        return (
+          <View key={`rec-${i}`} className="flex-row items-center gap-1.5 mb-1">
+            <Ionicons name={cfg.icon as never} size={12} color={cfg.color} />
+            <Text className="text-xs" style={{ color: cfg.color }}>{rec.title}</Text>
+          </View>
+        );
+      })}
     </View>
   );
 }
