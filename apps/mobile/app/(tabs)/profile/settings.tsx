@@ -12,11 +12,7 @@ import * as Haptics from 'expo-haptics';
 import { api } from '@/services/api';
 import { useAuthStore } from '@/stores/authStore';
 
-const ROLES: Array<{ key: 'patient' | 'provider' | 'caregiver'; label: string; icon: React.ComponentProps<typeof Ionicons>['name'] }> = [
-  { key: 'patient',   label: 'Member',    icon: 'person-outline' },
-  { key: 'provider',  label: 'Provider',  icon: 'medical-outline' },
-  { key: 'caregiver', label: 'Caregiver', icon: 'people-outline' },
-];
+// Capabilities map to user_role in DB for backward compatibility
 
 function SectionLabel({ children }: Readonly<{ children: string }>) {
   return (
@@ -209,31 +205,62 @@ export default function SettingsScreen() {
           )}
         </View>
 
-        {/* ── Role ── */}
-        <SectionLabel>Account Role</SectionLabel>
-        <View className="flex-row gap-2">
-          {ROLES.map((r) => {
-            const selected = currentRole === r.key;
-            return (
-              <TouchableOpacity
-                key={r.key}
-                onPress={() => handleRoleChange(r.key)}
-                disabled={savingRole}
-                className="flex-1 items-center py-3 rounded-xl border"
-                style={{
-                  backgroundColor: selected ? 'rgba(0,212,170,0.10)' : 'rgba(255,255,255,0.03)',
-                  borderColor: selected ? '#00D4AA' : '#1E2A3B',
-                  opacity: savingRole ? 0.6 : 1,
-                }}
-              >
-                <Ionicons name={r.icon} size={18} color={selected ? '#00D4AA' : '#526380'} />
-                <Text className="text-xs mt-1 font-sansMedium" style={{ color: selected ? '#00D4AA' : '#526380' }}>
-                  {r.label}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
+        {/* ── Account Capabilities ── */}
+        <SectionLabel>Account Capabilities</SectionLabel>
+        <View className="bg-surface-raised border border-surface-border rounded-2xl overflow-hidden">
+          {/* Personal — always on */}
+          <View className="flex-row items-center px-4 py-3.5 border-b border-surface-border">
+            <Ionicons name="person-outline" size={18} color="#00D4AA" style={{ marginRight: 12, width: 20 }} />
+            <View className="flex-1">
+              <Text className="text-[#E8EDF5] font-sansMedium">Personal Health Tracking</Text>
+              <Text className="text-[#526380] text-[10px] mt-0.5">Track your sleep, nutrition, medications, labs & symptoms</Text>
+            </View>
+            <View className="bg-[#00D4AA20] rounded-full px-2 py-0.5">
+              <Text className="text-[#00D4AA] text-[10px] font-sansMedium">Always on</Text>
+            </View>
+          </View>
+
+          {/* Patient Monitoring (Provider) */}
+          <View className="flex-row items-center px-4 py-3.5 border-b border-surface-border">
+            <Ionicons name="medical-outline" size={18} color="#818CF8" style={{ marginRight: 12, width: 20 }} />
+            <View className="flex-1">
+              <Text className="text-[#E8EDF5] font-sansMedium">Patient Monitoring</Text>
+              <Text className="text-[#526380] text-[10px] mt-0.5">View health data shared by your patients</Text>
+            </View>
+            {savingRole ? (
+              <ActivityIndicator size="small" color="#818CF8" />
+            ) : (
+              <Switch
+                value={currentRole === 'provider'}
+                onValueChange={(on) => handleRoleChange(on ? 'provider' : 'patient')}
+                trackColor={{ false: '#232C3A', true: '#818CF840' }}
+                thumbColor={currentRole === 'provider' ? '#818CF8' : '#526380'}
+              />
+            )}
+          </View>
+
+          {/* Family Caregiving */}
+          <View className="flex-row items-center px-4 py-3.5">
+            <Ionicons name="people-outline" size={18} color="#EC4899" style={{ marginRight: 12, width: 20 }} />
+            <View className="flex-1">
+              <Text className="text-[#E8EDF5] font-sansMedium">Family Caregiving</Text>
+              <Text className="text-[#526380] text-[10px] mt-0.5">Monitor family members' health & sharing</Text>
+            </View>
+            {savingRole ? (
+              <ActivityIndicator size="small" color="#EC4899" />
+            ) : (
+              <Switch
+                value={currentRole === 'caregiver'}
+                onValueChange={(on) => handleRoleChange(on ? 'caregiver' : 'patient')}
+                trackColor={{ false: '#232C3A', true: '#EC489940' }}
+                thumbColor={currentRole === 'caregiver' ? '#EC4899' : '#526380'}
+              />
+            )}
+          </View>
         </View>
+        <Text className="text-[#3D4F66] text-[10px] mt-2 px-1">
+          Your personal health data is always available regardless of which capabilities you enable.
+        </Text>
 
         {/* ── Notifications ── */}
         <SectionLabel>Notifications</SectionLabel>

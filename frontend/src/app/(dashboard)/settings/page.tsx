@@ -619,44 +619,75 @@ export default function SettingsPage() {
           </CardContent>
         </Card>
 
-        {/* Account Role */}
+        {/* Account Capabilities */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Users className="w-5 h-5" />
-              Account Role
+              Account Capabilities
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">
-              Choose how you use HealthAI — your role adapts the interface to your needs.
-            </p>
-            <div className="grid grid-cols-3 gap-2">
-              {(
-                [
-                  { role: 'patient', label: 'Member', desc: 'Tracking my own health' },
-                  { role: 'provider', label: 'Provider', desc: 'Clinician / practitioner' },
-                  { role: 'caregiver', label: 'Caregiver', desc: 'Supporting someone else' },
-                ] as { role: UserRole; label: string; desc: string }[]
-              ).map(({ role, label, desc }) => {
-                const isActive = (profile?.user_role ?? 'patient') === role;
-                return (
-                  <button
-                    key={role}
-                    disabled={savingRole}
-                    onClick={() => handleUpdateRole(role)}
-                    className={`flex flex-col items-start p-3 rounded-lg border text-left transition-all ${
-                      isActive
-                        ? 'border-primary-500 bg-primary-500/10 text-primary-600 dark:text-primary-400'
-                        : 'border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600 text-slate-700 dark:text-slate-300'
-                    }`}
-                  >
-                    <span className="text-sm font-medium">{label}</span>
-                    <span className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{desc}</span>
-                  </button>
-                );
-              })}
+            <div className="space-y-3">
+              {/* Personal — always on */}
+              <div className="flex items-center gap-3 p-3 rounded-lg border border-primary-500/30 bg-primary-500/5">
+                <div className="w-8 h-8 rounded-lg bg-primary-500/15 flex items-center justify-center flex-shrink-0">
+                  <User className="w-4 h-4 text-primary-500" />
+                </div>
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-slate-900 dark:text-slate-100">Personal Health Tracking</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">Track your sleep, nutrition, medications, labs & symptoms</p>
+                </div>
+                <span className="text-xs font-medium text-primary-500 bg-primary-500/10 px-2 py-0.5 rounded-full">Always on</span>
+              </div>
+
+              {/* Patient Monitoring */}
+              <div className="flex items-center gap-3 p-3 rounded-lg border border-slate-200 dark:border-slate-700">
+                <div className="w-8 h-8 rounded-lg bg-indigo-500/15 flex items-center justify-center flex-shrink-0">
+                  <Shield className="w-4 h-4 text-indigo-500" />
+                </div>
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-slate-900 dark:text-slate-100">Patient Monitoring</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">View health data shared by your patients</p>
+                </div>
+                <button
+                  disabled={savingRole}
+                  onClick={() => handleUpdateRole((profile?.user_role ?? 'patient') === 'provider' ? 'patient' : 'provider')}
+                  className={`relative w-11 h-6 rounded-full transition-colors ${
+                    (profile?.user_role ?? 'patient') === 'provider' ? 'bg-indigo-500' : 'bg-slate-300 dark:bg-slate-600'
+                  }`}
+                >
+                  <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform ${
+                    (profile?.user_role ?? 'patient') === 'provider' ? 'translate-x-5' : ''
+                  }`} />
+                </button>
+              </div>
+
+              {/* Family Caregiving */}
+              <div className="flex items-center gap-3 p-3 rounded-lg border border-slate-200 dark:border-slate-700">
+                <div className="w-8 h-8 rounded-lg bg-pink-500/15 flex items-center justify-center flex-shrink-0">
+                  <Users className="w-4 h-4 text-pink-500" />
+                </div>
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-slate-900 dark:text-slate-100">Family Caregiving</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">Monitor family members' health & sharing</p>
+                </div>
+                <button
+                  disabled={savingRole}
+                  onClick={() => handleUpdateRole((profile?.user_role ?? 'patient') === 'caregiver' ? 'patient' : 'caregiver')}
+                  className={`relative w-11 h-6 rounded-full transition-colors ${
+                    (profile?.user_role ?? 'patient') === 'caregiver' ? 'bg-pink-500' : 'bg-slate-300 dark:bg-slate-600'
+                  }`}
+                >
+                  <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform ${
+                    (profile?.user_role ?? 'patient') === 'caregiver' ? 'translate-x-5' : ''
+                  }`} />
+                </button>
+              </div>
             </div>
+            <p className="text-xs text-slate-400 dark:text-slate-500 mt-3">
+              Your personal health data is always available regardless of which capabilities you enable.
+            </p>
           </CardContent>
         </Card>
 
