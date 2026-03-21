@@ -7,6 +7,7 @@ const LOG_OPTIONS = [
   { label: 'Medications',   icon: 'medical-outline' as const,       route: '/(tabs)/log/medications',    description: 'Track adherence & schedule' },
   { label: 'Nutrition',     icon: 'restaurant-outline' as const,    route: '/(tabs)/log/nutrition',      description: 'Log meals & food intake' },
   { label: 'Lab Results',   icon: 'flask-outline' as const,         route: '/(tabs)/log/lab-results',    description: 'Record blood work & tests' },
+  { label: 'Medical Records', icon: 'document-text-outline' as const, route: '/(tabs)/log/medical-records', description: 'Pathology, genomic & imaging' },
   { label: 'Experiments',   icon: 'flask-outline' as const,         route: '/(tabs)/log/interventions',  description: 'Track what you\'re trying' },
 ];
 
