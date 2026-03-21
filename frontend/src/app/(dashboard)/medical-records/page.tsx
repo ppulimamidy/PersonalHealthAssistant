@@ -6,7 +6,7 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { useAuth } from '@/hooks/useAuth';
 import { api } from '@/services/api';
-import { Microscope, Dna, ScanLine, FlaskConical, Upload, Loader2 } from 'lucide-react';
+import { Microscope, Dna, ScanLine, FlaskConical, Upload, Loader2, FileUp } from 'lucide-react';
 
 type RecordType = 'pathology' | 'genomic' | 'imaging';
 
@@ -30,51 +30,64 @@ export default function MedicalRecordsPage() {
   const queryClient = useQueryClient();
   const [activeType, setActiveType] = useState<RecordType | 'all'>('all');
   const [uploading, setUploading] = useState(false);
-  const [uploadType, setUploadType] = useState<RecordType | null>(null);
+  const [uploadStatus, setUploadStatus] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  async function handleUpload(type: RecordType, file: File) {
+  async function handleUpload(file: File) {
     setUploading(true);
-    setUploadType(type);
+    setUploadStatus('Analyzing document and detecting type...');
+
     try {
+      // Step 1: Smart classify — send to a classify-then-extract endpoint
+      // We'll use a two-step: first extract with a generic prompt to detect type,
+      // then save with the detected type
       const formData = new FormData();
       formData.append('image', file);
-      formData.append('record_type', type);
 
-      const { data: scanResult } = await api.post('/api/v1/medical-records/scan', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-        timeout: 60000,
-      });
+      // Try each type — the one that extracts the most data wins
+      // But smarter: use a single Claude call to classify + extract
+      setUploadStatus('Reading document with AI...');
 
-      if (scanResult?.extracted_data && Object.keys(scanResult.extracted_data).length > 0) {
+      const classifyFormData = new FormData();
+      classifyFormData.append('image', file);
+      classifyFormData.append('record_type', 'auto');
+
+      const { data: classifyResult } = await api.post(
+        '/api/v1/medical-records/smart-scan',
+        classifyFormData,
+        {
+          headers: { 'Content-Type': 'multipart/form-data' },
+          timeout: 90000,
+        },
+      );
+
+      if (classifyResult?.extracted_data && Object.keys(classifyResult.extracted_data).length > 0) {
+        setUploadStatus(`Detected: ${classifyResult.record_type}. Saving...`);
         await api.post('/api/v1/medical-records', {
-          record_type: type,
-          extracted_data: scanResult.extracted_data,
-          report_date: scanResult.extracted_data.report_date ?? null,
-          provider_name: scanResult.extracted_data.pathologist ?? scanResult.extracted_data.radiologist ?? null,
-          facility_name: scanResult.extracted_data.lab ?? null,
+          record_type: classifyResult.record_type,
+          extracted_data: classifyResult.extracted_data,
+          report_date: classifyResult.extracted_data.report_date ?? null,
+          provider_name: classifyResult.extracted_data.pathologist ?? classifyResult.extracted_data.radiologist ?? null,
+          facility_name: classifyResult.extracted_data.lab ?? null,
         });
         queryClient.invalidateQueries({ queryKey: ['medical-records'] });
+        setUploadStatus('');
       } else {
+        setUploadStatus('');
         alert('Could not extract data from this document. Try a clearer image or PDF.');
       }
-    } catch {
-      alert('Upload failed. Please try again.');
+    } catch (e: any) {
+      setUploadStatus('');
+      alert(`Upload failed: ${e?.message ?? 'Unknown error'}`);
     } finally {
       setUploading(false);
-      setUploadType(null);
     }
-  }
-
-  function triggerUpload(type: RecordType) {
-    setUploadType(type);
-    fileInputRef.current?.click();
   }
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
-    if (file && uploadType) {
-      handleUpload(uploadType, file);
+    if (file) {
+      handleUpload(file);
     }
     e.target.value = '';
   }
@@ -99,63 +112,96 @@ export default function MedicalRecordsPage() {
         <p className="text-slate-500 dark:text-slate-400 text-sm mt-1">Pathology, genomic profiles, and imaging reports</p>
       </div>
 
+      {/* Hidden file input */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".pdf,.jpg,.jpeg,.png,.webp,.heic"
+        className="hidden"
+        onChange={handleFileChange}
+      />
+
+      {/* Smart upload — one button, auto-classifies */}
+      <button
+        onClick={() => fileInputRef.current?.click()}
+        disabled={uploading}
+        className="w-full flex flex-col items-center gap-3 p-8 rounded-xl border-2 border-dashed border-slate-300 dark:border-slate-600 hover:border-primary-500 dark:hover:border-primary-500 hover:bg-primary-500/5 transition-all cursor-pointer"
+      >
+        {uploading ? (
+          <>
+            <Loader2 className="w-8 h-8 text-primary-500 animate-spin" />
+            <span className="text-sm text-primary-500 font-medium">{uploadStatus || 'Processing...'}</span>
+          </>
+        ) : (
+          <>
+            <FileUp className="w-8 h-8 text-slate-400" />
+            <div className="text-center">
+              <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Upload Medical Report</span>
+              <p className="text-xs text-slate-400 mt-1">PDF or image — AI auto-detects: pathology, genomic, or imaging</p>
+            </div>
+          </>
+        )}
+      </button>
+
+      {/* Type-specific upload buttons (secondary) */}
+      <div className="flex gap-2">
+        {(Object.entries(TYPE_CONFIG) as [RecordType, typeof TYPE_CONFIG[RecordType]][]).map(([key, cfg]) => (
+          <button
+            key={key}
+            onClick={() => {
+              // For type-specific, use the old scan endpoint
+              const input = document.createElement('input');
+              input.type = 'file';
+              input.accept = '.pdf,.jpg,.jpeg,.png,.webp';
+              input.onchange = async (e: any) => {
+                const file = e.target?.files?.[0];
+                if (!file) return;
+                setUploading(true);
+                setUploadStatus(`Analyzing ${cfg.label} report...`);
+                try {
+                  const fd = new FormData();
+                  fd.append('image', file);
+                  fd.append('record_type', key);
+                  const { data: res } = await api.post('/api/v1/medical-records/scan', fd, {
+                    headers: { 'Content-Type': 'multipart/form-data' },
+                    timeout: 90000,
+                  });
+                  if (res?.extracted_data && Object.keys(res.extracted_data).length > 0) {
+                    await api.post('/api/v1/medical-records', {
+                      record_type: key,
+                      extracted_data: res.extracted_data,
+                      report_date: res.extracted_data.report_date ?? null,
+                    });
+                    queryClient.invalidateQueries({ queryKey: ['medical-records'] });
+                  } else {
+                    alert('Could not extract data.');
+                  }
+                } catch { alert('Upload failed.'); }
+                finally { setUploading(false); setUploadStatus(''); }
+              };
+              input.click();
+            }}
+            disabled={uploading}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+          >
+            <cfg.Icon className="w-3.5 h-3.5" style={{ color: cfg.color }} />
+            <span className="text-slate-600 dark:text-slate-400">{cfg.label}</span>
+          </button>
+        ))}
+      </div>
+
       {/* Type filter */}
       <div className="flex gap-2">
-        <Button
-          variant={activeType === 'all' ? 'primary' : 'outline'}
-          size="sm"
-          onClick={() => setActiveType('all')}
-        >All</Button>
+        <Button variant={activeType === 'all' ? 'primary' : 'outline'} size="sm" onClick={() => setActiveType('all')}>All</Button>
         {(Object.entries(TYPE_CONFIG) as [RecordType, typeof TYPE_CONFIG[RecordType]][]).map(([key, cfg]) => (
-          <Button
-            key={key}
-            variant={activeType === key ? 'primary' : 'outline'}
-            size="sm"
-            onClick={() => setActiveType(key)}
-          >
+          <Button key={key} variant={activeType === key ? 'primary' : 'outline'} size="sm" onClick={() => setActiveType(key)}>
             <cfg.Icon className="w-3.5 h-3.5 mr-1" />
             {cfg.label}
           </Button>
         ))}
       </div>
 
-      {/* Hidden file input */}
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="image/*,.pdf"
-        className="hidden"
-        onChange={handleFileChange}
-      />
-
-      {/* Upload buttons */}
-      <div className="grid grid-cols-3 gap-3">
-        {(Object.entries(TYPE_CONFIG) as [RecordType, typeof TYPE_CONFIG[RecordType]][]).map(([key, cfg]) => (
-          <button
-            key={key}
-            onClick={() => triggerUpload(key)}
-            disabled={uploading}
-            className="flex flex-col items-center gap-2 p-4 rounded-xl border border-dashed border-slate-300 dark:border-slate-600 hover:border-slate-400 dark:hover:border-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
-          >
-            {uploading && uploadType === key ? (
-              <Loader2 className="w-6 h-6 animate-spin" style={{ color: cfg.color }} />
-            ) : (
-              <cfg.Icon className="w-6 h-6" style={{ color: cfg.color }} />
-            )}
-            <span className="text-xs font-medium text-slate-600 dark:text-slate-400">
-              {uploading && uploadType === key ? 'Analyzing...' : `Upload ${cfg.label}`}
-            </span>
-          </button>
-        ))}
-      </div>
-
-      {uploading && (
-        <div className="text-center py-2">
-          <p className="text-xs text-slate-400">AI is extracting structured data from your document...</p>
-        </div>
-      )}
-
-      {/* Records */}
+      {/* Records list */}
       {isLoading ? (
         <p className="text-slate-400 py-8 text-center">Loading...</p>
       ) : !records || records.length === 0 ? (
@@ -163,7 +209,7 @@ export default function MedicalRecordsPage() {
           <CardContent className="py-12 text-center">
             <FlaskConical className="w-12 h-12 text-slate-400 mx-auto mb-4" />
             <p className="text-slate-500 dark:text-slate-400">No medical records yet</p>
-            <p className="text-sm text-slate-400 mt-1">Upload a pathology report, genomic panel, or imaging result above</p>
+            <p className="text-sm text-slate-400 mt-1">Upload a report above — AI extracts and classifies automatically</p>
           </CardContent>
         </Card>
       ) : (
@@ -182,7 +228,6 @@ export default function MedicalRecordsPage() {
                   </div>
                   <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 mb-1">{rec.title}</h3>
 
-                  {/* Type-specific rendering */}
                   {rec.record_type === 'genomic' && ed.mutations?.length > 0 && (
                     <div className="space-y-2 mt-2">
                       {ed.mutations.map((m: any, i: number) => (

@@ -246,6 +246,61 @@ async def scan_record(
     }
 
 
+SMART_CLASSIFY_PROMPT = """Analyze this medical document and:
+1. Classify it as one of: "pathology" (biopsy, tissue, surgical pathology), "genomic" (NGS, mutation panel, molecular testing, EGFR/BRCA/KRAS), or "imaging" (CT, MRI, PET, X-ray, ultrasound)
+2. Extract the structured data appropriate for that type
+
+Return ONLY valid JSON (no markdown fences):
+{
+  "detected_type": "pathology" or "genomic" or "imaging",
+  "confidence": 0.0-1.0,
+  ...all fields appropriate for the detected type...
+}
+
+For pathology: include specimen, diagnosis, histological_subtype, stage, grade, margins, receptor_status, pathologist, lab, report_date
+For genomic: include test_type, specimen, mutations (array with gene, exon, variant, protein_change, vaf, classification, sensitive_therapies, sensitivity), genes_tested_negative, lab, report_date
+For imaging: include modality, body_region, date, findings (array), impression, scoring, radiologist"""
+
+
+@router.post("/smart-scan")
+async def smart_scan(
+    image: UploadFile = File(...),
+    current_user: dict = Depends(get_current_user),
+):
+    """Upload a file — AI auto-classifies the record type and extracts data."""
+    image_bytes = await image.read()
+    filename = (image.filename or "").lower()
+    is_pdf = filename.endswith(".pdf") or image.content_type == "application/pdf"
+
+    extracted = await _extract_with_claude(image_bytes, SMART_CLASSIFY_PROMPT, is_pdf)
+
+    detected_type = extracted.pop("detected_type", None)
+    confidence = extracted.pop("confidence", 0.5)
+
+    # Validate detected type
+    if detected_type not in VALID_RECORD_TYPES:
+        # Try to infer from content
+        if any(
+            k in extracted for k in ("mutations", "test_type", "genes_tested_negative")
+        ):
+            detected_type = "genomic"
+        elif any(k in extracted for k in ("diagnosis", "stage", "margins", "specimen")):
+            detected_type = "pathology"
+        elif any(
+            k in extracted
+            for k in ("modality", "findings", "impression", "radiologist")
+        ):
+            detected_type = "imaging"
+        else:
+            detected_type = "pathology"  # default fallback
+
+    return {
+        "record_type": detected_type,
+        "extracted_data": extracted,
+        "confidence": confidence,
+    }
+
+
 @router.post("/{record_id}/insight")
 async def record_insight(
     record_id: str,
