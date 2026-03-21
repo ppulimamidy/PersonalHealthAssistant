@@ -190,6 +190,33 @@ function SetupChecklist({
 
 // ── Provider home cards ───────────────────────────────────────────────────────
 
+function DailyBrief() {
+  const { user } = useAuthStore();
+  const { data } = useQuery({
+    queryKey: ['daily-brief'],
+    queryFn: async () => {
+      try {
+        const { data: resp } = await api.get('/api/v1/health-brief/daily');
+        return resp;
+      } catch { return null; }
+    },
+    enabled: Boolean(user),
+    staleTime: 4 * 60 * 60_000,
+  });
+
+  if (!data?.brief) return null;
+
+  return (
+    <div className="rounded-xl p-4 border" style={{ backgroundColor: '#0D2118', borderColor: 'rgba(0,212,170,0.15)' }}>
+      <div className="flex items-center gap-1.5 mb-2">
+        <Sparkles className="w-4 h-4 text-primary-500" />
+        <span className="text-xs font-semibold text-primary-500 uppercase tracking-wider">Your Daily Brief</span>
+      </div>
+      <p className="text-sm leading-relaxed" style={{ color: '#C8D6E5' }}>{data.brief}</p>
+    </div>
+  );
+}
+
 function ProviderHomeCards() {
   const cards = [
     {
@@ -546,6 +573,9 @@ export function TodayView() {
         </div>
         <p className="text-sm text-[#526380] mt-0.5">{todayLabel()}</p>
       </div>
+
+      {/* Daily Health Brief */}
+      <DailyBrief />
 
       {/* Role-specific quick-access cards */}
       {userRole === 'provider' && <ProviderHomeCards />}

@@ -10,11 +10,13 @@ import {
   Plus, Pill, Edit, Trash2, AlertCircle,
   Camera, Upload, X, CheckCircle2, Loader2,
   Sparkles,
+  Shield,
 } from 'lucide-react';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { DailyAdherenceStrip } from './DailyAdherenceStrip';
 import { AdherenceCalendar } from './AdherenceCalendar';
 import { StreakBadges } from './StreakBadges';
+import { api } from '@/services/api';
 import type {
   Medication,
   Supplement,
@@ -494,6 +496,92 @@ function PrescriptionScanModal({
 
 // ── Main View ────────────────────────────────────────────────────────────────
 
+function MedIntelligenceCards() {
+  const { user } = useAuth();
+  const { data: overview } = useQuery({
+    queryKey: ['treatment-overview'],
+    queryFn: async () => { try { const { data } = await api.get('/api/v1/med-intelligence/treatment-overview'); return data; } catch { return null; } },
+    enabled: Boolean(user),
+    staleTime: 2 * 60_000,
+  });
+  const { data: interactions } = useQuery({
+    queryKey: ['med-interactions'],
+    queryFn: async () => { try { const { data } = await api.get('/api/v1/med-intelligence/interactions'); return data; } catch { return null; } },
+    enabled: Boolean(user),
+    staleTime: 5 * 60_000,
+  });
+
+  const totalAlerts = (interactions?.drug_nutrient?.length ?? 0) + (interactions?.drug_food?.length ?? 0) + (interactions?.drug_drug?.length ?? 0);
+
+  return (
+    <>
+      {overview && (
+        <Card>
+          <CardContent className="pt-4">
+            <div className="flex items-center gap-2 mb-3">
+              <Shield className="w-4 h-4 text-primary-500" />
+              <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">Treatment Overview</span>
+            </div>
+            <div className="grid grid-cols-4 gap-3 mb-3">
+              <div className="text-center p-2 rounded-lg bg-slate-50 dark:bg-slate-700/50">
+                <div className="text-lg font-bold" style={{ color: (overview.adherence?.rate_pct ?? 0) >= 90 ? '#6EE7B7' : '#F5A623' }}>{overview.adherence?.rate_pct ?? 0}%</div>
+                <div className="text-xs text-slate-500">Adherence</div>
+              </div>
+              <div className="text-center p-2 rounded-lg bg-slate-50 dark:bg-slate-700/50">
+                <div className="text-lg font-bold text-green-400">{overview.lab_validation?.improving ?? 0}</div>
+                <div className="text-xs text-slate-500">Lab proven</div>
+              </div>
+              <div className="text-center p-2 rounded-lg bg-slate-50 dark:bg-slate-700/50">
+                <div className="text-lg font-bold" style={{ color: totalAlerts > 0 ? '#F5A623' : '#526380' }}>{totalAlerts}</div>
+                <div className="text-xs text-slate-500">Alerts</div>
+              </div>
+              <div className="text-center p-2 rounded-lg bg-slate-50 dark:bg-slate-700/50">
+                <div className="text-lg font-bold" style={{ color: (overview.supplement_gaps ?? 0) > 0 ? '#F87171' : '#526380' }}>{overview.supplement_gaps ?? 0}</div>
+                <div className="text-xs text-slate-500">Gaps</div>
+              </div>
+            </div>
+            {overview.ai_summary && (
+              <p className="text-sm text-slate-600 dark:text-slate-400 italic">{overview.ai_summary}</p>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {totalAlerts > 0 && interactions && (
+        <Card className="border-amber-500/30">
+          <CardContent className="pt-4">
+            <div className="flex items-center gap-2 mb-3">
+              <AlertCircle className="w-4 h-4 text-amber-500" />
+              <span className="text-xs font-semibold uppercase tracking-wider text-amber-500">Interaction Alerts ({totalAlerts})</span>
+            </div>
+            <div className="space-y-2">
+              {(interactions.drug_nutrient ?? []).slice(0, 3).map((d: any, i: number) => (
+                <div key={`dn-${i}`} className="flex items-center gap-2 text-xs">
+                  <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: d.severity === 'high' ? '#F87171' : '#F5A623' }} />
+                  <span className="text-slate-700 dark:text-slate-300">{d.medication} depletes {d.depletes}</span>
+                  {d.covered_by_supplement ? (
+                    <span className="px-1.5 py-0.5 rounded text-[10px] bg-green-500/10 text-green-500">Covered</span>
+                  ) : (
+                    <span className="px-1.5 py-0.5 rounded text-[10px] bg-red-500/10 text-red-500">Gap</span>
+                  )}
+                  {d.lab_status && <span className="text-slate-400">Lab: {d.lab_status}</span>}
+                </div>
+              ))}
+              {(interactions.drug_food ?? []).slice(0, 2).map((d: any, i: number) => (
+                <div key={`df-${i}`} className="flex items-center gap-2 text-xs">
+                  <div className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                  <span className="text-slate-700 dark:text-slate-300">{d.medication} + {d.food}</span>
+                  <span className="text-slate-400">{d.note}</span>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+    </>
+  );
+}
+
 export function MedicationsView() {
   const { user, isLoading: isAuthLoading } = useAuth(true);
   const queryClient = useQueryClient();
@@ -587,6 +675,9 @@ export function MedicationsView() {
         <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Medications & Supplements</h1>
         <p className="text-slate-600 dark:text-slate-400 mt-1">Track your medications, supplements, and adherence</p>
       </div>
+
+      {/* Treatment Intelligence */}
+      <MedIntelligenceCards />
 
       {/* Daily adherence strip */}
       <DailyAdherenceStrip />

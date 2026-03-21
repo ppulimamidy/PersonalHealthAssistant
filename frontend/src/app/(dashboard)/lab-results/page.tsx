@@ -1,7 +1,10 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Plus, TrendingUp, AlertCircle, FileText, Camera, Link2, FlaskConical } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
+import { Plus, TrendingUp, AlertCircle, FileText, Camera, Link2, FlaskConical, Shield, Stethoscope } from 'lucide-react';
+import { api } from '@/services/api';
+import { useAuth } from '@/hooks/useAuth';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { labResultsService } from '@/services/labResults';
 import { LabResult, BiomarkerTrend, LabInsight, CreateLabResultRequest } from '@/types';
@@ -11,6 +14,76 @@ import { AddLabResultModal } from '@/components/lab-results/AddLabResultModal';
 import { LabResultScanModal } from '@/components/lab-results/LabResultScanModal';
 import { ConnectLabProviderModal } from '@/components/lab-results/ConnectLabProviderModal';
 import { LabResultDetailModal } from '@/components/lab-results/LabResultDetailModal';
+
+function LabIntelligenceCards() {
+  const { user } = useAuth();
+  const { data: summary } = useQuery({
+    queryKey: ['lab-summary'],
+    queryFn: async () => { try { const { data } = await api.get('/api/v1/lab-intelligence/lab-summary'); return data; } catch { return null; } },
+    enabled: Boolean(user),
+    staleTime: 5 * 60_000,
+  });
+  const { data: recs } = useQuery({
+    queryKey: ['recommended-tests'],
+    queryFn: async () => { try { const { data } = await api.get('/api/v1/lab-intelligence/recommended-tests'); return data; } catch { return null; } },
+    enabled: Boolean(user),
+    staleTime: 10 * 60_000,
+  });
+
+  return (
+    <>
+      {/* System Summary */}
+      {summary?.systems?.length > 0 && (
+        <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-4 bg-white dark:bg-slate-800">
+          <div className="flex items-center gap-2 mb-3">
+            <Stethoscope className="w-4 h-4 text-primary-500" />
+            <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">Lab Summary</span>
+            {summary.test_date && <span className="text-xs text-slate-400 ml-auto">{summary.test_date}</span>}
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+            {summary.systems.map((sys: any) => {
+              const dotColor = sys.status === 'all_normal' ? '#6EE7B7' : sys.status === 'has_borderline' ? '#F5A623' : '#F87171';
+              return (
+                <div key={sys.key} className="flex items-center gap-2 p-2 rounded-lg bg-slate-50 dark:bg-slate-700/50">
+                  <div className="w-2 h-2 rounded-full" style={{ backgroundColor: dotColor }} />
+                  <span className="text-xs text-slate-700 dark:text-slate-300">{sys.name}</span>
+                  <span className="text-xs text-slate-400 ml-auto">{sys.normal_count}/{sys.total}</span>
+                </div>
+              );
+            })}
+          </div>
+          {summary.watch_items?.length > 0 && (
+            <div className="mt-3 pt-3 border-t border-slate-200 dark:border-slate-700">
+              <span className="text-xs font-semibold text-amber-500 uppercase tracking-wider">Watch</span>
+              {summary.watch_items.map((w: any, i: number) => (
+                <p key={i} className="text-xs text-slate-600 dark:text-slate-400 mt-1">• {w.biomarker}: {w.value} {w.unit} ({w.status}){w.delta_text}</p>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Recommended Tests */}
+      {recs?.advanced?.length > 0 && (
+        <div className="rounded-xl border border-indigo-500/30 p-4 bg-indigo-500/5">
+          <div className="flex items-center gap-2 mb-3">
+            <Shield className="w-4 h-4 text-indigo-500" />
+            <span className="text-xs font-semibold uppercase tracking-wider text-indigo-500">Ask Your Doctor About</span>
+          </div>
+          <div className="space-y-2">
+            {recs.advanced.filter((t: any) => !t.ever_tested).slice(0, 4).map((t: any, i: number) => (
+              <div key={i} className="flex items-center gap-2">
+                <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: t.priority === 'high' ? '#F87171' : t.priority === 'medium' ? '#F5A623' : '#526380' }} />
+                <span className="text-xs text-slate-700 dark:text-slate-300 font-medium">{t.test_name}</span>
+                <span className="text-xs text-slate-400 flex-1 truncate">{t.personalized_reason?.slice(0, 60)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
 
 export default function LabResultsPage() {
   const [loading, setLoading] = useState(true);
@@ -162,6 +235,9 @@ export default function LabResultsPage() {
       {/* Tab Content */}
       {activeTab === 'results' && (
         <div className="space-y-4">
+          {/* Lab Intelligence Cards */}
+          <LabIntelligenceCards />
+
           {labResults.length === 0 ? (
             <EmptyState
               icon={FlaskConical}

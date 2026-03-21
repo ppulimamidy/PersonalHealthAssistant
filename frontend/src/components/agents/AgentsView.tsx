@@ -370,35 +370,45 @@ export function AgentsView() {
         <div className="lg:col-span-1">
           <Card>
             <CardHeader>
-              <CardTitle className="text-lg">Choose a specialist</CardTitle>
+              <CardTitle className="text-lg">Ask AI</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="space-y-2">
-                {agentsList.map((agent: AgentInfo) => (
-                  <button
-                    key={agent.id}
-                    onClick={() => {
-                      setSelectedAgent(agent.agent_type);
-                      setActiveConversation(null);
-                      setError(null);
-                    }}
-                    className={`w-full text-left p-3 rounded-lg border transition-colors ${
-                      selectedAgent === agent.agent_type && !activeConversation
-                        ? 'bg-primary-50 dark:bg-primary-900/20 border-primary-600 dark:border-primary-400'
-                        : 'border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="text-2xl">{getAgentIcon(agent.agent_type)}</span>
-                      <span className="font-semibold text-sm text-slate-900 dark:text-slate-100">
-                        {agent.agent_name}
-                      </span>
-                    </div>
-                    <p className="text-xs text-slate-600 dark:text-slate-400">
-                      {agent.agent_description}
-                    </p>
-                  </button>
-                ))}
+                {/* Clinical Research */}
+                <a
+                  href="/clinical-research"
+                  className="block w-full text-left p-4 rounded-lg border border-indigo-500/30 bg-indigo-500/5 hover:bg-indigo-500/10 transition-colors"
+                >
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-xl">🔬</span>
+                    <span className="font-semibold text-sm text-slate-900 dark:text-slate-100">Clinical Research</span>
+                  </div>
+                  <p className="text-xs text-slate-600 dark:text-slate-400">
+                    Treatments, drugs, clinical trials & guidelines
+                  </p>
+                </a>
+
+                {/* Health Chat */}
+                <button
+                  onClick={() => {
+                    setSelectedAgent('health_chat');
+                    setActiveConversation(null);
+                    setError(null);
+                  }}
+                  className={`w-full text-left p-4 rounded-lg border transition-colors ${
+                    selectedAgent === 'health_chat' && !activeConversation
+                      ? 'bg-primary-50 dark:bg-primary-900/20 border-primary-600 dark:border-primary-400'
+                      : 'border-primary-500/30 bg-primary-500/5 hover:bg-primary-500/10'
+                  }`}
+                >
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-xl">💬</span>
+                    <span className="font-semibold text-sm text-slate-900 dark:text-slate-100">Health Chat</span>
+                  </div>
+                  <p className="text-xs text-slate-600 dark:text-slate-400">
+                    Ask anything about your health data, nutrition, symptoms, or meds
+                  </p>
+                </button>
               </div>
 
               {/* Recent conversations */}
