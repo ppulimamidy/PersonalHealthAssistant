@@ -27,21 +27,58 @@ const queryClient = new QueryClient({
 });
 
 // Auth gate — waits for both auth state and navigator to be ready
+async function fetchProfile(userId: string) {
+  try {
+    const { data: row } = await supabase
+      .from('profiles')
+      .select('date_of_birth,biological_sex,weight_kg,height_cm,primary_goals,onboarding_completed_at,last_checkin_at,user_role')
+      .eq('id', userId)
+      .single();
+    if (row) {
+      return {
+        date_of_birth: row.date_of_birth ?? undefined,
+        biological_sex: row.biological_sex ?? undefined,
+        weight_kg: row.weight_kg ?? undefined,
+        height_cm: row.height_cm ?? undefined,
+        primary_goals: Array.isArray(row.primary_goals) ? row.primary_goals : undefined,
+        onboarding_completed_at: row.onboarding_completed_at ?? undefined,
+        last_checkin_at: row.last_checkin_at ?? undefined,
+        user_role: row.user_role ?? 'patient',
+      };
+    }
+  } catch (e) {
+    console.warn('Failed to fetch profile:', e);
+  }
+  return null;
+}
+
 function AuthGate() {
-  const { user, setUser } = useAuthStore();
+  const { user, setUser, setProfile } = useAuthStore();
   const [isInitialized, setIsInitialized] = useState(false);
   const segments = useSegments();
   const navigationState = useRootNavigationState();
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null);
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      const sessionUser = session?.user ?? null;
+      setUser(sessionUser);
+      if (sessionUser) {
+        const profile = await fetchProfile(sessionUser.id);
+        setProfile(profile);
+      }
       setIsInitialized(true);
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (_event, session) => {
-        setUser(session?.user ?? null);
+      async (_event, session) => {
+        const sessionUser = session?.user ?? null;
+        setUser(sessionUser);
+        if (sessionUser) {
+          const profile = await fetchProfile(sessionUser.id);
+          setProfile(profile);
+        } else {
+          setProfile(null);
+        }
       }
     );
 
