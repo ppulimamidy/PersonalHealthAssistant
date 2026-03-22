@@ -152,8 +152,6 @@ async def get_timeline(
     # Gate: return empty for users with no real device data (avoid sandbox mock data)
     _uid = current_user.get("id", "")
     if USE_SANDBOX and _uid and _uid != "sandbox-user-123":
-        from ..dependencies.usage_gate import _supabase_get
-
         _has_data = await _supabase_get(
             "oura_connections",
             f"user_id=eq.{_uid}&is_active=eq.true&limit=1&select=id",
