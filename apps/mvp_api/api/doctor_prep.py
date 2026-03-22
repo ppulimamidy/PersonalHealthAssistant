@@ -86,7 +86,7 @@ class ReadinessSummary(BaseModel):
 
 
 class ReportSummary(BaseModel):
-    overall_health_score: float
+    overall_health_score: Optional[float] = None
     key_metrics: List[KeyMetric]
     trends: List[TrendSummary]
     concerns: List[str]
@@ -94,9 +94,9 @@ class ReportSummary(BaseModel):
 
 
 class DetailedData(BaseModel):
-    sleep: SleepSummary
-    activity: ActivitySummary
-    readiness: ReadinessSummary
+    sleep: Optional[SleepSummary] = None
+    activity: Optional[ActivitySummary] = None
+    readiness: Optional[ReadinessSummary] = None
 
 
 class HealthIntelligenceIndicators(BaseModel):
@@ -1212,7 +1212,7 @@ Return ONLY valid JSON, no markdown fences."""
         },
         summary=ReportSummary(
             overall_health_score=(
-                round(overall_score, 1) if overall_score is not None else 0
+                round(overall_score, 1) if overall_score is not None else None
             ),
             key_metrics=key_metrics,
             trends=trends,

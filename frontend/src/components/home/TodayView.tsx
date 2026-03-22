@@ -535,7 +535,13 @@ export function TodayView() {
       }
     } catch { /* ignore */ }
   }, [currentMonth]);
-  const showDoctorPrepCard = !doctorPrepDismissed && (insights?.length ?? 0) >= 3;
+  // Smart doctor prep card: show when there's a meaningful reason to visit a doctor
+  const alertInsights = (insights ?? []).filter((i: any) => i.type === 'alert');
+  const hasHealthChange = healthScore?.trend === 'down' || (healthScore?.change_from_yesterday ?? 0) < -5;
+  const hasAlerts = alertInsights.length > 0;
+  const hasRecentLabs = false; // TODO: wire up when lab recency is available on home
+  const headlineInsight = alertInsights[0] ?? insights?.[0];
+  const showDoctorPrepCard = !doctorPrepDismissed && (hasAlerts || hasHealthChange || (insights?.length ?? 0) >= 3);
 
   // Streak: prefer adherenceStats.current_streak, fall back to todayAdherence
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -734,26 +740,37 @@ export function TodayView() {
       {/* Goals */}
       <GoalsPanel />
 
-      {/* Doctor Prep contextual card — shows when ≥3 insights this month */}
+      {/* Doctor Prep card — smart triggering based on alerts, health changes, or insight volume */}
       {showDoctorPrepCard && (
         <Panel>
           <div className="flex items-center justify-between gap-4">
-            <div>
-              <p className="text-xs font-semibold uppercase" style={{ color: '#00D4AA' }}>
-                Appointment Ready
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-semibold uppercase" style={{ color: hasAlerts ? '#F5A623' : '#00D4AA' }}>
+                {hasAlerts ? 'Health Alert' : hasHealthChange ? 'Score Declining' : 'Appointment Ready'}
               </p>
-              <p className="font-medium text-[#E8EDF5] mt-1">
-                {insights?.length} insight{insights?.length !== 1 ? 's' : ''} from the past 30 days
-              </p>
-              <p className="text-sm mt-0.5" style={{ color: '#8B97A8' }}>
-                Generate a structured report to share with your doctor.
+              {headlineInsight ? (
+                <>
+                  <p className="font-medium text-[#E8EDF5] mt-1 line-clamp-1">
+                    {headlineInsight.title}
+                  </p>
+                  <p className="text-sm mt-0.5 line-clamp-1" style={{ color: '#8B97A8' }}>
+                    {headlineInsight.summary}
+                  </p>
+                </>
+              ) : (
+                <p className="font-medium text-[#E8EDF5] mt-1">
+                  {insights?.length} insight{(insights?.length ?? 0) !== 1 ? 's' : ''} to review with your doctor
+                </p>
+              )}
+              <p className="text-xs mt-1.5" style={{ color: '#526380' }}>
+                {(insights?.length ?? 0)} finding{(insights?.length ?? 0) !== 1 ? 's' : ''} ready to share
               </p>
             </div>
-            <div className="flex flex-col items-end gap-2">
+            <div className="flex flex-col items-end gap-2 shrink-0">
               <Link
                 href="/doctor-prep?autogenerate=1&days=30"
                 className="px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap"
-                style={{ backgroundColor: '#00D4AA', color: '#080B10' }}
+                style={{ backgroundColor: hasAlerts ? '#F5A623' : '#00D4AA', color: '#080B10' }}
               >
                 Prepare report
               </Link>
