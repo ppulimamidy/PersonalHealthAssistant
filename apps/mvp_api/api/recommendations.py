@@ -25,6 +25,7 @@ from pydantic import BaseModel
 from common.middleware.auth import get_current_user
 from common.utils.logging import get_logger
 from ..dependencies.usage_gate import UsageGate, _supabase_get, _supabase_insert
+from common.metrics.device_tiers import detect_effective_tier, get_unlock_hints
 
 logger = get_logger(__name__)
 router = APIRouter()
@@ -63,11 +64,22 @@ class Recommendation(BaseModel):
     rationale: str
 
 
+class UnlockHint(BaseModel):
+    pattern_name: str
+    label: str
+    requires_tier: str
+    missing_metrics: List[str]
+    device_examples: str
+    upgrade_label: str
+
+
 class RecommendationsResponse(BaseModel):
     patterns_detected: List[PatternDetection]
     recommendations: List[Recommendation]
     ai_summary: Optional[str] = None
     data_quality: str  # good, limited, insufficient
+    data_tier: str = "T1"
+    unlock_hints: List[UnlockHint] = []
     generated_at: str
 
 
@@ -597,6 +609,29 @@ def _detect_patterns(
                     food_suggestions=[FoodSuggestion(**f) for f in foods],
                 )
             )
+    elif (
+        hrv_health is not None
+        and hrv_health < 50
+        and cardiac_stress is not None
+        and cardiac_stress > 60
+    ):
+        # Alternative inflammation signal without temperature (lower confidence)
+        signals = []
+        if hrv_health < 50:
+            signals.append(f"HRV health low ({hrv_health:.0f}/100)")
+        if cardiac_stress > 60:
+            signals.append(f"Cardiac stress elevated ({cardiac_stress:.0f}/100)")
+        patterns.append(
+            PatternDetection(
+                pattern="inflammation",
+                label="Possible Inflammation",
+                severity="mild",
+                signals=signals,
+                food_suggestions=[
+                    FoodSuggestion(**f) for f in PATTERN_FOODS.get("inflammation", [])
+                ],
+            )
+        )
 
     # 3. Poor Recovery: low recovery + high cardiac stress + low HRV
     if recovery is not None or cardiac_stress is not None:
@@ -1224,6 +1259,15 @@ async def get_recommendations(
     # Detect patterns with condition-aware food filtering
     patterns = _detect_patterns(canonical, nutrition_daily, condition_names)
 
+    # Compute device tier and unlock hints
+    detected_pattern_names = [p.pattern for p in patterns]
+    available_metric_names = list(canonical.keys()) if canonical else []
+    data_tier = detect_effective_tier([], available_metric_names)
+    hints_raw = get_unlock_hints(
+        detected_pattern_names, available_metric_names, data_tier
+    )
+    unlock_hints = [UnlockHint(**h) for h in hints_raw]
+
     # Generate AI-enhanced recommendations
     recommendations, ai_summary = await _generate_ai_recommendations(
         patterns, profile, conditions
@@ -1234,6 +1278,8 @@ async def get_recommendations(
         recommendations=recommendations,
         ai_summary=ai_summary,
         data_quality=data_quality,
+        data_tier=data_tier,
+        unlock_hints=unlock_hints,
         generated_at=datetime.now(timezone.utc).isoformat(),
     )
 

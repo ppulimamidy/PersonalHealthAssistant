@@ -19,6 +19,7 @@ import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
 import { format, isToday, isYesterday } from 'date-fns';
 import { api } from '@/services/api';
+import { useAuthStore } from '@/stores/authStore';
 import DailyProgressCard from '@/components/DailyProgressCard';
 import NutritionInsightCard from '@/components/NutritionInsightCard';
 import ProactiveSuggestionCard from '@/components/ProactiveSuggestionCard';
@@ -750,6 +751,7 @@ function MealCard({ meal, onDelete }: { meal: MealLog; onDelete: (id: string) =>
 // ─── Screen ────────────────────────────────────────────────────────────────────
 
 export default function NutritionScreen() {
+  const user = useAuthStore((s) => s.user);
   const queryClient = useQueryClient();
   const [showManual, setShowManual] = useState(false);
   const [showScan, setShowScan] = useState(false);
@@ -765,6 +767,7 @@ export default function NutritionScreen() {
       const { data } = await api.get('/api/v1/nutrition/meals?days=14');
       return (data?.items ?? data?.meals ?? data ?? []) as MealLog[];
     },
+    enabled: !!user,
   });
 
   const { data: dailyProgress } = useQuery({
@@ -776,6 +779,7 @@ export default function NutritionScreen() {
       } catch { return null; }
     },
     staleTime: 30_000,
+    enabled: !!user,
   });
 
   const deleteMutation = useMutation({

@@ -14,6 +14,7 @@ from pydantic import BaseModel
 from common.middleware.auth import get_current_user
 from common.utils.logging import get_logger
 from ..dependencies.usage_gate import _supabase_get
+from common.metrics.device_tiers import detect_effective_tier, get_missing_pillars
 
 logger = get_logger(__name__)
 router = APIRouter()
@@ -58,12 +59,40 @@ async def get_health_score(current_user: dict = Depends(get_user_optional)):
             user_id
         )
         if canonical_score is not None:
+            active_pillars = len(canonical_breakdown)
+            score_confidence = (
+                "high"
+                if active_pillars >= 3
+                else "moderate"
+                if active_pillars == 2
+                else "low"
+            )
+            # Detect tier from available canonical metrics
+            # Map breakdown keys back to canonical metric names
+            _breakdown_to_canonical = {
+                "sleep": "sleep_quality",
+                "recovery": "recovery",
+                "activity": "activity_level",
+                "cardiac": "cardiac_stress",
+            }
+            available_metrics = [
+                _breakdown_to_canonical[k]
+                for k in canonical_breakdown
+                if k in _breakdown_to_canonical
+            ]
+            data_tier = detect_effective_tier([], available_metrics)
+            missing = get_missing_pillars(available_metrics)
             return {
                 "score": round(canonical_score, 1),
                 "breakdown": canonical_breakdown,
-                "trend": "stable",  # TODO: compare with previous day's canonical scores
+                "trend": "stable",
                 "change_from_yesterday": 0,
                 "date": str(__import__("datetime").date.today()),
+                "score_confidence": score_confidence,
+                "active_pillars": active_pillars,
+                "total_pillars": 4,
+                "data_tier": data_tier,
+                "missing_pillars": missing,
             }
     except Exception as exc:
         logger.debug("Canonical health score failed, trying timeline: %s", exc)
@@ -114,12 +143,21 @@ async def get_health_score(current_user: dict = Depends(get_user_optional)):
         elif change < -2:
             trend = "down"
 
+    active_pillars = len(today_breakdown)
+    score_confidence = (
+        "high" if active_pillars >= 3 else "moderate" if active_pillars == 2 else "low"
+    )
     return {
         "score": round(today_score, 1),
         "breakdown": today_breakdown,
         "trend": trend,
         "change_from_yesterday": change,
         "date": getattr(today, "date", None),
+        "score_confidence": score_confidence,
+        "active_pillars": active_pillars,
+        "total_pillars": 4,
+        "data_tier": "T2",  # Timeline fallback implies wearable data
+        "missing_pillars": [],
     }
 
 
@@ -298,6 +336,28 @@ def _empty_score():
         "trend": "stable",
         "change_from_yesterday": 0,
         "date": None,
+        "score_confidence": "insufficient",
+        "active_pillars": 0,
+        "total_pillars": 4,
+        "data_tier": "T1",
+        "missing_pillars": [
+            {
+                "pillar": "Sleep Quality",
+                "requires_tier": "T2",
+                "upgrade_hint": "Oura Ring, Apple Watch, WHOOP, Garmin, Fitbit",
+            },
+            {
+                "pillar": "Heart (HRV)",
+                "requires_tier": "T2",
+                "upgrade_hint": "Oura Ring, Apple Watch, WHOOP, Garmin, Fitbit",
+            },
+            {
+                "pillar": "Recovery",
+                "requires_tier": "T2",
+                "upgrade_hint": "Oura Ring, Apple Watch, WHOOP, Garmin, Fitbit",
+            },
+            {"pillar": "Activity", "requires_tier": "T1", "upgrade_hint": ""},
+        ],
     }
 
 
@@ -587,11 +647,13 @@ async def get_trajectory(current_user: dict = Depends(get_current_user)):
     direction = (
         "up"
         if delta is not None and delta > 3
-        else "down"
-        if delta is not None and delta < -3
-        else "stable"
-        if delta is not None
-        else "insufficient"
+        else (
+            "down"
+            if delta is not None and delta < -3
+            else "stable"
+            if delta is not None
+            else "insufficient"
+        )
     )
 
     data_quality = (

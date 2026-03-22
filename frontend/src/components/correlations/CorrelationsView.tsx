@@ -190,7 +190,7 @@ export function CorrelationsView() {
                 const label =
                   d === 0
                     ? days === 0 && data
-                      ? `All · ${data.days_with_data || data.oura_days_available || ''}d`
+                      ? `All · ${data.days_with_data || (data.wearable_days_available ?? data.oura_days_available) || ''}d`
                       : 'All'
                     : `${d}d`;
                 return (
@@ -240,9 +240,20 @@ export function CorrelationsView() {
             />
           </div>
           <span className="text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">
-            {data.days_with_data ?? data.oura_days_available} days
+            {data.days_with_data ?? data.wearable_days_available ?? data.oura_days_available} days
             {days === 0 && ' · full history'}
           </span>
+        </div>
+      )}
+
+      {/* Tier-aware hint when correlations exist but only basic metrics are present */}
+      {data && data.correlations.length > 0
+        && (data.wearable_days_available ?? data.oura_days_available) < 1
+        && !data.correlations.some((c) => c.category === 'nutrition_sleep' || c.category === 'nutrition_readiness') && (
+        <div className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs text-slate-400 dark:text-slate-500"
+          style={{ backgroundColor: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.04)' }}>
+          <Zap className="w-3.5 h-3.5 flex-shrink-0" />
+          <span>Showing nutrition and step patterns. Add a wearable to discover sleep, HRV, and recovery correlations.</span>
         </div>
       )}
 
@@ -324,12 +335,12 @@ export function CorrelationsView() {
                   <>
                     <p className="text-sm text-slate-500 dark:text-slate-400 max-w-md">
                       {data.summary || (
-                        data.oura_days_available >= 5 && data.nutrition_days_available < 5
-                          ? `${data.oura_days_available} days of health data found. Log meals for ${5 - data.nutrition_days_available} more day(s) to unlock diet-trigger patterns.`
+                        (data.wearable_days_available ?? data.oura_days_available) >= 5 && data.nutrition_days_available < 5
+                          ? `${data.wearable_days_available ?? data.oura_days_available} days of health data found. Log meals for ${5 - data.nutrition_days_available} more day(s) to unlock diet-trigger patterns.`
                           : `Log meals and wear your connected device for at least 5 days to discover health correlations.`
                       )}
                     </p>
-                    {data.oura_days_available >= 5 && data.nutrition_days_available < 5 && (
+                    {(data.wearable_days_available ?? data.oura_days_available) >= 5 && data.nutrition_days_available < 5 && (
                       <div className="mt-4 w-full max-w-xs">
                         <div className="flex justify-between text-xs text-slate-500 mb-1.5">
                           <span>Nutrition days logged</span>
@@ -344,6 +355,20 @@ export function CorrelationsView() {
                       </div>
                     )}
                   </>
+                )}
+
+                {/* Tier-aware sparsity hint: suggest wearable when only basic metrics */}
+                {(data.wearable_days_available ?? data.oura_days_available) < 1 && data.nutrition_days_available >= 1 && (
+                  <p className="text-xs text-slate-400 dark:text-slate-500 mt-4 max-w-md">
+                    Showing nutrition and step patterns. Add a wearable to discover sleep, HRV, and recovery correlations.
+                  </p>
+                )}
+                {(data.wearable_days_available ?? data.oura_days_available) >= 1
+                  && (data.wearable_days_available ?? data.oura_days_available) < 5
+                  && data.nutrition_days_available >= 1 && (
+                  <p className="text-xs text-slate-400 dark:text-slate-500 mt-4 max-w-md">
+                    {data.wearable_days_available ?? data.oura_days_available} day(s) of wearable data so far — keep wearing your device to unlock deeper sleep, HRV, and recovery correlations.
+                  </p>
                 )}
               </div>
             </CardContent>
@@ -388,7 +413,7 @@ export function CorrelationsView() {
       )}
 
       {/* Data sources footnote */}
-      {data && ((data.data_sources_used ?? []).length > 0 || data.oura_days_available > 0) && (
+      {data && ((data.data_sources_used ?? []).length > 0 || (data.wearable_days_available ?? data.oura_days_available) > 0) && (
         <p className="text-xs text-slate-400 dark:text-slate-500 pt-2 border-t border-slate-100 dark:border-slate-800">
           <span className="font-medium">Data sources used: </span>
           {(data.data_sources_used ?? []).length > 0

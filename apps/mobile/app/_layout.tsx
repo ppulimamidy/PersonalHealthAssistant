@@ -11,7 +11,7 @@ import { DMSans_400Regular, DMSans_500Medium } from '@expo-google-fonts/dm-sans'
 import * as SplashScreen from 'expo-splash-screen';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/authStore';
-import { api } from '@/services/api';
+import { api, refreshTokenCache } from '@/services/api';
 import { setupNotificationListeners } from '@/services/notifications';
 
 // Keep splash visible until fonts are ready
@@ -106,11 +106,16 @@ function AppStateListener() {
   useEffect(() => {
     const subscription = AppState.addEventListener(
       'change',
-      (nextState: AppStateStatus) => {
+      async (nextState: AppStateStatus) => {
         if (nextState === 'active') {
-          queryClient.invalidateQueries({ queryKey: ['batch'] });
-          queryClient.invalidateQueries({ queryKey: ['oura-connection'] });
-          queryClient.invalidateQueries({ queryKey: ['adherence'] });
+          // Refresh token cache immediately on foreground resume
+          try {
+            await refreshTokenCache();
+          } catch {
+            // Token refresh failed — queries will trigger 401 → auto-refresh
+          }
+          // Invalidate all data queries so screens show fresh data
+          queryClient.invalidateQueries();
         }
       }
     );

@@ -2,6 +2,9 @@
 
 import { useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
+// TODO: Refactor — ouraService.getTimeline() already hits the device-agnostic
+// /api/v1/health/timeline endpoint. Move getTimeline() into a dedicated
+// healthService to remove the misleading Oura naming.
 import { ouraService } from '@/services/oura';
 import { insightsService } from '@/services/insights';
 import { useHealthStore } from '@/stores/healthStore';

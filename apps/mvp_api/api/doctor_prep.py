@@ -18,6 +18,7 @@ import os
 from common.middleware.auth import get_current_user
 from common.utils.logging import get_logger
 from ..dependencies.usage_gate import UsageGate, _supabase_get, _supabase_insert
+from common.metrics.device_tiers import detect_effective_tier
 
 logger = get_logger(__name__)
 
@@ -327,6 +328,11 @@ async def _build_intelligence_indicators(
     try:
         from .correlations import _extract_wearable_daily, _fetch_nutrition_daily
 
+        # NOTE: _extract_wearable_daily is a LEGACY FALLBACK that only parses
+        # Oura-formatted timeline objects.  The primary canonical path is
+        # _build_health_daily() in correlations.py, which reads from
+        # health_metrics_normalized first.  This call site should migrate to
+        # _build_health_daily() once all users have canonical data.
         wearable_daily = _extract_wearable_daily(timeline)
         nutrition_daily = await _fetch_nutrition_daily(bearer, days)
 
@@ -404,7 +410,7 @@ async def _build_intelligence_indicators(
         try:
             from .recommendations import _detect_patterns
 
-            patterns = _detect_patterns(wearable_daily, nutrition_daily)
+            patterns = _detect_patterns({}, nutrition_daily)  # type: ignore[arg-type]
             for p in patterns[:3]:
                 actions.append(
                     f"Address {p.label.lower()}: {p.signals[0] if p.signals else ''}"
@@ -517,18 +523,46 @@ async def generate_report(
     days = request.days
     end_date = datetime.utcnow()
     start_date = end_date - timedelta(days=days)
+    user_id = current_user["id"]
 
-    # Fetch timeline data
-    try:
-        timeline = await get_timeline(days=days, current_user=current_user)
-    except Exception as e:
-        logger.error(f"Failed to fetch timeline for report: {e}")
-        raise HTTPException(status_code=500, detail="Failed to generate report")
-
-    if not timeline:
-        raise HTTPException(
-            status_code=400, detail="Insufficient data to generate report"
+    # Check if user has real wearable data before pulling timeline
+    real_device_data = await _supabase_get(
+        "native_health_data", f"user_id=eq.{user_id}&limit=1&select=id"
+    )
+    if not real_device_data:
+        real_device_data = await _supabase_get(
+            "health_metrics_normalized", f"user_id=eq.{user_id}&limit=1&select=id"
         )
+
+    # Fetch timeline data only if user has real wearable data
+    timeline = []
+    if real_device_data:
+        try:
+            timeline = await get_timeline(days=days, current_user=current_user)
+        except Exception as e:
+            logger.error(f"Failed to fetch timeline for report: {e}")
+            timeline = []
+
+    # Detect device tier for tier-aware report sections
+    connected_sources = []
+    try:
+        oura_conn = await _supabase_get(
+            "oura_connections",
+            f"user_id=eq.{user_id}&is_active=eq.true&limit=1&select=id",
+        )
+        if oura_conn:
+            connected_sources.append("oura")
+        native_sources = await _supabase_get(
+            "native_health_data",
+            f"user_id=eq.{user_id}&select=source&limit=50",
+        )
+        if native_sources:
+            connected_sources.extend(
+                set(r.get("source", "") for r in native_sources if r.get("source"))
+            )
+    except Exception:
+        pass
+    data_tier = detect_effective_tier(connected_sources)
 
     # Calculate sleep metrics
     sleep_entries = [e for e in timeline if e.sleep]
@@ -547,9 +581,7 @@ async def generate_report(
             worst_night=min(sleep_entries, key=lambda x: x.sleep.sleep_score).date,
         )
     else:
-        sleep_summary = SleepSummary(
-            average_duration=0, average_score=0, average_efficiency=0
-        )
+        sleep_summary = None
 
     # Calculate activity metrics
     activity_entries = [e for e in timeline if e.activity]
@@ -566,9 +598,7 @@ async def generate_report(
             least_active_day=min(activity_entries, key=lambda x: x.activity.steps).date,
         )
     else:
-        activity_summary = ActivitySummary(
-            average_steps=0, average_active_calories=0, average_score=0
-        )
+        activity_summary = None
 
     # Calculate readiness metrics
     readiness_entries = [e for e in timeline if e.readiness]
@@ -589,20 +619,18 @@ async def generate_report(
             ).date,
         )
     else:
-        readiness_summary = ReadinessSummary(
-            average_score=0, average_hrv=0, average_resting_hr=0
-        )
+        readiness_summary = None
 
-    # Calculate overall health score
+    # Calculate overall health score (only from available data)
     scores = []
-    if sleep_entries:
+    if sleep_summary:
         scores.append(sleep_summary.average_score)
-    if activity_entries:
+    if activity_summary:
         scores.append(activity_summary.average_score)
-    if readiness_entries:
+    if readiness_summary:
         scores.append(readiness_summary.average_score)
 
-    overall_score = sum(scores) / len(scores) if scores else 0
+    overall_score = sum(scores) / len(scores) if scores else None
 
     # Build key metrics
     key_metrics = []
@@ -616,7 +644,7 @@ async def generate_report(
             return "moderate"
         return "poor"
 
-    if sleep_entries:
+    if sleep_summary:
         key_metrics.append(
             KeyMetric(
                 name="Sleep Score",
@@ -636,7 +664,7 @@ async def generate_report(
             )
         )
 
-    if activity_entries:
+    if activity_summary:
         key_metrics.append(
             KeyMetric(
                 name="Daily Steps",
@@ -656,7 +684,7 @@ async def generate_report(
             )
         )
 
-    if readiness_entries:
+    if readiness_summary:
         key_metrics.append(
             KeyMetric(
                 name="Resting Heart Rate",
@@ -720,33 +748,45 @@ async def generate_report(
     concerns = []
     improvements = []
 
-    if sleep_summary.average_duration < 7:
-        concerns.append("Average sleep duration is below recommended 7 hours")
-    elif sleep_summary.average_duration >= 7.5:
-        improvements.append("Maintaining healthy sleep duration")
+    # Only add wearable-based concerns if user has real device data
+    if real_device_data:
+        if sleep_summary:
+            if (
+                sleep_summary.average_duration > 0
+                and sleep_summary.average_duration < 7
+            ):
+                concerns.append("Average sleep duration is below recommended 7 hours")
+            elif sleep_summary.average_duration >= 7.5:
+                improvements.append("Maintaining healthy sleep duration")
 
-    if sleep_summary.average_score < 70:
-        concerns.append("Sleep quality score indicates room for improvement")
-    elif sleep_summary.average_score >= 80:
-        improvements.append("Sleep quality is consistently good")
+            if sleep_summary.average_score > 0 and sleep_summary.average_score < 70:
+                concerns.append("Sleep quality score indicates room for improvement")
+            elif sleep_summary.average_score >= 80:
+                improvements.append("Sleep quality is consistently good")
 
-    if activity_summary.average_steps < 5000:
-        concerns.append("Daily step count is significantly below recommendations")
-    elif activity_summary.average_steps >= 10000:
-        improvements.append("Excellent daily activity levels")
+        if activity_summary:
+            if (
+                activity_summary.average_steps > 0
+                and activity_summary.average_steps < 5000
+            ):
+                concerns.append(
+                    "Daily step count is significantly below recommendations"
+                )
+            elif activity_summary.average_steps >= 10000:
+                improvements.append("Excellent daily activity levels")
 
-    if readiness_summary.average_resting_hr > 75:
-        concerns.append(
-            "Resting heart rate is elevated - consider discussing with doctor"
-        )
-    elif readiness_summary.average_resting_hr < 60:
-        improvements.append(
-            "Excellent cardiovascular fitness indicated by low resting HR"
-        )
+        if readiness_summary:
+            if readiness_summary.average_resting_hr > 75:
+                concerns.append(
+                    "Resting heart rate is elevated - consider discussing with doctor"
+                )
+            elif 0 < readiness_summary.average_resting_hr < 60:
+                improvements.append(
+                    "Excellent cardiovascular fitness indicated by low resting HR"
+                )
 
     # Build intelligence indicators (best-effort, non-blocking)
     bearer = http_request.headers.get("Authorization") if http_request else None
-    user_id = current_user["id"]
 
     health_intelligence = await _build_intelligence_indicators(
         timeline, user_id, bearer, days
@@ -961,6 +1001,206 @@ async def generate_report(
     except Exception as e:
         logger.warning("Failed to gather extended doctor prep context: %s", e)
 
+    # --- Medical records intelligence for the report ---
+    try:
+        import json as _json2
+
+        med_records = await _supabase_get(
+            "medical_records",
+            f"user_id=eq.{user_id}&order=created_at.desc&limit=5"
+            f"&select=record_type,title,ai_summary,extracted_data,report_date",
+        )
+        for rec in med_records or []:
+            rtype = rec.get("record_type", "")
+            title = rec.get("title", "")
+            summary_text = rec.get("ai_summary", "")
+            if rtype == "genomic":
+                ed = rec.get("extracted_data", {})
+                if isinstance(ed, str):
+                    try:
+                        ed = _json2.loads(ed)
+                    except Exception:
+                        ed = {}
+                mutations = ed.get("mutations", [])
+                if mutations:
+                    genes = [
+                        m.get("gene", "?") if isinstance(m, dict) else str(m)
+                        for m in mutations[:5]
+                    ]
+                    concerns.append(
+                        f"Genomic profile: {', '.join(genes)} mutations detected — discuss targeted therapy options"
+                    )
+                    therapies = []
+                    for m in mutations:
+                        if isinstance(m, dict):
+                            therapies.extend(m.get("sensitive_therapies", []))
+                    if therapies:
+                        improvements.append(
+                            f"Sensitive to targeted therapies: {', '.join(list(dict.fromkeys(therapies))[:5])}"
+                        )
+            elif rtype == "pathology" and summary_text:
+                concerns.append(f"Pathology: {summary_text}")
+            elif rtype == "imaging" and summary_text:
+                concerns.append(f"Imaging: {summary_text}")
+
+        # Add condition-specific recommended tests for oncology patients
+        if conditions_list:
+            for c in conditions_list:
+                cname = (c.get("condition_name", "") or "").lower()
+                if any(
+                    k in cname
+                    for k in (
+                        "cancer",
+                        "carcinoma",
+                        "nsclc",
+                        "lymphoma",
+                        "leukemia",
+                        "tumor",
+                    )
+                ):
+                    recommended_test_notes.extend(
+                        [
+                            "CBC with differential (monitor WBC, neutrophils, platelets during treatment)",
+                            "Comprehensive metabolic panel (liver/kidney function monitoring)",
+                            "Tumor markers appropriate for diagnosis",
+                            "CT/PET scan per treatment protocol schedule",
+                        ]
+                    )
+    except Exception as e:
+        logger.warning("Failed to enrich report with medical records: %s", e)
+
+    # --- Medication recommendations for patients with no active meds ---
+    med_recommendation_notes: List[str] = []
+    if not medications_with_evidence:
+        try:
+            from .med_intelligence_api import medication_recommendations as _med_recs
+
+            recs_result = await _med_recs(current_user={"id": user_id})
+            for rec in (recs_result.get("recommendations") or [])[:4]:
+                name = rec.get("name", "")
+                rationale = rec.get("rationale", "")
+                if name:
+                    med_recommendation_notes.append(f"{name}: {rationale}")
+        except Exception:
+            pass
+
+    if med_recommendation_notes:
+        if not condition_notes:
+            condition_notes = []
+        condition_notes.append("AI-suggested medications to discuss with your doctor:")
+        condition_notes.extend(med_recommendation_notes)
+
+    # --- AI-generated condition-specific questions for the doctor ---
+    try:
+        import json as _json3
+
+        # Gather context for AI
+        profile_for_ai = await _supabase_get(
+            "profiles",
+            f"id=eq.{user_id}&select=full_name,date_of_birth,biological_sex,primary_condition,specialist_agent_type&limit=1",
+        )
+        prof = profile_for_ai[0] if profile_for_ai else {}
+        first_name = (prof.get("full_name") or "").split(" ")[0] or "the patient"
+        primary_condition = prof.get("primary_condition", "")
+
+        ctx_parts_for_ai: list[str] = []
+        if primary_condition:
+            ctx_parts_for_ai.append(f"Primary condition: {primary_condition}")
+        if conditions_list:
+            ctx_parts_for_ai.append(
+                "Active conditions: "
+                + ", ".join(c.get("condition_name", "") for c in conditions_list)
+            )
+        if medications_with_evidence:
+            ctx_parts_for_ai.append(
+                "Current medications: "
+                + ", ".join(
+                    f"{m.name} {m.dosage or ''}" for m in medications_with_evidence
+                )
+            )
+        if supplement_gap_notes:
+            ctx_parts_for_ai.append(
+                "Abnormal labs: " + "; ".join(supplement_gap_notes[:5])
+            )
+        if concerns:
+            ctx_parts_for_ai.append("Current concerns: " + "; ".join(concerns))
+        # Add medical record context
+        for rec in med_records or []:
+            rtype = rec.get("record_type", "")
+            title = rec.get("title", "")
+            summary_text = rec.get("ai_summary", "")
+            if title or summary_text:
+                ctx_parts_for_ai.append(
+                    f"{rtype.title()} record: {title}. {summary_text}"
+                )
+
+        if ctx_parts_for_ai:
+            import anthropic
+
+            api_key = os.environ.get("ANTHROPIC_API_KEY")
+            if api_key:
+                client = anthropic.AsyncAnthropic(api_key=api_key)
+                ai_prompt = f"""You are a patient advocate helping {first_name} prepare for their next doctor visit.
+
+Patient context:
+{chr(10).join(f'- {p}' for p in ctx_parts_for_ai)}
+
+Generate a JSON object with:
+- "questions": array of 5-7 specific, actionable questions {first_name} should ask their doctor. Each question should be directly relevant to their condition, treatment options, test results, or side effects. NOT generic wellness questions.
+- "discussion_topics": array of 3-4 important topics to bring up, each with "topic" and "why" fields
+- "concerns_override": array of 3-5 condition-specific concerns to replace generic wearable concerns
+
+For cancer patients: focus on treatment plan, genomic-guided therapy options, clinical trials, side effect management, lab monitoring schedule, second opinions.
+For diabetes: focus on HbA1c trajectory, medication adjustments, complication screening, CGM options.
+For cardiac: focus on medication efficacy, lifestyle modifications, stress test scheduling.
+
+Return ONLY valid JSON, no markdown fences."""
+
+                result = await client.messages.create(
+                    model="claude-sonnet-4-6",
+                    max_tokens=1500,
+                    messages=[{"role": "user", "content": ai_prompt}],
+                )
+                raw_ai = result.content[0].text.strip()
+
+                import re
+
+                raw_ai = re.sub(r"^```(?:json)?\s*\n?", "", raw_ai)
+                raw_ai = re.sub(r"\n?```\s*$", "", raw_ai)
+                start_idx = raw_ai.find("{")
+                end_idx = raw_ai.rfind("}")
+                if start_idx != -1 and end_idx != -1:
+                    raw_ai = raw_ai[start_idx : end_idx + 1]
+
+                parsed_ai = _json3.loads(raw_ai)
+
+                # Override generic concerns with condition-specific ones
+                ai_concerns = parsed_ai.get("concerns_override", [])
+                if ai_concerns:
+                    concerns = ai_concerns
+
+                # Add AI-generated discussion topics to condition notes
+                ai_topics = parsed_ai.get("discussion_topics", [])
+                if ai_topics:
+                    if not condition_notes:
+                        condition_notes = []
+                    condition_notes.append("Key topics to discuss at your next visit:")
+                    for t in ai_topics:
+                        if isinstance(t, dict):
+                            condition_notes.append(
+                                f"• {t.get('topic', '')}: {t.get('why', '')}"
+                            )
+                        elif isinstance(t, str):
+                            condition_notes.append(f"• {t}")
+
+                # Replace improvements with AI questions for the doctor
+                ai_questions = parsed_ai.get("questions", [])
+                if ai_questions:
+                    # Store these as improvements (they show in "Questions to ask your clinician")
+                    improvements = ai_questions
+    except Exception as e:
+        logger.warning("AI doctor prep questions failed: %s", e)
+
     # Build report
     report = DoctorPrepReport(
         id=str(uuid.uuid4()),
@@ -971,7 +1211,9 @@ async def generate_report(
             "end": end_date.strftime("%Y-%m-%d"),
         },
         summary=ReportSummary(
-            overall_health_score=round(overall_score, 1),
+            overall_health_score=(
+                round(overall_score, 1) if overall_score is not None else 0
+            ),
             key_metrics=key_metrics,
             trends=trends,
             concerns=concerns,
@@ -984,9 +1226,9 @@ async def generate_report(
         nutrition_correlations=nutrition_correlations,
         condition_specific_notes=condition_notes,
         care_plan_progress=care_plan_progress if care_plan_progress else None,
-        medications_with_evidence=medications_with_evidence
-        if medications_with_evidence
-        else None,
+        medications_with_evidence=(
+            medications_with_evidence if medications_with_evidence else None
+        ),
         supplement_gaps=supplement_gap_notes if supplement_gap_notes else None,
         recommended_tests=recommended_test_notes if recommended_test_notes else None,
         cycle_context=cycle_context_note,

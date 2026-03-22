@@ -26,12 +26,57 @@ export const api = axios.create({
   timeout: 30_000,
 });
 
+// ── Token cache (matches frontend/src/services/api.ts pattern) ───────────────
+
+let _cachedToken: string | null = null;
+let _cacheTs = 0;
+let _inflight: Promise<string | null> | null = null;
+
+function _getTokenOnce(): Promise<string | null> {
+  const now = Date.now();
+  // Reuse cached token for 30 seconds
+  if (_cachedToken && now - _cacheTs < 30_000) {
+    return Promise.resolve(_cachedToken);
+  }
+  // Share one in-flight getSession() call across concurrent requests
+  if (!_inflight) {
+    _inflight = supabase.auth
+      .getSession()
+      .then(({ data }) => {
+        _cachedToken = data.session?.access_token ?? null;
+        _cacheTs = Date.now();
+        _inflight = null;
+        return _cachedToken;
+      })
+      .catch(() => {
+        _inflight = null;
+        return null;
+      });
+  }
+  return _inflight;
+}
+
+// Keep cache fresh on auth state changes (login, token refresh, logout)
+supabase.auth.onAuthStateChange((_event, session) => {
+  _cachedToken = session?.access_token ?? null;
+  _cacheTs = Date.now();
+});
+
+/** Exported so AppStateListener can force a refresh */
+export async function refreshTokenCache(): Promise<void> {
+  _cachedToken = null;
+  _cacheTs = 0;
+  const { data } = await supabase.auth.getSession();
+  _cachedToken = data.session?.access_token ?? null;
+  _cacheTs = Date.now();
+}
+
 // ── Request interceptor: inject Supabase JWT ──────────────────────────────────
 
 api.interceptors.request.use(async (config) => {
-  const { data: { session } } = await supabase.auth.getSession();
-  if (session?.access_token) {
-    config.headers.Authorization = `Bearer ${session.access_token}`;
+  const token = await _getTokenOnce();
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
   }
   return config;
 });
@@ -73,6 +118,9 @@ api.interceptors.response.use(
           throw refreshError ?? new Error('Session expired');
         }
         const newToken = data.session.access_token;
+        // Update cache with fresh token
+        _cachedToken = newToken;
+        _cacheTs = Date.now();
         _drainQueue(newToken);
         _isRefreshing = false;
         original.headers.Authorization = `Bearer ${newToken}`;
@@ -80,6 +128,9 @@ api.interceptors.response.use(
       } catch {
         _isRefreshing = false;
         _refreshQueue = [];
+        // Invalidate cache
+        _cachedToken = null;
+        _cacheTs = 0;
         // No valid session — redirect to login
         const { data: { session } } = await supabase.auth.getSession();
         if (!session) {

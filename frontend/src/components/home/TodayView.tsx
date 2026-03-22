@@ -95,7 +95,7 @@ function Panel({
 // ── Setup checklist ───────────────────────────────────────────────────────────
 
 interface ChecklistProps {
-  ouraActive: boolean;
+  anyWearableActive: boolean;
   conditionsCount: number;
   medsCount: number;
   hasMeal: boolean;
@@ -103,7 +103,7 @@ interface ChecklistProps {
 }
 
 function SetupChecklist({
-  ouraActive,
+  anyWearableActive,
   conditionsCount,
   medsCount,
   hasMeal,
@@ -122,12 +122,12 @@ function SetupChecklist({
     try { localStorage.setItem(CHECKLIST_KEY, 'true'); } catch { /* ignore */ }
   };
 
-  const allDone = ouraActive && conditionsCount > 0 && medsCount > 0 && hasMeal && hasSymptom;
+  const allDone = anyWearableActive && conditionsCount > 0 && medsCount > 0 && hasMeal && hasSymptom;
 
   if (dismissed || allDone) return null;
 
   const items = [
-    { done: ouraActive, label: 'Connect a wearable device', href: '/devices' },
+    { done: anyWearableActive, label: 'Connect a wearable device', href: '/devices' },
     { done: conditionsCount > 0, label: 'Add a health condition', href: '/health-profile' },
     { done: medsCount > 0, label: 'Add a medication', href: '/medications' },
     { done: hasMeal, label: 'Log your first meal', href: '/nutrition' },
@@ -391,7 +391,7 @@ export function TodayView() {
 
   // ── Queries ─────────────────────────────────────────────────────────────────
 
-  const ouraActive = !!(ouraConnection?.is_active);
+  const anyWearableActive = !!(ouraConnection?.is_active);
 
   // Check if ANY health data source is available (Oura, Apple Health, Health Connect, etc.)
   const { data: summariesData } = useQuery({
@@ -420,7 +420,7 @@ export function TodayView() {
   });
 
   // Has health data from any source (Oura, Apple Health, Health Connect, etc.)
-  const hasHealthData = ouraActive
+  const hasHealthData = anyWearableActive
     || (summariesData != null && Object.keys(summariesData).length > 0)
     || (healthScore?.score != null);
 
@@ -679,7 +679,7 @@ export function TodayView() {
           )}
         </Panel>
       ) : (
-        /* No Oura — device connect prompt */
+        /* No wearable — device connect prompt */
         <Panel>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">

@@ -105,6 +105,7 @@ export interface LinkProfileRequest {
 
 export interface UserProfile {
   // ── Structured fields (from profiles table — set at registration) ──────────
+  full_name?: string;               // from profiles.full_name
   date_of_birth?: string;           // ISO date e.g. "1985-03-15"
   biological_sex?: BiologicalSex;
   weight_kg?: number;
@@ -559,6 +560,7 @@ export interface CorrelationResults {
   summary: string | null;
   data_quality_score: number;
   oura_days_available: number;
+  wearable_days_available?: number;
   nutrition_days_available: number;
   days_with_data?: number;
   data_sources_used?: string[];

@@ -7,6 +7,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import * as Haptics from 'expo-haptics';
+import * as ImagePicker from 'expo-image-picker';
 import { api } from '@/services/api';
 import type { Medication } from '@/types';
 import TreatmentOverviewCard from '@/components/TreatmentOverviewCard';
@@ -345,6 +346,316 @@ function EditMedicationModal({ med, onClose, onSaved }: EditModalProps) {
   );
 }
 
+// ─── Scan Prescription Modal ─────────────────────────────────────────────────
+
+interface ScanResult {
+  medication_name?: string;
+  generic_name?: string;
+  dosage?: string;
+  frequency?: string;
+  route?: string;
+  indication?: string;
+  prescribing_doctor?: string;
+  is_supplement?: boolean;
+  brand?: string;
+  form?: string;
+  purpose?: string;
+  confidence?: number;
+  image_type?: string;
+}
+
+function ScanPrescriptionModal({ visible, onClose, onSaved }: { visible: boolean; onClose: () => void; onSaved: () => void }) {
+  const [scanning, setScanning] = useState(false);
+  const [result, setResult] = useState<ScanResult | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  // Editable fields from scan
+  const [name, setName] = useState('');
+  const [genericName, setGenericName] = useState('');
+  const [dosage, setDosage] = useState('');
+  const [frequency, setFrequency] = useState('');
+  const [routeVal, setRouteVal] = useState('oral');
+  const [indication, setIndication] = useState('');
+  const [isSupplement, setIsSupplement] = useState(false);
+  const [brand, setBrand] = useState('');
+  const [form, setForm] = useState('');
+  const [purpose, setPurpose] = useState('');
+
+  function resetState() {
+    setResult(null);
+    setError('');
+    setName('');
+    setGenericName('');
+    setDosage('');
+    setFrequency('');
+    setRouteVal('oral');
+    setIndication('');
+    setIsSupplement(false);
+    setBrand('');
+    setForm('');
+    setPurpose('');
+  }
+
+  function applyResult(r: ScanResult) {
+    setResult(r);
+    setName(r.medication_name ?? r.brand ?? '');
+    setGenericName(r.generic_name ?? '');
+    setDosage(r.dosage ?? '');
+    setFrequency(r.frequency ?? '');
+    setRouteVal(r.route ?? 'oral');
+    setIndication(r.indication ?? '');
+    setIsSupplement(r.is_supplement ?? false);
+    setBrand(r.brand ?? '');
+    setForm(r.form ?? '');
+    setPurpose(r.purpose ?? '');
+  }
+
+  async function pickAndScan(useCamera: boolean) {
+    setError('');
+    setScanning(true);
+    try {
+      const opts: ImagePicker.ImagePickerOptions = {
+        mediaTypes: ['images'],
+        quality: 0.8,
+        base64: false,
+      };
+      const picked = useCamera
+        ? await ImagePicker.launchCameraAsync(opts)
+        : await ImagePicker.launchImageLibraryAsync(opts);
+
+      if (picked.canceled || !picked.assets?.[0]) {
+        setScanning(false);
+        return;
+      }
+
+      const asset = picked.assets[0];
+      const formData = new FormData();
+      formData.append('file', {
+        uri: asset.uri,
+        type: asset.mimeType ?? 'image/jpeg',
+        name: asset.fileName ?? 'scan.jpg',
+      } as any);
+
+      const { data } = await api.post('/api/v1/medications/scan-prescription', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: 60_000,
+      });
+
+      applyResult(data);
+    } catch (e: any) {
+      setError(e?.response?.data?.detail ?? 'Scan failed. Try again or enter manually.');
+    } finally {
+      setScanning(false);
+    }
+  }
+
+  async function handleSave() {
+    if (!name.trim()) { setError('Name is required'); return; }
+    setSaving(true);
+    setError('');
+    try {
+      if (isSupplement) {
+        await api.post('/api/v1/supplements', {
+          supplement_name: name.trim(),
+          brand: brand.trim() || undefined,
+          dosage: dosage.trim() || undefined,
+          frequency: frequency.trim() || undefined,
+          form: form.trim() || 'capsule',
+          purpose: purpose.trim() || indication.trim() || undefined,
+          is_active: true,
+        });
+      } else {
+        await api.post('/api/v1/medications', {
+          medication_name: name.trim(),
+          generic_name: genericName.trim() || undefined,
+          dosage: dosage.trim() || undefined,
+          frequency: frequency.trim() || undefined,
+          route: routeVal || 'oral',
+          indication: indication.trim() || undefined,
+          is_active: true,
+        });
+      }
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      resetState();
+      onSaved();
+    } catch {
+      setError('Failed to save. Please try again.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => { resetState(); onClose(); }}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        className="flex-1 bg-obsidian-900"
+      >
+        {/* Header */}
+        <View className="flex-row items-center px-6 pt-14 pb-4 border-b border-surface-border">
+          <TouchableOpacity onPress={() => { resetState(); onClose(); }} className="mr-4 p-1">
+            <Ionicons name="close" size={24} color="#E8EDF5" />
+          </TouchableOpacity>
+          <Text className="text-xl font-display text-[#E8EDF5] flex-1">Scan Medication</Text>
+          {result && (
+            <TouchableOpacity onPress={handleSave} disabled={saving} className="bg-primary-500 px-4 py-2 rounded-xl">
+              {saving
+                ? <ActivityIndicator size="small" color="#080B10" />
+                : <Text className="text-obsidian-900 font-sansMedium text-sm">Save</Text>
+              }
+            </TouchableOpacity>
+          )}
+        </View>
+
+        <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 24, paddingBottom: 48 }}>
+          {error ? (
+            <View className="bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-3 mb-5">
+              <Text className="text-red-400 text-sm">{error}</Text>
+            </View>
+          ) : null}
+
+          {!result && !scanning && (
+            <View>
+              <Text className="text-[#8B9BB4] text-sm text-center mb-6 leading-5">
+                Take a photo of a prescription label, medication bottle, supplement bottle, or pill strip.
+                AI will extract the details automatically.
+              </Text>
+              <TouchableOpacity
+                onPress={() => pickAndScan(true)}
+                className="bg-primary-500/20 border border-primary-500/50 rounded-2xl py-5 items-center mb-3"
+              >
+                <Ionicons name="camera" size={32} color="#00D4AA" />
+                <Text className="text-primary-500 font-sansMedium mt-2">Take Photo</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => pickAndScan(false)}
+                className="bg-surface-raised border border-surface-border rounded-2xl py-5 items-center"
+              >
+                <Ionicons name="images" size={32} color="#8B9BB4" />
+                <Text className="text-[#8B9BB4] font-sansMedium mt-2">Choose from Gallery</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {scanning && (
+            <View className="items-center py-16">
+              <ActivityIndicator size="large" color="#00D4AA" />
+              <Text className="text-[#8B9BB4] mt-4">Analyzing image with AI...</Text>
+            </View>
+          )}
+
+          {result && !scanning && (
+            <View>
+              {/* Confidence + type badge */}
+              <View className="flex-row items-center gap-2 mb-4">
+                {result.confidence != null && (
+                  <View className={`rounded-full px-2.5 py-1 ${
+                    result.confidence > 0.8 ? 'bg-green-500/10' : result.confidence > 0.5 ? 'bg-amber-500/10' : 'bg-red-500/10'
+                  }`}>
+                    <Text className={`text-[10px] font-sansMedium ${
+                      result.confidence > 0.8 ? 'text-green-400' : result.confidence > 0.5 ? 'text-amber-400' : 'text-red-400'
+                    }`}>
+                      {Math.round(result.confidence * 100)}% confidence
+                    </Text>
+                  </View>
+                )}
+                <View className={`rounded-full px-2.5 py-1 ${isSupplement ? 'bg-green-500/10' : 'bg-blue-500/10'}`}>
+                  <Text className={`text-[10px] font-sansMedium ${isSupplement ? 'text-green-400' : 'text-blue-400'}`}>
+                    {isSupplement ? 'Supplement' : 'Medication'}
+                  </Text>
+                </View>
+              </View>
+
+              {/* Toggle medication/supplement */}
+              <TouchableOpacity
+                onPress={() => setIsSupplement((v) => !v)}
+                className="flex-row items-center gap-2 mb-5 bg-surface-raised border border-surface-border rounded-xl px-4 py-3"
+              >
+                <Ionicons name={isSupplement ? 'leaf-outline' : 'medkit-outline'} size={16} color="#00D4AA" />
+                <Text className="text-[#E8EDF5] text-sm flex-1">
+                  {isSupplement ? 'Save as Supplement' : 'Save as Medication'}
+                </Text>
+                <Ionicons name="swap-horizontal" size={14} color="#526380" />
+              </TouchableOpacity>
+
+              {/* Name */}
+              <View className="mb-4">
+                <Text className="text-[#526380] text-xs font-sansMedium uppercase tracking-wider mb-2">
+                  {isSupplement ? 'Supplement Name' : 'Medication Name'} *
+                </Text>
+                <TextInput
+                  className="bg-surface-raised border border-surface-border rounded-xl px-4 py-3 text-[#E8EDF5]"
+                  value={name}
+                  onChangeText={setName}
+                  placeholderTextColor="#526380"
+                />
+              </View>
+
+              {!isSupplement && genericName ? (
+                <View className="mb-4">
+                  <Text className="text-[#526380] text-xs font-sansMedium uppercase tracking-wider mb-2">Generic Name</Text>
+                  <TextInput
+                    className="bg-surface-raised border border-surface-border rounded-xl px-4 py-3 text-[#E8EDF5]"
+                    value={genericName}
+                    onChangeText={setGenericName}
+                    placeholderTextColor="#526380"
+                  />
+                </View>
+              ) : null}
+
+              {/* Dosage */}
+              <View className="mb-4">
+                <Text className="text-[#526380] text-xs font-sansMedium uppercase tracking-wider mb-2">Dosage</Text>
+                <TextInput
+                  className="bg-surface-raised border border-surface-border rounded-xl px-4 py-3 text-[#E8EDF5]"
+                  value={dosage}
+                  onChangeText={setDosage}
+                  placeholderTextColor="#526380"
+                />
+              </View>
+
+              {/* Frequency */}
+              <View className="mb-4">
+                <Text className="text-[#526380] text-xs font-sansMedium uppercase tracking-wider mb-2">Frequency</Text>
+                <TextInput
+                  className="bg-surface-raised border border-surface-border rounded-xl px-4 py-3 text-[#E8EDF5]"
+                  value={frequency}
+                  onChangeText={setFrequency}
+                  placeholderTextColor="#526380"
+                />
+              </View>
+
+              {/* Indication / Purpose */}
+              <View className="mb-4">
+                <Text className="text-[#526380] text-xs font-sansMedium uppercase tracking-wider mb-2">
+                  {isSupplement ? 'Purpose' : 'Indication'}
+                </Text>
+                <TextInput
+                  className="bg-surface-raised border border-surface-border rounded-xl px-4 py-3 text-[#E8EDF5]"
+                  value={isSupplement ? purpose : indication}
+                  onChangeText={isSupplement ? setPurpose : setIndication}
+                  placeholderTextColor="#526380"
+                />
+              </View>
+
+              {/* Rescan button */}
+              <TouchableOpacity
+                onPress={() => resetState()}
+                className="border border-surface-border rounded-xl py-3 items-center mt-2"
+              >
+                <Text className="text-[#526380] text-sm">
+                  <Ionicons name="refresh" size={14} color="#526380" /> Scan Again
+                </Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </Modal>
+  );
+}
+
 // ─── Adherence Row ────────────────────────────────────────────────────────────
 
 interface AdherenceRowProps {
@@ -419,6 +730,7 @@ export default function MedicationsScreen() {
   const [editingMed, setEditingMed] = useState<Medication | null>(null);
   const [loggedMeds, setLoggedMeds] = useState<Set<string>>(new Set());
   const [saveError, setSaveError] = useState('');
+  const [showScan, setShowScan] = useState(false);
 
   const { data: medications, isLoading, refetch } = useQuery({
     queryKey: ['medications'],
@@ -576,13 +888,22 @@ export default function MedicationsScreen() {
             </View>
           )}
         </View>
-        <TouchableOpacity
-          onPress={() => router.push('/(tabs)/log/new-medication')}
-          className="bg-primary-500 rounded-xl px-4 py-2 flex-row items-center gap-1"
-        >
-          <Ionicons name="add" size={18} color="#080B10" />
-          <Text className="text-obsidian-900 font-sansMedium text-sm">Add</Text>
-        </TouchableOpacity>
+        <View className="flex-row gap-2">
+          <TouchableOpacity
+            onPress={() => setShowScan(true)}
+            className="bg-surface-raised border border-primary-500/40 rounded-xl px-3 py-2 flex-row items-center gap-1"
+          >
+            <Ionicons name="scan" size={16} color="#00D4AA" />
+            <Text className="text-primary-500 font-sansMedium text-sm">Scan</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => router.push('/(tabs)/log/new-medication')}
+            className="bg-primary-500 rounded-xl px-4 py-2 flex-row items-center gap-1"
+          >
+            <Ionicons name="add" size={18} color="#080B10" />
+            <Text className="text-obsidian-900 font-sansMedium text-sm">Add</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {isLoading ? (
@@ -825,6 +1146,16 @@ export default function MedicationsScreen() {
         onSaved={() => {
           setEditingMed(null);
           queryClient.invalidateQueries({ queryKey: ['medications'] });
+        }}
+      />
+
+      <ScanPrescriptionModal
+        visible={showScan}
+        onClose={() => setShowScan(false)}
+        onSaved={() => {
+          setShowScan(false);
+          queryClient.invalidateQueries({ queryKey: ['medications'] });
+          queryClient.invalidateQueries({ queryKey: ['supplements'] });
         }}
       />
     </View>

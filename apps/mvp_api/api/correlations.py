@@ -893,7 +893,18 @@ async def _fetch_nutrition_daily(
 
 def _extract_wearable_daily(timeline: list) -> Dict[str, Dict[str, float]]:
     """
-    Flatten timeline entries into {date_str: {metric: value, ...}} dict.
+    Flatten Oura-formatted timeline entries into {date_str: {metric: value, ...}} dict.
+
+    LEGACY FALLBACK — this function processes Oura-specific timeline objects
+    (sleep, activity, readiness sub-objects) and is kept for backward compatibility.
+
+    Primary data flow now goes through ``_build_health_daily()``, which reads from
+    the ``health_metrics_normalized`` table first (canonical, device-agnostic data
+    from all sources). Oura timeline extraction via this function is used only as a
+    gap-filler for dates not yet present in the normalized table.
+
+    This function should be deprecated once all users have canonical data populated
+    via the normalizer pipeline (see ``scripts/backfill_normalized_metrics.py``).
     """
     daily: Dict[str, Dict[str, float]] = {}
     for entry in timeline:
@@ -1296,13 +1307,19 @@ def _build_dynamic_native_pairs(
             cat = (
                 "nutrition_glucose"
                 if outcome == "avg_glucose_mgdl"
-                else "nutrition_bp"
-                if "blood_pressure" in outcome
-                else "nutrition_symptom"
-                if "symptom" in outcome
-                else "nutrition_body"
-                if outcome in {"weight_kg", "body_fat_pct"}
-                else "nutrition_recovery"
+                else (
+                    "nutrition_bp"
+                    if "blood_pressure" in outcome
+                    else (
+                        "nutrition_symptom"
+                        if "symptom" in outcome
+                        else (
+                            "nutrition_body"
+                            if outcome in {"weight_kg", "body_fat_pct"}
+                            else "nutrition_recovery"
+                        )
+                    )
+                )
             )
             extra_pairs.append((nutr, outcome, cat, lag))
 
@@ -2533,9 +2550,9 @@ async def _compute_and_cache(
                             {
                                 "nutrition_metric": nut_metric,
                                 "oura_metric": oura_metric,
-                                "expected_direction": "positive"
-                                if pct_change > 0
-                                else "negative",
+                                "expected_direction": (
+                                    "positive" if pct_change > 0 else "negative"
+                                ),
                                 "confidence": row.get("confidence_score", 0.5),
                             }
                         )
