@@ -9,8 +9,8 @@ import { useAuth } from '@/hooks/useAuth';
 import {
   Plus, Pill, Edit, Trash2, AlertCircle,
   Camera, Upload, X, CheckCircle2, Loader2,
-  Sparkles,
-  Shield,
+  Sparkles, Shield, Stethoscope, FlaskConical,
+  ArrowRight, ShieldCheck, Share2, Link2, FileText,
 } from 'lucide-react';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { DailyAdherenceStrip } from './DailyAdherenceStrip';
@@ -582,6 +582,227 @@ function MedIntelligenceCards() {
   );
 }
 
+// ── AI Medication Recommendations (shown when no meds logged) ────────────
+
+const PRIORITY_CONFIG = {
+  high: { color: '#F87171', bg: 'bg-red-500/10', label: 'High Priority' },
+  medium: { color: '#FBBF24', bg: 'bg-amber-500/10', label: 'Medium' },
+  low: { color: '#60A5FA', bg: 'bg-blue-500/10', label: 'Low' },
+} as const;
+
+const CATEGORY_ICON = {
+  prescription: Stethoscope,
+  otc: Pill,
+  supplement: FlaskConical,
+} as const;
+
+const EVIDENCE_BADGE = {
+  strong: { label: 'Strong evidence', cls: 'bg-green-500/10 text-green-500' },
+  moderate: { label: 'Moderate evidence', cls: 'bg-amber-500/10 text-amber-500' },
+  emerging: { label: 'Emerging evidence', cls: 'bg-blue-500/10 text-blue-400' },
+} as const;
+
+interface Recommendation {
+  name: string;
+  category: 'prescription' | 'otc' | 'supplement';
+  rationale: string;
+  evidence_level: 'strong' | 'moderate' | 'emerging';
+  priority: 'high' | 'medium' | 'low';
+  discuss_with_doctor: boolean;
+  relevant_data?: string;
+  estimated_cost?: string;
+  efficacy?: string;
+}
+
+function MedicationRecommendations({ onAddMedication }: { onAddMedication: () => void }) {
+  const [shareUrl, setShareUrl] = useState<string | null>(null);
+  const [sharing, setSharing] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  async function handleShare() {
+    setSharing(true);
+    try {
+      const { data: link } = await api.post('/api/v1/share/', {
+        label: 'Treatment Recommendations for Provider',
+        permissions: ['summary', 'medications', 'lab_results', 'intelligence'],
+      });
+      const url = `${window.location.origin}/share/${link.token}`;
+      setShareUrl(url);
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      toast.success('Share link copied to clipboard');
+      setTimeout(() => setCopied(false), 3000);
+    } catch {
+      toast.error('Failed to create share link');
+    } finally {
+      setSharing(false);
+    }
+  }
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['med-recommendations'],
+    queryFn: async () => {
+      const { data } = await api.get('/api/v1/med-intelligence/recommendations');
+      return data as {
+        recommendations: Recommendation[];
+        summary: string;
+        disclaimer: string;
+        data_sources: { conditions: number; lab_results: number; medical_records: number; symptoms: number };
+      };
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+
+  if (isLoading) {
+    return (
+      <div className="flex flex-col items-center py-12 gap-3">
+        <Loader2 className="w-6 h-6 text-primary-500 animate-spin" />
+        <p className="text-sm text-slate-400">Analyzing your health profile for recommendations...</p>
+      </div>
+    );
+  }
+
+  const recs = data?.recommendations ?? [];
+  const summary = data?.summary ?? '';
+  const disclaimer = data?.disclaimer ?? '';
+  const sources = data?.data_sources;
+
+  if (recs.length === 0) {
+    return (
+      <EmptyState
+        icon={Pill}
+        title="No medications yet"
+        description={summary || 'Add your health conditions, lab results, or medical records to receive personalized medication recommendations.'}
+        actionLabel="Add Medication"
+        onAction={onAddMedication}
+      />
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Summary */}
+      {summary && (
+        <div className="p-4 rounded-xl bg-primary-500/5 border border-primary-500/10">
+          <div className="flex items-start gap-2.5">
+            <Sparkles className="w-4 h-4 text-primary-500 mt-0.5 shrink-0" />
+            <div>
+              <p className="text-sm text-slate-700 dark:text-slate-300 leading-relaxed">{summary}</p>
+              {sources && (
+                <p className="text-xs text-slate-400 mt-2">
+                  Based on {sources.conditions} condition{sources.conditions !== 1 ? 's' : ''}, {sources.lab_results} lab result{sources.lab_results !== 1 ? 's' : ''}, {sources.medical_records} medical record{sources.medical_records !== 1 ? 's' : ''}, {sources.symptoms} symptom{sources.symptoms !== 1 ? 's' : ''}
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Recommendations */}
+      <div className="space-y-3">
+        {recs.map((rec, i) => {
+          const priority = PRIORITY_CONFIG[rec.priority] ?? PRIORITY_CONFIG.low;
+          const CatIcon = CATEGORY_ICON[rec.category] ?? Pill;
+          const evidence = EVIDENCE_BADGE[rec.evidence_level] ?? EVIDENCE_BADGE.moderate;
+
+          return (
+            <div key={i} className="p-4 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
+              <div className="flex items-start gap-3">
+                <div className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0" style={{ backgroundColor: `${priority.color}15` }}>
+                  <CatIcon className="w-4.5 h-4.5" style={{ color: priority.color }} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-semibold text-sm text-slate-900 dark:text-slate-100">{rec.name}</span>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium uppercase tracking-wider" style={{ backgroundColor: `${priority.color}15`, color: priority.color }}>
+                      {priority.label}
+                    </span>
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${evidence.cls}`}>
+                      {evidence.label}
+                    </span>
+                    {rec.discuss_with_doctor && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-purple-500/10 text-purple-400">
+                        Rx — discuss with doctor
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-1.5 leading-relaxed">{rec.rationale}</p>
+                  {(rec.efficacy || rec.estimated_cost) && (
+                    <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2">
+                      {rec.efficacy && (
+                        <span className="text-[11px] text-emerald-500 dark:text-emerald-400 flex items-center gap-1">
+                          <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>
+                          {rec.efficacy}
+                        </span>
+                      )}
+                      {rec.estimated_cost && (
+                        <span className="text-[11px] text-slate-400 flex items-center gap-1">
+                          <span className="font-medium">$</span>
+                          {rec.estimated_cost}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                  {rec.relevant_data && (
+                    <p className="text-[11px] text-slate-400 mt-1 flex items-center gap-1">
+                      <ArrowRight className="w-3 h-3" />
+                      {rec.relevant_data}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Disclaimer */}
+      <div className="flex items-start gap-2 p-3 rounded-lg bg-amber-500/5 border border-amber-500/10">
+        <ShieldCheck className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" />
+        <p className="text-[11px] text-slate-400 leading-relaxed">{disclaimer}</p>
+      </div>
+
+      {/* Share with Provider */}
+      <div className="flex gap-2">
+        <button
+          onClick={handleShare}
+          disabled={sharing}
+          className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg bg-primary-500/10 border border-primary-500/20 text-sm font-medium text-primary-600 dark:text-primary-400 hover:bg-primary-500/20 transition-colors"
+        >
+          {sharing ? (
+            <Loader2 className="w-4 h-4 animate-spin" />
+          ) : copied ? (
+            <CheckCircle2 className="w-4 h-4" />
+          ) : (
+            <Share2 className="w-4 h-4" />
+          )}
+          {copied ? 'Link Copied!' : 'Share with Provider'}
+        </button>
+      </div>
+      {shareUrl && (
+        <div className="flex items-center gap-2 p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700">
+          <Link2 className="w-4 h-4 text-slate-400 shrink-0" />
+          <input
+            readOnly
+            value={shareUrl}
+            className="flex-1 text-xs bg-transparent text-slate-500 dark:text-slate-400 outline-none"
+            onClick={(e) => { (e.target as HTMLInputElement).select(); navigator.clipboard.writeText(shareUrl); setCopied(true); toast.success('Copied!'); }}
+          />
+        </div>
+      )}
+
+      {/* Still allow adding medications manually */}
+      <button
+        onClick={onAddMedication}
+        className="w-full py-2.5 rounded-lg border border-dashed border-slate-300 dark:border-slate-600 text-sm text-slate-500 hover:text-primary-500 hover:border-primary-500 transition-colors"
+      >
+        <Plus className="w-4 h-4 inline mr-1" />
+        Add a medication you're already taking
+      </button>
+    </div>
+  );
+}
+
 export function MedicationsView() {
   const { user, isLoading: isAuthLoading } = useAuth(true);
   const queryClient = useQueryClient();
@@ -726,13 +947,7 @@ export function MedicationsView() {
         </CardHeader>
         <CardContent>
           {medications.length === 0 ? (
-            <EmptyState
-              icon={Pill}
-              title="No medications yet"
-              description="Add your first medication to start tracking doses and adherence."
-              actionLabel="Add Medication"
-              onAction={() => { setShowMedForm(true); setEditingMed(null); setScannedMedPrefill(null); }}
-            />
+            <MedicationRecommendations onAddMedication={() => { setShowMedForm(true); setEditingMed(null); setScannedMedPrefill(null); }} />
           ) : (
             <div className="space-y-3">
               {medications.map((med) => (

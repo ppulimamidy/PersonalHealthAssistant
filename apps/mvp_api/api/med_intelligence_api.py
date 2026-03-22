@@ -592,6 +592,246 @@ async def supplement_intel(
 
 
 # ---------------------------------------------------------------------------
+# Medication Recommendations (no active meds)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/recommendations")
+async def medication_recommendations(
+    current_user: dict = Depends(get_current_user),
+):
+    """Generate medication/supplement recommendations based on the user's
+    health profile (conditions, labs, medical records, symptoms) even when
+    they have no medications logged. Returns structured recommendations
+    for doctor discussion. Results are cached for 7 days and invalidated
+    when underlying health data changes."""
+    user_id = current_user["id"]
+
+    # Check cache first
+    import hashlib
+
+    cached_rows = await _supabase_get(
+        "ai_analysis_cache",
+        f"user_id=eq.{user_id}&analysis_type=eq.medication_recommendations&limit=1",
+    )
+    # We'll validate the cache after gathering context (to compare data_hash)
+
+    # Gather all health context in parallel
+    (conditions, labs, medical_records, symptoms, profile_rows,) = await asyncio.gather(
+        _supabase_get(
+            "health_conditions",
+            f"user_id=eq.{user_id}&is_active=eq.true&select=condition_name,severity,diagnosed_date",
+        ),
+        _supabase_get(
+            "lab_results",
+            f"user_id=eq.{user_id}&order=test_date.desc&limit=10"
+            f"&select=test_date,test_type,biomarkers",
+        ),
+        _supabase_get(
+            "medical_records",
+            f"user_id=eq.{user_id}&order=created_at.desc&limit=5"
+            f"&select=record_type,title,ai_summary,extracted_data",
+        ),
+        _supabase_get(
+            "symptom_journal",
+            f"user_id=eq.{user_id}&order=symptom_date.desc&limit=30"
+            f"&select=symptom_type,severity,symptom_date",
+        ),
+        _supabase_get(
+            "profiles",
+            f"id=eq.{user_id}&select=full_name,date_of_birth,biological_sex",
+        ),
+    )
+
+    # Parse lab biomarkers
+    for lab in labs:
+        bm = lab.get("biomarkers") or []
+        if isinstance(bm, str):
+            try:
+                bm = json.loads(bm)
+            except (json.JSONDecodeError, TypeError):
+                bm = []
+        lab["biomarkers"] = bm if isinstance(bm, list) else []
+
+    # Parse medical record extracted_data
+    for rec in medical_records:
+        ed = rec.get("extracted_data")
+        if isinstance(ed, str):
+            try:
+                rec["extracted_data"] = json.loads(ed)
+            except Exception:
+                rec["extracted_data"] = {}
+
+    profile = profile_rows[0] if profile_rows else {}
+    first_name = (profile.get("full_name") or "").split(" ")[0] or "there"
+    dob = profile.get("date_of_birth")
+    age = None
+    if dob:
+        try:
+            age = (date.today() - date.fromisoformat(str(dob)[:10])).days // 365
+        except (ValueError, TypeError):
+            pass
+
+    # Build context for Claude
+    ctx_parts: list[str] = []
+    if age:
+        ctx_parts.append(f"Age: {age}, Sex: {profile.get('biological_sex', 'unknown')}")
+    if conditions:
+        ctx_parts.append(
+            "Active conditions: "
+            + ", ".join(
+                f"{c.get('condition_name', '')} (severity: {c.get('severity', '?')})"
+                for c in conditions
+            )
+        )
+
+    # Lab abnormals
+    abnormal: list[str] = []
+    for lab in labs:
+        for bm in lab.get("biomarkers", []):
+            status = (bm.get("status") or "").lower()
+            if status in ("high", "low", "critical", "abnormal"):
+                abnormal.append(
+                    f"{bm.get('name', '?')}: {bm.get('value', '?')} {bm.get('unit', '')} ({status})"
+                )
+    if abnormal:
+        ctx_parts.append("Abnormal lab results: " + "; ".join(abnormal[:15]))
+
+    # Medical records summaries
+    for rec in medical_records:
+        rtype = rec.get("record_type", "")
+        summary = rec.get("ai_summary") or rec.get("title", "")
+        if summary:
+            ctx_parts.append(f"{rtype.title()} record: {summary}")
+
+    # Symptom patterns
+    if symptoms:
+        symptom_counts: dict[str, int] = {}
+        for s in symptoms:
+            st = s.get("symptom_type", "unknown")
+            symptom_counts[st] = symptom_counts.get(st, 0) + 1
+        top = sorted(symptom_counts.items(), key=lambda x: -x[1])[:5]
+        ctx_parts.append("Recent symptoms: " + ", ".join(f"{s} ({n}x)" for s, n in top))
+
+    # Compute data hash for cache validation
+    data_hash = hashlib.md5("|".join(sorted(ctx_parts)).encode()).hexdigest()
+
+    # Serve cached result if data hasn't changed
+    if cached_rows:
+        cached = cached_rows[0]
+        if cached.get("data_hash") == data_hash:
+            cached_result = cached.get("result_json", {})
+            if isinstance(cached_result, str):
+                try:
+                    cached_result = json.loads(cached_result)
+                except Exception:
+                    cached_result = {}
+            if cached_result.get("recommendations"):
+                cached_result["cached"] = True
+                return cached_result
+
+    if not ctx_parts:
+        return {
+            "recommendations": [],
+            "summary": "Add your health conditions, lab results, or medical records to receive personalized medication recommendations.",
+            "disclaimer": "This is not medical advice. Always consult your doctor.",
+        }
+
+    health_context = "\n".join(f"- {p}" for p in ctx_parts)
+
+    prompt = f"""You are a clinical pharmacist reviewing a patient's health profile to suggest medications and supplements they should discuss with their doctor.
+
+Patient profile:
+{health_context}
+
+The patient currently takes NO medications or supplements.
+
+Based on their conditions, lab results, medical records, and symptoms, generate a JSON array of medication/supplement recommendations. For each, include:
+- "name": medication or supplement name
+- "category": "prescription" | "otc" | "supplement"
+- "rationale": 1-2 sentence explanation tied to their specific data
+- "evidence_level": "strong" | "moderate" | "emerging"
+- "priority": "high" | "medium" | "low"
+- "discuss_with_doctor": true/false (true for prescriptions)
+- "relevant_data": a SHORT string citing the key data point (e.g. "HbA1c 6.2%", "EGFR L858R mutation"). Must be a string, NOT an array.
+- "estimated_cost": a string with typical US monthly cost range (e.g. "$15–$40/mo generic", "$12,000–$15,000/mo brand", "$10–$25/mo OTC"). For prescriptions include both generic and brand if applicable. Use "N/A" only if truly unknown.
+- "efficacy": a short string summarizing clinical efficacy (e.g. "60–80% response rate in EGFR+ NSCLC", "Reduces HbA1c by 1–1.5%", "Lowers LDL 30–50%"). Be specific to the patient's condition.
+
+IMPORTANT FORMATTING RULES:
+- Return ONLY valid JSON. No markdown fences, no commentary before or after.
+- Keep each "rationale" to 1-2 sentences MAX (under 40 words each).
+- Max 6 recommendations.
+- "summary" should be 2 sentences max.
+
+JSON structure:
+{{"recommendations": [...], "summary": "..."}}
+
+Be specific to their data. Do NOT give generic wellness advice. Every recommendation must be tied to an abnormal lab, condition, or medical record finding."""
+
+    try:
+        raw = await _call_claude(prompt, max_tokens=4000)
+        # Strip markdown fences if present
+        import re
+
+        text = raw.strip()
+        text = re.sub(r"^```(?:json)?\s*\n?", "", text)
+        text = re.sub(r"\n?```\s*$", "", text)
+        # Find first { and last } to extract JSON object
+        start = text.find("{")
+        end = text.rfind("}")
+        if start != -1 and end != -1:
+            text = text[start : end + 1]
+        parsed = json.loads(text)
+        recs = parsed.get("recommendations", [])
+        # Normalize relevant_data to string
+        for rec in recs:
+            rd = rec.get("relevant_data")
+            if isinstance(rd, list):
+                rec["relevant_data"] = ", ".join(str(x) for x in rd)
+        summary = parsed.get("summary", "")
+    except (json.JSONDecodeError, Exception) as e:
+        logger.warning(
+            "Failed to parse recommendations JSON: %s — raw: %s",
+            e,
+            raw[:200] if raw else "",
+        )
+        recs = []
+        summary = raw if isinstance(raw, str) else "Unable to generate recommendations."
+
+    result = {
+        "recommendations": recs,
+        "summary": summary,
+        "disclaimer": "These are AI-generated suggestions for discussion with your healthcare provider. This is not medical advice.",
+        "data_sources": {
+            "conditions": len(conditions),
+            "lab_results": len(labs),
+            "medical_records": len(medical_records),
+            "symptoms": len(symptoms),
+        },
+    }
+
+    # Persist to cache if we got valid recommendations
+    if recs:
+        try:
+            from ..dependencies.usage_gate import _supabase_upsert
+
+            await _supabase_upsert(
+                "ai_analysis_cache",
+                {
+                    "user_id": user_id,
+                    "analysis_type": "medication_recommendations",
+                    "result_json": json.dumps(result),
+                    "data_hash": data_hash,
+                },
+                on_conflict="user_id,analysis_type",
+            )
+        except Exception as e:
+            logger.warning("Failed to cache med recommendations: %s", e)
+
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Claude helper
 # ---------------------------------------------------------------------------
 
@@ -611,7 +851,70 @@ async def _call_claude(prompt: str, max_tokens: int = 200) -> str:
             max_tokens=max_tokens,
             messages=[{"role": "user", "content": prompt}],
         )
-        return result.content[0].text.strip()
+        text = result.content[0].text.strip()
+        # If truncated, try to repair JSON by closing open structures
+        if result.stop_reason == "max_tokens" and max_tokens > 500:
+            text = _repair_truncated_json(text)
+        return text
     except Exception as e:
         logger.error("Claude call failed for med intelligence: %s", e)
         return "Your medication data has been reviewed. See details below."
+
+
+def _repair_truncated_json(text: str) -> str:
+    """Attempt to close truncated JSON so it can be parsed."""
+    # Count open braces/brackets
+    opens = 0
+    in_string = False
+    escape = False
+    for ch in text:
+        if escape:
+            escape = False
+            continue
+        if ch == "\\":
+            escape = True
+            continue
+        if ch == '"' and not escape:
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if ch in ("{", "["):
+            opens += 1
+        elif ch in ("}", "]"):
+            opens -= 1
+
+    if opens <= 0:
+        return text
+
+    # If we're inside a string, close it first
+    if in_string:
+        text += '..."'
+
+    # Find what closers we need by scanning from the end
+    # Simple approach: just close with the right braces
+    stack: list[str] = []
+    in_str = False
+    esc = False
+    for ch in text:
+        if esc:
+            esc = False
+            continue
+        if ch == "\\":
+            esc = True
+            continue
+        if ch == '"':
+            in_str = not in_str
+            continue
+        if in_str:
+            continue
+        if ch == "{":
+            stack.append("}")
+        elif ch == "[":
+            stack.append("]")
+        elif ch in ("}", "]") and stack:
+            stack.pop()
+
+    # Close in reverse order
+    text += "".join(reversed(stack))
+    return text

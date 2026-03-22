@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
-import { Activity, AlertTriangle, HeartPulse, TrendingUp, TrendingDown, FlaskConical, UserPlus, CheckCircle2 } from 'lucide-react';
+import { Activity, AlertTriangle, HeartPulse, TrendingUp, TrendingDown, FlaskConical, UserPlus, CheckCircle2, Sparkles, Stethoscope, Pill, Microscope, Dna, ScanLine, ShieldCheck } from 'lucide-react';
 import { sharingService } from '@/services/sharing';
 import { supabase } from '@/lib/supabase';
 import { api } from '@/services/api';
@@ -388,6 +388,93 @@ export default function SharePage() {
                       </div>
                     );
                   })}
+                </div>
+              </Section>
+            )}
+
+            {/* Medical Records */}
+            {data.medical_records && data.medical_records.length > 0 && (
+              <Section title="Medical Records">
+                <div className="space-y-3">
+                  {data.medical_records.map((rec, i) => {
+                    const typeColor = rec.record_type === 'genomic' ? '#818CF8' : rec.record_type === 'pathology' ? '#F87171' : '#60A5FA';
+                    const TypeIcon = rec.record_type === 'genomic' ? Dna : rec.record_type === 'pathology' ? Microscope : ScanLine;
+                    return (
+                      <div key={i} className="border-b last:border-b-0 pb-3 last:pb-0" style={{ borderColor: 'rgba(255,255,255,0.05)' }}>
+                        <div className="flex items-center gap-2 mb-1">
+                          <TypeIcon className="w-3.5 h-3.5" style={{ color: typeColor }} />
+                          <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: typeColor }}>
+                            {rec.record_type}
+                          </span>
+                          {rec.report_date && <span className="text-[11px] ml-auto" style={{ color: '#3D4F66' }}>{rec.report_date}</span>}
+                        </div>
+                        <p className="text-sm font-medium" style={{ color: '#C8D5E8' }}>{rec.title}</p>
+                        {rec.ai_summary && <p className="text-xs mt-1 leading-relaxed italic" style={{ color: '#8B97A8' }}>{rec.ai_summary}</p>}
+                      </div>
+                    );
+                  })}
+                </div>
+              </Section>
+            )}
+
+            {/* AI Medication Recommendations */}
+            {data.medication_recommendations && data.medication_recommendations.length > 0 && (
+              <Section title="AI Treatment Recommendations">
+                {data.medication_recommendations_summary && (
+                  <div className="flex items-start gap-2 mb-4 p-3 rounded-lg" style={{ backgroundColor: 'rgba(0,212,170,0.05)', border: '1px solid rgba(0,212,170,0.1)' }}>
+                    <Sparkles className="w-4 h-4 mt-0.5 shrink-0" style={{ color: '#00D4AA' }} />
+                    <p className="text-xs leading-relaxed" style={{ color: '#8B97A8' }}>{data.medication_recommendations_summary}</p>
+                  </div>
+                )}
+                <div className="space-y-3">
+                  {data.medication_recommendations.map((rec, i) => {
+                    const priorityColor = rec.priority === 'high' ? '#F87171' : rec.priority === 'medium' ? '#FBBF24' : '#60A5FA';
+                    const evidenceColor = rec.evidence_level === 'strong' ? '#6EE7B7' : rec.evidence_level === 'moderate' ? '#FBBF24' : '#60A5FA';
+                    const CatIcon = rec.category === 'prescription' ? Stethoscope : rec.category === 'supplement' ? FlaskConical : Pill;
+                    return (
+                      <div key={i} className="rounded-lg p-3" style={{ backgroundColor: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.05)' }}>
+                        <div className="flex items-start gap-2.5">
+                          <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ backgroundColor: `${priorityColor}15` }}>
+                            <CatIcon className="w-4 h-4" style={{ color: priorityColor }} />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-sm font-medium" style={{ color: '#C8D5E8' }}>{rec.name}</span>
+                              <Badge text={rec.priority === 'high' ? 'High Priority' : rec.priority === 'medium' ? 'Medium' : 'Low'} variant={rec.priority === 'high' ? 'warning' : 'default'} />
+                              <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium" style={{ backgroundColor: `${evidenceColor}15`, color: evidenceColor }}>
+                                {rec.evidence_level} evidence
+                              </span>
+                              {rec.discuss_with_doctor && (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium" style={{ backgroundColor: 'rgba(168,85,247,0.12)', color: '#C084FC' }}>
+                                  Rx — discuss with doctor
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-xs mt-1 leading-relaxed" style={{ color: '#8B97A8' }}>{rec.rationale}</p>
+                            {(rec.efficacy || rec.estimated_cost) && (
+                              <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1.5">
+                                {rec.efficacy && (
+                                  <span className="text-[11px]" style={{ color: '#6EE7B7' }}>Efficacy: {rec.efficacy}</span>
+                                )}
+                                {rec.estimated_cost && (
+                                  <span className="text-[11px]" style={{ color: '#8B97A8' }}>Cost: {rec.estimated_cost}</span>
+                                )}
+                              </div>
+                            )}
+                            {rec.relevant_data && (
+                              <p className="text-[11px] mt-1" style={{ color: '#526380' }}>Based on: {rec.relevant_data}</p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="flex items-start gap-2 mt-4 p-3 rounded-lg" style={{ backgroundColor: 'rgba(251,191,36,0.05)', border: '1px solid rgba(251,191,36,0.1)' }}>
+                  <ShieldCheck className="w-4 h-4 mt-0.5 shrink-0" style={{ color: '#FBBF24' }} />
+                  <p className="text-[11px] leading-relaxed" style={{ color: '#526380' }}>
+                    AI-generated suggestions for clinical discussion. Not a substitute for professional medical advice.
+                  </p>
                 </div>
               </Section>
             )}

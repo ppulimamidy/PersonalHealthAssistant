@@ -62,6 +62,7 @@ _DEFAULT_PERMISSIONS = [
     "care_plans",
     "insights",
     "interventions",
+    "intelligence",
 ]
 
 
@@ -395,5 +396,42 @@ async def get_shared_summary(token: str):
                 }
             )
         summary["interventions"] = enriched
+
+    # Intelligence — AI medication/supplement recommendations + medical record insights
+    if "intelligence" in permissions:
+        import json as _json
+
+        # Medication recommendations (calls the same logic as /med-intelligence/recommendations)
+        from .med_intelligence_api import medication_recommendations as _med_recs_fn
+
+        try:
+            # Build a fake current_user dict for the internal call
+            recs_result = await _med_recs_fn(current_user={"id": grantor_id})
+            summary["medication_recommendations"] = recs_result.get(
+                "recommendations", []
+            )
+            summary["medication_recommendations_summary"] = recs_result.get(
+                "summary", ""
+            )
+        except Exception as e:
+            logger.warning("Intelligence: med recs failed for share: %s", e)
+            summary["medication_recommendations"] = []
+            summary["medication_recommendations_summary"] = ""
+
+        # Medical record insights (summaries from uploaded records)
+        med_records = await _supabase_get(
+            "medical_records",
+            f"user_id=eq.{grantor_id}&order=created_at.desc"
+            f"&select=record_type,title,ai_summary,report_date&limit=10",
+        )
+        summary["medical_records"] = [
+            {
+                "record_type": r.get("record_type", ""),
+                "title": r.get("title", ""),
+                "ai_summary": r.get("ai_summary", ""),
+                "report_date": r.get("report_date", ""),
+            }
+            for r in (med_records or [])
+        ]
 
     return summary

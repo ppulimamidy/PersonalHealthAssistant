@@ -40,11 +40,11 @@ const RECORD_TYPES: Array<{ key: RecordType; label: string; icon: string; color:
 
 // ─── Record Cards ─────────────────────────────────────────────────────────────
 
-function PathologyCard({ record }: Readonly<{ record: MedicalRecord }>) {
+function PathologyCardInner({ record }: Readonly<{ record: MedicalRecord }>) {
   const data = record.extracted_data ?? {};
   const stage = data.stage ?? {};
   return (
-    <View className="bg-surface-raised border border-surface-border rounded-xl p-4 mb-2">
+    <>
       <View className="flex-row items-center gap-2 mb-1">
         <Ionicons name="cut-outline" size={14} color="#F87171" />
         <Text className="text-[#E8EDF5] font-sansMedium text-sm flex-1">{record.title}</Text>
@@ -60,15 +60,23 @@ function PathologyCard({ record }: Readonly<{ record: MedicalRecord }>) {
         </View>
       )}
       {record.ai_summary && <Text className="text-[#526380] text-xs mt-1 italic">{record.ai_summary}</Text>}
+    </>
+  );
+}
+
+function PathologyCard({ record }: Readonly<{ record: MedicalRecord }>) {
+  return (
+    <View className="bg-surface-raised border border-surface-border rounded-xl p-4 mb-2">
+      <PathologyCardInner record={record} />
     </View>
   );
 }
 
-function GenomicCard({ record }: Readonly<{ record: MedicalRecord }>) {
+function GenomicCardInner({ record }: Readonly<{ record: MedicalRecord }>) {
   const data = record.extracted_data ?? {};
   const mutations = data.mutations ?? [];
   return (
-    <View className="bg-surface-raised border border-surface-border rounded-xl p-4 mb-2">
+    <>
       <View className="flex-row items-center gap-2 mb-2">
         <Ionicons name="code-working-outline" size={14} color="#818CF8" />
         <Text className="text-[#E8EDF5] font-sansMedium text-sm flex-1">{record.title}</Text>
@@ -104,15 +112,23 @@ function GenomicCard({ record }: Readonly<{ record: MedicalRecord }>) {
         </View>
       ))}
       {record.ai_summary && <Text className="text-[#526380] text-xs italic">{record.ai_summary}</Text>}
+    </>
+  );
+}
+
+function GenomicCard({ record }: Readonly<{ record: MedicalRecord }>) {
+  return (
+    <View className="bg-surface-raised border border-surface-border rounded-xl p-4 mb-2">
+      <GenomicCardInner record={record} />
     </View>
   );
 }
 
-function ImagingCard({ record }: Readonly<{ record: MedicalRecord }>) {
+function ImagingCardInner({ record }: Readonly<{ record: MedicalRecord }>) {
   const data = record.extracted_data ?? {};
   const findings = data.findings ?? [];
   return (
-    <View className="bg-surface-raised border border-surface-border rounded-xl p-4 mb-2">
+    <>
       <View className="flex-row items-center gap-2 mb-1">
         <Ionicons name="scan-outline" size={14} color="#60A5FA" />
         <Text className="text-[#E8EDF5] font-sansMedium text-sm flex-1">{record.title}</Text>
@@ -125,15 +141,76 @@ function ImagingCard({ record }: Readonly<{ record: MedicalRecord }>) {
         </Text>
       ))}
       {data.impression && <Text className="text-[#8B9BB4] text-xs mt-1 italic">{data.impression}</Text>}
+    </>
+  );
+}
+
+function ImagingCard({ record }: Readonly<{ record: MedicalRecord }>) {
+  return (
+    <View className="bg-surface-raised border border-surface-border rounded-xl p-4 mb-2">
+      <ImagingCardInner record={record} />
     </View>
   );
 }
 
-function RecordCard({ record }: Readonly<{ record: MedicalRecord }>) {
-  if (record.record_type === 'pathology') return <PathologyCard record={record} />;
-  if (record.record_type === 'genomic') return <GenomicCard record={record} />;
-  if (record.record_type === 'imaging') return <ImagingCard record={record} />;
-  return null;
+function InsightButton({ record, insights, loading, onPress }: {
+  record: MedicalRecord;
+  insights: Record<string, string>;
+  loading: string | null;
+  onPress: (id: string) => void;
+}) {
+  const isLoading = loading === record.id;
+  const insight = insights[record.id];
+
+  return (
+    <View className="mt-2 pt-2 border-t border-surface-border">
+      <TouchableOpacity
+        onPress={() => onPress(record.id)}
+        disabled={isLoading}
+        className="flex-row items-center gap-1.5"
+        activeOpacity={0.7}
+      >
+        {isLoading ? (
+          <ActivityIndicator size="small" color="#00D4AA" />
+        ) : (
+          <Ionicons name="sparkles" size={14} color="#00D4AA" />
+        )}
+        <Text className="text-xs font-sansMedium" style={{ color: '#00D4AA' }}>
+          {insight ? 'Hide AI Insight' : 'AI Clinical Insight'}
+        </Text>
+      </TouchableOpacity>
+      {insight && (
+        <View className="mt-2 p-3 rounded-lg" style={{ backgroundColor: '#00D4AA10', borderWidth: 1, borderColor: '#00D4AA20' }}>
+          <Text className="text-xs text-[#C8D5E8] leading-5">{insight}</Text>
+        </View>
+      )}
+    </View>
+  );
+}
+
+function RecordCard({ record, insights, insightLoading, onInsight }: Readonly<{
+  record: MedicalRecord;
+  insights: Record<string, string>;
+  insightLoading: string | null;
+  onInsight: (id: string) => void;
+}>) {
+  const inner = record.record_type === 'pathology' ? <PathologyCard record={record} />
+    : record.record_type === 'genomic' ? <GenomicCard record={record} />
+    : record.record_type === 'imaging' ? <ImagingCard record={record} />
+    : null;
+
+  if (!inner) return null;
+
+  // Wrap each card to append the insight button inside
+  return (
+    <View className="bg-surface-raised border border-surface-border rounded-xl p-4 mb-2">
+      {/* Re-render the card content without its own wrapper */}
+      {record.record_type === 'pathology' && <PathologyCardInner record={record} />}
+      {record.record_type === 'genomic' && <GenomicCardInner record={record} />}
+      {record.record_type === 'imaging' && <ImagingCardInner record={record} />}
+      <InsightButton record={record} insights={insights} loading={insightLoading} onPress={onInsight} />
+    </View>
+  );
 }
 
 // ─── Screen ───────────────────────────────────────────────────────────────────
@@ -143,6 +220,25 @@ export default function MedicalRecordsScreen() {
   const [activeType, setActiveType] = useState<RecordType | 'all'>('all');
   const [scanning, setScanning] = useState(false);
   const [scanType, setScanType] = useState<RecordType | null>(null);
+  const [insightLoading, setInsightLoading] = useState<string | null>(null);
+  const [insights, setInsights] = useState<Record<string, string>>({});
+
+  const handleInsight = useCallback(async (recordId: string) => {
+    if (insights[recordId]) {
+      setInsights((prev) => { const next = { ...prev }; delete next[recordId]; return next; });
+      return;
+    }
+    setInsightLoading(recordId);
+    try {
+      const { data } = await api.post(`/api/v1/medical-records/${recordId}/insight`);
+      setInsights((prev) => ({ ...prev, [recordId]: data?.insight ?? 'No insight available.' }));
+      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } catch {
+      setInsights((prev) => ({ ...prev, [recordId]: 'Failed to generate insight.' }));
+    } finally {
+      setInsightLoading(null);
+    }
+  }, [insights]);
 
   const { data: records, isLoading } = useQuery<MedicalRecord[]>({
     queryKey: ['medical-records', activeType],
@@ -288,7 +384,15 @@ export default function MedicalRecordsScreen() {
             </Text>
           </View>
         ) : (
-          records.map((r) => <RecordCard key={r.id} record={r} />)
+          records.map((r) => (
+            <RecordCard
+              key={r.id}
+              record={r}
+              insights={insights}
+              insightLoading={insightLoading}
+              onInsight={handleInsight}
+            />
+          ))
         )}
       </View>
     </ScrollView>

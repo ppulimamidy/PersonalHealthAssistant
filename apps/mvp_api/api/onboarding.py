@@ -56,11 +56,159 @@ class CompleteRequest(BaseModel):
 
 
 class SmartPrompt(BaseModel):
-    type: str  # device|medications|cycle|labs|meals|symptoms
+    type: str  # device|medications|cycle|labs|meals|symptoms|side_effects|weight|energy
     title: str
     body: str
     action: str  # screen to navigate to
     priority: int
+
+
+# ── Condition-aware prompt content ────────────────────────────────────────────
+# Maps condition categories to tailored messaging for each prompt type.
+
+
+def _condition_category(condition: str) -> str:
+    """Map a primary_condition to a broad category for prompt customization."""
+    c = (condition or "").lower().replace(" ", "_")
+    if any(
+        k in c
+        for k in (
+            "cancer",
+            "oncol",
+            "tumor",
+            "carcinoma",
+            "lymphoma",
+            "leukemia",
+            "nsclc",
+            "melanoma",
+        )
+    ):
+        return "oncology"
+    if any(k in c for k in ("diabetes", "prediabetes", "insulin", "glucose", "hba1c")):
+        return "diabetes"
+    if any(k in c for k in ("pcos", "endometriosis", "hormonal", "fertility")):
+        return "hormonal"
+    if any(
+        k in c
+        for k in (
+            "heart",
+            "cardiac",
+            "hypertension",
+            "cholesterol",
+            "cardiovascular",
+            "atrial",
+        )
+    ):
+        return "cardiac"
+    if any(
+        k in c for k in ("anxiety", "depression", "mental", "bipolar", "ptsd", "adhd")
+    ):
+        return "mental_health"
+    if any(
+        k in c
+        for k in (
+            "autoimmune",
+            "lupus",
+            "crohn",
+            "colitis",
+            "rheumatoid",
+            "ms_",
+            "multiple_sclerosis",
+        )
+    ):
+        return "autoimmune"
+    return "general"
+
+
+# Condition-specific overrides for prompt content
+_CONDITION_PROMPTS: dict[str, dict[str, dict[str, str]]] = {
+    "oncology": {
+        "device": {
+            "title": "Track energy & recovery",
+            "body": "Monitoring fatigue, heart rate, and sleep quality during treatment helps your oncologist optimize your care plan.",
+        },
+        "medications": {
+            "title": "Log your treatment medications",
+            "body": "Track chemo regimen, anti-nausea meds, and supportive medications to monitor adherence and interactions.",
+        },
+        "labs": {
+            "title": "Add your blood work",
+            "body": "WBC, neutrophils, platelets, and tumor markers are critical during treatment — upload your latest results.",
+        },
+        "meals": {
+            "title": "Track nutrition intake",
+            "body": "Maintaining caloric intake and hydration during chemo is critical. Log meals to spot nutritional gaps.",
+        },
+        "symptoms": {
+            "title": "Log treatment side effects",
+            "body": "Track nausea, fatigue, neuropathy, pain — helps identify patterns and adjust supportive care.",
+        },
+    },
+    "diabetes": {
+        "device": {
+            "title": "Connect glucose tracking",
+            "body": "Continuous glucose data or wearable metrics help your care team optimize medication timing and dosing.",
+        },
+        "medications": {
+            "title": "Log your diabetes medications",
+            "body": "Track metformin, insulin, or GLP-1 agonists — helps correlate glucose control with adherence.",
+        },
+        "labs": {
+            "title": "Add your HbA1c & metabolic panel",
+            "body": "Your latest HbA1c, fasting glucose, and lipid panel set the baseline for tracking improvement.",
+        },
+        "meals": {
+            "title": "Log meals for glucose impact",
+            "body": "Track carb intake and meal timing to identify which foods spike your glucose the most.",
+        },
+        "symptoms": {
+            "title": "Track hypo/hyper symptoms",
+            "body": "Log dizziness, fatigue, blurred vision — correlates with glucose patterns and medication timing.",
+        },
+    },
+    "cardiac": {
+        "device": {
+            "title": "Connect heart monitoring",
+            "body": "Heart rate, HRV, and blood pressure data help your cardiologist track cardiovascular health trends.",
+        },
+        "labs": {
+            "title": "Add your lipid panel & cardiac markers",
+            "body": "LDL, HDL, triglycerides, and BNP levels are key for tracking cardiac risk reduction.",
+        },
+        "symptoms": {
+            "title": "Log cardiac symptoms",
+            "body": "Track chest pain, shortness of breath, palpitations — patterns help assess treatment effectiveness.",
+        },
+    },
+    "mental_health": {
+        "device": {
+            "title": "Connect for sleep & stress tracking",
+            "body": "Sleep quality and HRV are strong indicators of mental health status — helps your therapist spot patterns.",
+        },
+        "symptoms": {
+            "title": "Daily mood & anxiety check-in",
+            "body": "Brief daily ratings help identify triggers, medication effects, and overall trajectory.",
+        },
+    },
+    "autoimmune": {
+        "symptoms": {
+            "title": "Track flare symptoms",
+            "body": "Log pain, fatigue, joint stiffness — helps identify flare triggers and assess medication effectiveness.",
+        },
+        "labs": {
+            "title": "Add inflammation markers",
+            "body": "CRP, ESR, and condition-specific markers track disease activity over time.",
+        },
+    },
+}
+
+
+def _get_prompt_content(
+    category: str, prompt_type: str, default_title: str, default_body: str
+) -> tuple[str, str]:
+    """Return condition-specific title/body if available, else defaults."""
+    overrides = _CONDITION_PROMPTS.get(category, {}).get(prompt_type, {})
+    return overrides.get("title", default_title), overrides.get("body", default_body)
 
 
 class DataCompleteness(BaseModel):
@@ -696,6 +844,7 @@ async def get_smart_prompt(
     specialist_name = (
         specialist.replace("_", " ").title() if specialist else "Health Coach"
     )
+    cond_cat = _condition_category(condition)
 
     # Device — check both oura_connections AND native health data
     oura = await _supabase_get(
@@ -706,14 +855,14 @@ async def get_smart_prompt(
     )
     has_device = bool(oura) or bool(health_data)
     if not has_device and "device" not in dismissed_recently:
+        t, b = _get_prompt_content(
+            cond_cat,
+            "device",
+            "Connect your wearable",
+            f"Your {specialist_name} needs sleep and HRV data to start analyzing patterns.",
+        )
         prompts.append(
-            SmartPrompt(
-                type="device",
-                title="Connect your wearable",
-                body=f"Your {specialist_name} needs sleep and HRV data to start analyzing patterns.",
-                action="devices",
-                priority=100,
-            )
+            SmartPrompt(type="device", title=t, body=b, action="devices", priority=100)
         )
 
     # Medications (for condition users)
@@ -722,11 +871,17 @@ async def get_smart_prompt(
             "medications", f"user_id=eq.{user_id}&is_active=eq.true&limit=1"
         )
         if not meds and "medications" not in dismissed_recently:
+            t, b = _get_prompt_content(
+                cond_cat,
+                "medications",
+                "Add your medications",
+                "Helps check interactions and track adherence.",
+            )
             prompts.append(
                 SmartPrompt(
                     type="medications",
-                    title="Add your medications",
-                    body="Helps check interactions and track adherence.",
+                    title=t,
+                    body=b,
                     action="medications",
                     priority=90,
                 )
@@ -750,17 +905,19 @@ async def get_smart_prompt(
     if condition:
         labs = await _supabase_get("lab_results", f"user_id=eq.{user_id}&limit=1")
         if not labs and "labs" not in dismissed_recently:
+            t, b = _get_prompt_content(
+                cond_cat,
+                "labs",
+                "Add recent lab results",
+                "Sets your health baseline for tracking progress.",
+            )
             prompts.append(
                 SmartPrompt(
-                    type="labs",
-                    title="Add recent lab results",
-                    body="Sets your health baseline for tracking progress.",
-                    action="lab-results",
-                    priority=80,
+                    type="labs", title=t, body=b, action="lab-results", priority=80
                 )
             )
 
-    # Meals — always relevant (not just after 2 days)
+    # Meals — always relevant
     if "meals" not in dismissed_recently:
         meals = await _supabase_get("meal_logs", f"user_id=eq.{user_id}&limit=1")
         if not meals:
@@ -770,11 +927,17 @@ async def get_smart_prompt(
                 "nutrition_logs", f"user_id=eq.{user_id}&limit=1"
             )
         if not meals:
+            t, b = _get_prompt_content(
+                cond_cat,
+                "meals",
+                "Log your first meal",
+                f"Your {specialist_name} can find food-health connections once you start logging.",
+            )
             prompts.append(
                 SmartPrompt(
                     type="meals",
-                    title="Log your first meal",
-                    body=f"Your {specialist_name} can find food-health connections once you start logging.",
+                    title=t,
+                    body=b,
                     action="nutrition",
                     priority=70 if has_device else 55,
                 )
@@ -796,13 +959,15 @@ async def get_smart_prompt(
             "symptom_entries", f"user_id=eq.{user_id}&limit=1"
         )
         if not symptoms:
+            t, b = _get_prompt_content(
+                cond_cat,
+                "symptoms",
+                "Track a symptom",
+                "Helps identify triggers and patterns.",
+            )
             prompts.append(
                 SmartPrompt(
-                    type="symptoms",
-                    title="Track a symptom",
-                    body="Helps identify triggers and patterns.",
-                    action="symptoms",
-                    priority=50,
+                    type="symptoms", title=t, body=b, action="symptoms", priority=50
                 )
             )
 

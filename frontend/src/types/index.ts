@@ -22,7 +22,8 @@ export type SharePermission =
   | 'symptoms'
   | 'care_plans'
   | 'insights'
-  | 'interventions';
+  | 'interventions'
+  | 'intelligence';
 
 export interface ShareLink {
   id: string;
@@ -64,6 +65,25 @@ export interface SharedHealthSummary {
     outcome_delta?: Record<string, number>;
     outcome_summary?: string;
     completed_at?: string;
+  }>;
+  // Intelligence layer
+  medication_recommendations?: Array<{
+    name: string;
+    category: 'prescription' | 'otc' | 'supplement';
+    rationale: string;
+    evidence_level: 'strong' | 'moderate' | 'emerging';
+    priority: 'high' | 'medium' | 'low';
+    discuss_with_doctor: boolean;
+    relevant_data?: string;
+    estimated_cost?: string;
+    efficacy?: string;
+  }>;
+  medication_recommendations_summary?: string;
+  medical_records?: Array<{
+    record_type: string;
+    title: string;
+    ai_summary: string;
+    report_date: string;
   }>;
 }
 

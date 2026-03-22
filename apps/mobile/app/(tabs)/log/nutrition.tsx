@@ -214,11 +214,15 @@ function PhotoScanModal({
         headers: { 'Content-Type': 'multipart/form-data' },
       });
 
-      const foods: FoodItem[] = (data?.recognized_foods ?? []).map((f: RecognizedFood) => ({
+      const foods: FoodItem[] = (data?.recognized_foods ?? []).map((f: any) => ({
         name: f.name,
-        portion_g: f.portion_g ?? 100,
-        quantity: f.quantity ?? (f.portion_g ?? 100),
-        unit: (f.unit as PortionUnit) ?? 'g',
+        portion_g: f.portion_g || f.portion_estimate?.grams || 100,
+        quantity: f.quantity ?? f.portion_estimate?.estimated_quantity ?? 1,
+        unit: (f.unit ?? f.portion_estimate?.unit ?? 'serving') as PortionUnit,
+        calories: f.calories ?? 0,
+        protein_g: f.protein_g ?? 0,
+        carbs_g: f.carbs_g ?? 0,
+        fat_g: f.fat_g ?? 0,
       }));
 
       if (foods.length === 0) {
@@ -861,6 +865,27 @@ export default function NutritionScreen() {
   }, [fetchSuggestion]);
 
   const mealsList = Array.isArray(meals) ? meals : [];
+
+  // Nutrition intelligence — personalized recommendations from health profile
+  const { data: nutritionIntel, isLoading: intelLoading } = useQuery({
+    queryKey: ['nutrition-intelligence'],
+    queryFn: async () => {
+      try {
+        const { data } = await api.get('/api/v1/nutrition-ai/nutrition-intelligence');
+        return data as {
+          recommendations: Array<{ title: string; rationale: string; category: string; priority: string; foods: string[]; health_link: string }>;
+          foods_to_prioritize: Array<{ name?: string; food?: string; why: string }>;
+          foods_to_limit: Array<{ name?: string; food?: string; why: string }>;
+          daily_focus: string;
+          summary: string;
+        };
+      } catch { return null; }
+    },
+    staleTime: 10 * 60_000,
+    retry: 2,
+    enabled: mealsList.length === 0,
+  });
+
   const grouped = mealsList.reduce<Record<string, MealLog[]>>((acc, meal) => {
     const label = formatMealDate(meal.logged_at ?? meal.timestamp ?? '');
     if (!acc[label]) acc[label] = [];
@@ -962,22 +987,128 @@ export default function NutritionScreen() {
           {isLoading ? (
             <ActivityIndicator color="#00D4AA" className="mt-8" />
           ) : Object.keys(grouped).length === 0 ? (
-            <View className="items-center py-12">
-              <Ionicons name="restaurant-outline" size={40} color="#526380" />
-              <Text className="text-[#526380] text-base mt-3">No meals logged yet</Text>
-              <Text className="text-[#526380] text-sm mt-1 text-center">
-                Tap "Scan Photo" to use AI recognition or "Manual Entry" to type foods.
-              </Text>
-              <TouchableOpacity
-                onPress={() => router.push('/(tabs)/log/meal-plan')}
-                className="mt-4 flex-row items-center gap-1.5 px-4 py-2 rounded-lg"
-                style={{ backgroundColor: '#818CF815', borderWidth: 1, borderColor: '#818CF830' }}
-                activeOpacity={0.7}
-              >
-                <Ionicons name="calendar-outline" size={14} color="#818CF8" />
-                <Text className="text-[#818CF8] text-xs font-sansMedium">Generate a meal plan</Text>
-              </TouchableOpacity>
-            </View>
+            <>
+              {intelLoading ? (
+                <View className="items-center py-12">
+                  <ActivityIndicator color="#6EE7B7" />
+                  <Text className="text-[#526380] text-sm mt-3">Analyzing your health profile for nutrition guidance...</Text>
+                </View>
+              ) : nutritionIntel?.recommendations && nutritionIntel.recommendations.length > 0 ? (
+                <View>
+                  {/* AI Summary */}
+                  {nutritionIntel.summary && (
+                    <View className="bg-[#6EE7B708] border border-[#6EE7B718] rounded-2xl p-4 mb-3">
+                      <View className="flex-row items-center gap-1.5 mb-2">
+                        <Ionicons name="sparkles" size={14} color="#6EE7B7" />
+                        <Text className="text-[#6EE7B7] text-[10px] font-sansMedium uppercase tracking-wider">Personalized Nutrition</Text>
+                      </View>
+                      <Text className="text-[#8B9BB4] text-xs leading-5">{nutritionIntel.summary}</Text>
+                    </View>
+                  )}
+
+                  {/* Daily focus */}
+                  {nutritionIntel.daily_focus && (
+                    <View className="bg-[#F5A62308] border border-[#F5A62318] rounded-xl p-3 mb-3">
+                      <View className="flex-row items-center gap-1.5">
+                        <Ionicons name="leaf-outline" size={14} color="#F5A623" />
+                        <Text className="text-[#F5A623] text-xs font-sansMedium flex-1">Today: {nutritionIntel.daily_focus}</Text>
+                      </View>
+                    </View>
+                  )}
+
+                  {/* Recommendation Cards */}
+                  {nutritionIntel.recommendations.map((rec, i) => {
+                    const priorityColor = rec.priority === 'high' ? '#F87171' : rec.priority === 'medium' ? '#FBBF24' : '#60A5FA';
+                    const catIcon = rec.category === 'limit' ? 'warning-outline' : rec.category === 'timing' ? 'time-outline' : 'leaf-outline';
+                    return (
+                      <View key={i} className="bg-surface-raised border border-surface-border rounded-xl p-4 mb-2">
+                        <View className="flex-row items-start gap-3">
+                          <View className="w-9 h-9 rounded-lg items-center justify-center" style={{ backgroundColor: `${priorityColor}15` }}>
+                            <Ionicons name={catIcon as any} size={18} color={priorityColor} />
+                          </View>
+                          <View className="flex-1">
+                            <View className="flex-row items-center gap-1.5 flex-wrap mb-0.5">
+                              <Text className="text-[#E8EDF5] font-sansMedium text-sm">{rec.title}</Text>
+                              <View className="rounded-full px-1.5 py-0.5" style={{ backgroundColor: `${priorityColor}15` }}>
+                                <Text className="text-[9px] font-sansMedium" style={{ color: priorityColor }}>{rec.priority}</Text>
+                              </View>
+                            </View>
+                            <Text className="text-[#526380] text-xs mt-0.5 leading-5">{rec.rationale}</Text>
+                            {rec.foods?.length > 0 && (
+                              <View className="flex-row flex-wrap gap-1 mt-1.5">
+                                {rec.foods.map((f, fi) => (
+                                  <View key={fi} className="bg-[#6EE7B710] rounded px-1.5 py-0.5">
+                                    <Text className="text-[#6EE7B7] text-[10px]">{f}</Text>
+                                  </View>
+                                ))}
+                              </View>
+                            )}
+                            {rec.health_link && (
+                              <View className="flex-row items-center gap-1 mt-1">
+                                <Ionicons name="arrow-forward" size={9} color="#526380" />
+                                <Text className="text-[#526380] text-[10px]">{rec.health_link}</Text>
+                              </View>
+                            )}
+                          </View>
+                        </View>
+                      </View>
+                    );
+                  })}
+
+                  {/* Foods to prioritize & limit */}
+                  {nutritionIntel.foods_to_prioritize?.length > 0 && (
+                    <View className="bg-[#6EE7B706] border border-[#6EE7B715] rounded-xl p-3 mb-2">
+                      <Text className="text-[#6EE7B7] text-[10px] font-sansMedium uppercase tracking-wider mb-2">Prioritize</Text>
+                      {nutritionIntel.foods_to_prioritize.slice(0, 6).map((f, i) => (
+                        <Text key={i} className="text-[#8B9BB4] text-xs leading-5">
+                          <Text className="text-[#6EE7B7]">+ </Text>
+                          <Text className="text-[#C8D6E5] font-sansMedium">{f.name || f.food}</Text> — {f.why}
+                        </Text>
+                      ))}
+                    </View>
+                  )}
+                  {nutritionIntel.foods_to_limit?.length > 0 && (
+                    <View className="bg-[#F8717106] border border-[#F8717115] rounded-xl p-3 mb-3">
+                      <Text className="text-[#F87171] text-[10px] font-sansMedium uppercase tracking-wider mb-2">Limit</Text>
+                      {nutritionIntel.foods_to_limit.map((f, i) => (
+                        <Text key={i} className="text-[#8B9BB4] text-xs leading-5">
+                          <Text className="text-[#F87171]">- </Text>
+                          <Text className="text-[#C8D6E5] font-sansMedium">{f.name || f.food}</Text> — {f.why}
+                        </Text>
+                      ))}
+                    </View>
+                  )}
+
+                  {/* Meal plan CTA */}
+                  <TouchableOpacity
+                    onPress={() => router.push('/(tabs)/log/meal-plan')}
+                    className="flex-row items-center justify-center gap-1.5 py-3 rounded-xl"
+                    style={{ backgroundColor: '#818CF815', borderWidth: 1, borderColor: '#818CF830' }}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="calendar-outline" size={14} color="#818CF8" />
+                    <Text className="text-[#818CF8] text-xs font-sansMedium">Generate a 7-day meal plan</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <View className="items-center py-12">
+                  <Ionicons name="restaurant-outline" size={40} color="#526380" />
+                  <Text className="text-[#526380] text-base mt-3">No meals logged yet</Text>
+                  <Text className="text-[#526380] text-sm mt-1 text-center">
+                    Tap "Scan Photo" to use AI recognition or "Manual Entry" to type foods.
+                  </Text>
+                  <TouchableOpacity
+                    onPress={() => router.push('/(tabs)/log/meal-plan')}
+                    className="mt-4 flex-row items-center gap-1.5 px-4 py-2 rounded-lg"
+                    style={{ backgroundColor: '#818CF815', borderWidth: 1, borderColor: '#818CF830' }}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="calendar-outline" size={14} color="#818CF8" />
+                    <Text className="text-[#818CF8] text-xs font-sansMedium">Generate a meal plan</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </>
           ) : (
             Object.entries(grouped).map(([dateLabel, dayMeals]) => (
               <View key={dateLabel} className="mb-5">

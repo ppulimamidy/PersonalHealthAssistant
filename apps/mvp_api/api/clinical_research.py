@@ -523,6 +523,112 @@ class ClinicalSearchRequest(BaseModel):
     search_type: str = "all"  # all, treatments, drugs, trials
 
 
+@router.get("/personalized-topics")
+async def personalized_research_topics(
+    current_user: dict = Depends(get_current_user),
+):
+    """Generate personalized research topics based on the user's health profile.
+
+    Returns condition-specific research cards, relevant clinical trials,
+    treatment ladders, and screening recommendations — all without
+    requiring a manual search.
+    """
+    user_id = current_user["id"]
+    ctx = await _gather_research_context(user_id)
+
+    conditions = ctx.get("conditions", [])
+    medications = ctx.get("medications", [])
+    abnormal_labs = ctx.get("abnormal_labs", [])
+    treatment_ladders = ctx.get("treatment_ladders", [])
+    genomic_mutations = ctx.get("genomic_mutations", [])
+    first_name = ctx.get("first_name", "there")
+
+    # If no health data at all, return empty
+    if not conditions and not abnormal_labs and not genomic_mutations:
+        return {
+            "topics": [],
+            "treatment_ladders": [],
+            "screening": [],
+            "summary": "Add your health conditions, lab results, or medical records to get personalized research recommendations.",
+        }
+
+    # Build AI prompt for personalized research topics
+    context_text = _format_context(ctx)
+
+    prompt = f"""You are a clinical research advisor. Based on this patient's health profile, generate personalized research topics they should explore.
+
+{context_text}
+
+Generate a JSON object with:
+- "topics": array of 4-6 research topic cards, each with:
+  - "title": short topic title (e.g. "EGFR-Targeted Therapy Options")
+  - "description": 1 sentence why this matters for THIS patient
+  - "category": "treatment" | "trial" | "guideline" | "supplement" | "monitoring" | "genomic"
+  - "urgency": "high" | "medium" | "low"
+  - "search_query": the optimal search query to use for deeper research
+  - "key_finding": 1 sentence with the most important clinical fact (cite guideline if applicable)
+- "summary": 2 sentence overview for {first_name}
+
+RULES:
+- Every topic MUST be tied to their specific conditions, labs, medications, or genomic data
+- Include at least 1 clinical trial topic if they have an active condition
+- Include guideline-based treatment ladder if applicable
+- Keep descriptions under 25 words each
+- Return ONLY valid JSON, no markdown fences"""
+
+    topics: list = []
+    summary = ""
+
+    try:
+        raw = await _call_claude(prompt, max_tokens=2000)
+        import re as _re
+
+        text = raw.strip()
+        text = _re.sub(r"^```(?:json)?\s*\n?", "", text)
+        text = _re.sub(r"\n?```\s*$", "", text)
+        start = text.find("{")
+        end = text.rfind("}")
+        if start != -1 and end != -1:
+            text = text[start : end + 1]
+        parsed = json.loads(text)
+        topics = parsed.get("topics", [])
+        summary = parsed.get("summary", "")
+    except Exception as e:
+        logger.warning("Failed to parse research topics: %s", e)
+        # Fallback: generate topics from conditions directly
+        for cond in conditions[:4]:
+            topics.append(
+                {
+                    "title": f"Latest treatments for {cond}",
+                    "description": f"Current evidence-based treatment options for your {cond}.",
+                    "category": "treatment",
+                    "urgency": "medium",
+                    "search_query": f"{cond} treatment guidelines 2026",
+                    "key_finding": f"Review current guidelines for {cond} management.",
+                }
+            )
+        if genomic_mutations:
+            genes = [m.get("gene", "") for m in genomic_mutations[:3]]
+            topics.append(
+                {
+                    "title": f"Targeted therapy: {', '.join(genes)}",
+                    "description": "Genomic-guided treatment options based on your molecular profile.",
+                    "category": "genomic",
+                    "urgency": "high",
+                    "search_query": f"{' '.join(genes)} targeted therapy clinical trials",
+                    "key_finding": "Discuss biomarker-guided therapy with your oncologist.",
+                }
+            )
+        summary = f"Research topics based on your {len(conditions)} condition(s) and health data."
+
+    return {
+        "topics": topics,
+        "treatment_ladders": treatment_ladders,
+        "screening": [],  # Could add USPSTF screening here
+        "summary": summary,
+    }
+
+
 @router.post("/clinical-search")
 async def clinical_search(
     body: ClinicalSearchRequest,

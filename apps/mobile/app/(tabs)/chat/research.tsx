@@ -9,9 +9,41 @@ import {
   ActivityIndicator, Share,
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
+import { useQuery } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import { api } from '@/services/api';
 import ClinicalTrialCard from '@/components/ClinicalTrialCard';
+
+// ─── Topic Intelligence Types ────────────────────────────────────────────────
+
+interface ResearchTopic {
+  title: string;
+  description: string;
+  category: string;
+  urgency: 'high' | 'medium' | 'low';
+  search_query: string;
+  key_finding: string;
+}
+
+interface TreatmentLadder {
+  condition: string;
+  ladder: Array<{ step: string; treatment: string }>;
+}
+
+const TOPIC_ICONS: Record<string, string> = {
+  treatment: 'medkit-outline',
+  trial: 'flask-outline',
+  guideline: 'clipboard-outline',
+  supplement: 'nutrition-outline',
+  monitoring: 'pulse-outline',
+  genomic: 'code-working-outline',
+};
+
+const URGENCY_COLORS: Record<string, { color: string; label: string }> = {
+  high: { color: '#F87171', label: 'Urgent' },
+  medium: { color: '#FBBF24', label: 'Recommended' },
+  low: { color: '#60A5FA', label: 'Informational' },
+};
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -166,6 +198,20 @@ export default function ClinicalResearchScreen() {
   const [error, setError] = useState<string | null>(null);
   const [trials, setTrials] = useState<any[]>([]);
   const [trialsLoading, setTrialsLoading] = useState(false);
+
+  // Personalized research topics
+  const { data: topicsData, isLoading: topicsLoading } = useQuery({
+    queryKey: ['research-topics'],
+    queryFn: async () => {
+      const { data } = await api.get('/api/v1/research/personalized-topics');
+      return data as {
+        topics: ResearchTopic[];
+        treatment_ladders: TreatmentLadder[];
+        summary: string;
+      };
+    },
+    staleTime: 10 * 60_000,
+  });
 
   useEffect(() => {
     if (params.initialQuery) {
@@ -396,27 +442,116 @@ export default function ClinicalResearchScreen() {
           </>
         )}
 
-        {/* Empty state */}
+        {/* Personalized Research Intelligence / Empty state */}
         {!result && !searching && !error && (
-          <View className="items-center py-16">
-            <Ionicons name="flask-outline" size={48} color="#818CF8" />
-            <Text className="text-[#E8EDF5] font-sansMedium text-base mt-3">Clinical Research</Text>
-            <Text className="text-[#526380] text-sm mt-1 text-center leading-5 px-4">
-              Search for treatments, drugs, clinical trials, or ask about guidelines for any condition
-            </Text>
-            <View className="flex-row flex-wrap gap-2 mt-4 justify-center px-4">
-              {['PCOS treatments', 'Metformin alternatives', 'Latest cancer immunotherapy', 'Statin comparison'].map((s) => (
-                <TouchableOpacity
-                  key={s}
-                  onPress={() => { setQuery(s); handleSearch(s); }}
-                  className="bg-[#818CF812] border border-[#818CF825] rounded-full px-3 py-1.5"
-                  activeOpacity={0.7}
-                >
-                  <Text className="text-[#818CF8] text-xs">{s}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </View>
+          <>
+            {topicsLoading ? (
+              <View className="items-center py-12">
+                <ActivityIndicator color="#818CF8" />
+                <Text className="text-[#526380] text-sm mt-3">Analyzing your health profile...</Text>
+              </View>
+            ) : topicsData?.topics && topicsData.topics.length > 0 ? (
+              <View>
+                {/* AI Summary */}
+                {topicsData.summary && (
+                  <View className="bg-[#818CF810] border border-[#818CF820] rounded-2xl p-4 mb-4">
+                    <View className="flex-row items-center gap-1.5 mb-2">
+                      <Ionicons name="sparkles" size={14} color="#818CF8" />
+                      <Text className="text-[#818CF8] text-[10px] font-sansMedium uppercase tracking-wider">Personalized for You</Text>
+                    </View>
+                    <Text className="text-[#8B9BB4] text-xs leading-5">{topicsData.summary}</Text>
+                  </View>
+                )}
+
+                {/* Topic Cards */}
+                {topicsData.topics.map((topic, i) => {
+                  const urgency = URGENCY_COLORS[topic.urgency] ?? URGENCY_COLORS.medium;
+                  const iconName = TOPIC_ICONS[topic.category] ?? 'flask-outline';
+                  return (
+                    <TouchableOpacity
+                      key={i}
+                      onPress={() => { setQuery(topic.search_query); handleSearch(topic.search_query); }}
+                      className="bg-surface-raised border border-surface-border rounded-xl p-4 mb-2"
+                      activeOpacity={0.7}
+                    >
+                      <View className="flex-row items-start gap-3">
+                        <View className="w-9 h-9 rounded-lg items-center justify-center" style={{ backgroundColor: `${urgency.color}15` }}>
+                          <Ionicons name={iconName as any} size={18} color={urgency.color} />
+                        </View>
+                        <View className="flex-1">
+                          <View className="flex-row items-center gap-2 flex-wrap mb-0.5">
+                            <Text className="text-[#E8EDF5] font-sansMedium text-sm">{topic.title}</Text>
+                            <View className="rounded-full px-1.5 py-0.5" style={{ backgroundColor: `${urgency.color}15` }}>
+                              <Text className="text-[9px] font-sansMedium" style={{ color: urgency.color }}>{urgency.label}</Text>
+                            </View>
+                          </View>
+                          <Text className="text-[#526380] text-xs mt-0.5">{topic.description}</Text>
+                          {topic.key_finding && (
+                            <View className="flex-row items-center gap-1 mt-1.5">
+                              <Ionicons name="arrow-forward" size={10} color="#818CF8" />
+                              <Text className="text-[#818CF8] text-[11px] flex-1">{topic.key_finding}</Text>
+                            </View>
+                          )}
+                        </View>
+                        <Ionicons name="chevron-forward" size={16} color="#3D4F66" style={{ marginTop: 2 }} />
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })}
+
+                {/* Treatment Ladders */}
+                {topicsData.treatment_ladders?.length > 0 && (
+                  <View className="mt-2 mb-4">
+                    <View className="flex-row items-center gap-1.5 mb-2">
+                      <Ionicons name="clipboard-outline" size={14} color="#818CF8" />
+                      <Text className="text-[#526380] text-[10px] uppercase tracking-wider font-sansMedium">Treatment Pathways</Text>
+                    </View>
+                    {topicsData.treatment_ladders.map((ladder, i) => (
+                      <View key={i} className="bg-surface-raised border border-surface-border rounded-xl p-4 mb-2">
+                        <Text className="text-[#8B9BB4] text-[10px] uppercase tracking-wider mb-2">{ladder.condition}</Text>
+                        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                          <View className="flex-row items-center gap-1">
+                            {ladder.ladder.map((step, si) => (
+                              <View key={si} className="flex-row items-center gap-1">
+                                <View className="bg-white/5 rounded-lg px-2.5 py-1.5">
+                                  <Text className="text-[#818CF8] text-[10px] font-sansMedium">{step.step}</Text>
+                                  <Text className="text-[#C8D6E5] text-[10px]">{step.treatment}</Text>
+                                </View>
+                                {si < ladder.ladder.length - 1 && (
+                                  <Ionicons name="arrow-forward" size={10} color="#3D4F66" />
+                                )}
+                              </View>
+                            ))}
+                          </View>
+                        </ScrollView>
+                      </View>
+                    ))}
+                  </View>
+                )}
+              </View>
+            ) : (
+              /* Fallback: generic empty state */
+              <View className="items-center py-16">
+                <Ionicons name="flask-outline" size={48} color="#818CF8" />
+                <Text className="text-[#E8EDF5] font-sansMedium text-base mt-3">Clinical Research</Text>
+                <Text className="text-[#526380] text-sm mt-1 text-center leading-5 px-4">
+                  Search for treatments, drugs, clinical trials, or ask about guidelines for any condition
+                </Text>
+                <View className="flex-row flex-wrap gap-2 mt-4 justify-center px-4">
+                  {['PCOS treatments', 'Metformin alternatives', 'Latest cancer immunotherapy', 'Statin comparison'].map((s) => (
+                    <TouchableOpacity
+                      key={s}
+                      onPress={() => { setQuery(s); handleSearch(s); }}
+                      className="bg-[#818CF812] border border-[#818CF825] rounded-full px-3 py-1.5"
+                      activeOpacity={0.7}
+                    >
+                      <Text className="text-[#818CF8] text-xs">{s}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+            )}
+          </>
         )}
       </View>
     </ScrollView>

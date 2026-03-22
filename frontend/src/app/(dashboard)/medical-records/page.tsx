@@ -6,7 +6,7 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { useAuth } from '@/hooks/useAuth';
 import { api } from '@/services/api';
-import { Microscope, Dna, ScanLine, FlaskConical, Upload, Loader2, FileUp } from 'lucide-react';
+import { Microscope, Dna, ScanLine, FlaskConical, Upload, Loader2, FileUp, Sparkles } from 'lucide-react';
 
 type RecordType = 'pathology' | 'genomic' | 'imaging';
 
@@ -31,7 +31,26 @@ export default function MedicalRecordsPage() {
   const [activeType, setActiveType] = useState<RecordType | 'all'>('all');
   const [uploading, setUploading] = useState(false);
   const [uploadStatus, setUploadStatus] = useState('');
+  const [insightLoading, setInsightLoading] = useState<string | null>(null);
+  const [insights, setInsights] = useState<Record<string, string>>({});
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  async function fetchInsight(recordId: string) {
+    if (insights[recordId]) {
+      // Toggle off if already shown
+      setInsights((prev) => { const next = { ...prev }; delete next[recordId]; return next; });
+      return;
+    }
+    setInsightLoading(recordId);
+    try {
+      const { data } = await api.post(`/api/v1/medical-records/${recordId}/insight`);
+      setInsights((prev) => ({ ...prev, [recordId]: data?.insight ?? 'No insight available.' }));
+    } catch {
+      setInsights((prev) => ({ ...prev, [recordId]: 'Failed to generate insight.' }));
+    } finally {
+      setInsightLoading(null);
+    }
+  }
 
   async function handleUpload(file: File) {
     setUploading(true);
@@ -273,6 +292,27 @@ export default function MedicalRecordsPage() {
                   )}
 
                   {rec.ai_summary && <p className="text-xs text-slate-500 italic mt-2">{rec.ai_summary}</p>}
+
+                  {/* AI Intelligence Insight */}
+                  <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-700/50">
+                    <button
+                      onClick={() => fetchInsight(rec.id)}
+                      disabled={insightLoading === rec.id}
+                      className="flex items-center gap-1.5 text-xs font-medium text-primary-600 dark:text-primary-400 hover:text-primary-700 dark:hover:text-primary-300 transition-colors"
+                    >
+                      {insightLoading === rec.id ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Sparkles className="w-3.5 h-3.5" />
+                      )}
+                      {insights[rec.id] ? 'Hide AI Insight' : 'AI Clinical Insight'}
+                    </button>
+                    {insights[rec.id] && (
+                      <div className="mt-2 p-3 rounded-lg bg-primary-50 dark:bg-primary-900/20 border border-primary-100 dark:border-primary-800/30">
+                        <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed whitespace-pre-wrap">{insights[rec.id]}</p>
+                      </div>
+                    )}
+                  </div>
                 </CardContent>
               </Card>
             );

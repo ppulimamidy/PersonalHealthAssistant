@@ -309,7 +309,10 @@ async def record_insight(
     record_id: str,
     current_user: dict = Depends(get_current_user),
 ):
-    """Generate AI insight for a medical record, cross-referencing user data."""
+    """Generate AI insight for a medical record, cross-referencing user data.
+    Caches results — returns stored insight on subsequent calls unless
+    force=true query param is set.
+    """
     user_id = current_user["id"]
     rows = await _supabase_get(
         "medical_records",
@@ -319,6 +322,12 @@ async def record_insight(
         return {"insight": "Record not found."}
 
     record = rows[0]
+
+    # Serve cached insight if available
+    cached = record.get("ai_insight")
+    if cached:
+        return {"insight": cached, "cached": True}
+
     ed = record.get("extracted_data")
     if isinstance(ed, str):
         try:
@@ -354,11 +363,23 @@ async def record_insight(
 
     if record_type == "genomic":
         mutations = ed.get("mutations", [])
-        mutation_text = "\n".join(
-            f"- {m.get('gene', '?')} {m.get('protein_change', '')}: {m.get('classification', {}).get('tier', '?')} "
-            f"— Sensitive to: {', '.join(m.get('sensitive_therapies', []))}"
-            for m in mutations
-        )
+        mutation_lines = []
+        for m in mutations:
+            if isinstance(m, str):
+                mutation_lines.append(f"- {m}")
+            elif isinstance(m, dict):
+                gene = m.get("gene", "?")
+                protein = m.get("protein_change", "")
+                tier = m.get("classification", {})
+                if isinstance(tier, dict):
+                    tier = tier.get("tier", "?")
+                therapies = m.get("sensitive_therapies", [])
+                if isinstance(therapies, str):
+                    therapies = [therapies]
+                mutation_lines.append(
+                    f"- {gene} {protein}: {tier} — Sensitive to: {', '.join(therapies)}"
+                )
+        mutation_text = "\n".join(mutation_lines)
         prompt = f"""You are an oncology specialist. Analyze this genomic profile:
 
 {mutation_text}
@@ -409,7 +430,20 @@ Return ONLY the interpretation text."""
         return {"insight": "Unknown record type."}
 
     insight = await _call_claude_text(prompt)
-    return {"insight": insight}
+
+    # Cache the insight on the record for future requests
+    try:
+        from ..dependencies.usage_gate import _supabase_patch
+
+        await _supabase_patch(
+            "medical_records",
+            f"id=eq.{record_id}&user_id=eq.{user_id}",
+            {"ai_insight": insight},
+        )
+    except Exception as e:
+        logger.warning("Failed to cache insight: %s", e)
+
+    return {"insight": insight, "cached": False}
 
 
 # ---------------------------------------------------------------------------

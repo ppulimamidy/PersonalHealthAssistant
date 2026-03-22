@@ -14,8 +14,9 @@ import type {
   NutritionSummaryResponse,
   RecognizedFoodItem,
 } from '@/types';
-import { RefreshCw } from 'lucide-react';
+import { RefreshCw, Sparkles, Loader2, ArrowRight, ShieldCheck, Leaf, AlertTriangle } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
+import { api } from '@/services/api';
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
@@ -87,6 +88,25 @@ export function NutritionView() {
   const recent = summary?.recent_nutrition_data ?? [];
   const dailyBreakdown = summary?.daily_breakdown ?? [];
   const meals = mealsData?.items ?? [];
+
+  // Nutrition intelligence — personalized recommendations from health profile
+  const { data: nutritionIntel, isLoading: intelLoading } = useQuery({
+    queryKey: ['nutrition-intelligence'],
+    queryFn: async () => {
+      const { data } = await api.get('/api/v1/nutrition-ai/nutrition-intelligence');
+      return data as {
+        recommendations: Array<{ title: string; rationale: string; category: string; priority: string; foods: string[]; health_link: string }>;
+        foods_to_prioritize: Array<{ name?: string; food?: string; why: string }>;
+        foods_to_limit: Array<{ name?: string; food?: string; why: string }>;
+        daily_focus: string;
+        summary: string;
+        cached?: boolean;
+      };
+    },
+    staleTime: 10 * 60_000,
+    retry: 2,
+    enabled: Boolean(user) && recent.length === 0,
+  });
 
   const [editingMealId, setEditingMealId] = useState<string | null>(null);
   const [editMealType, setEditMealType] = useState<MealType>('lunch');
@@ -719,9 +739,107 @@ export function NutritionView() {
             </CardHeader>
             <CardContent>
               {recent.length === 0 ? (
-                <p className="text-slate-600 dark:text-slate-300">
-                  No nutrition logs yet. Log your first meal above.
-                </p>
+                <div className="space-y-4">
+                  {intelLoading ? (
+                    <div className="flex flex-col items-center py-8 gap-3">
+                      <Loader2 className="w-5 h-5 text-primary-500 animate-spin" />
+                      <p className="text-sm text-slate-400">Analyzing your health profile for nutrition guidance...</p>
+                    </div>
+                  ) : nutritionIntel?.recommendations && nutritionIntel.recommendations.length > 0 ? (
+                    <>
+                      {/* Summary */}
+                      {nutritionIntel.summary && (
+                        <div className="p-4 rounded-xl bg-emerald-500/5 border border-emerald-500/10">
+                          <div className="flex items-start gap-2.5">
+                            <Sparkles className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" />
+                            <p className="text-sm text-slate-700 dark:text-slate-300 leading-relaxed">{nutritionIntel.summary}</p>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Daily focus */}
+                      {nutritionIntel.daily_focus && (
+                        <div className="p-3 rounded-lg bg-amber-500/5 border border-amber-500/10">
+                          <p className="text-xs text-amber-600 dark:text-amber-400 font-medium flex items-center gap-1.5">
+                            <Leaf className="w-3.5 h-3.5" />
+                            Today&apos;s focus: {nutritionIntel.daily_focus}
+                          </p>
+                        </div>
+                      )}
+
+                      {/* Recommendations */}
+                      <div className="space-y-2">
+                        {nutritionIntel.recommendations.map((rec, i) => {
+                          const priorityColor = rec.priority === 'high' ? '#F87171' : rec.priority === 'medium' ? '#FBBF24' : '#60A5FA';
+                          const catIcon = rec.category === 'limit' ? AlertTriangle : rec.category === 'timing' ? RefreshCw : Leaf;
+                          const CatIcon = catIcon;
+                          return (
+                            <div key={i} className="p-3 rounded-xl border border-slate-200 dark:border-slate-700">
+                              <div className="flex items-start gap-2.5">
+                                <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ backgroundColor: `${priorityColor}15` }}>
+                                  <CatIcon className="w-4 h-4" style={{ color: priorityColor }} />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="font-semibold text-sm text-slate-900 dark:text-slate-100">{rec.title}</span>
+                                    <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium" style={{ backgroundColor: `${priorityColor}15`, color: priorityColor }}>
+                                      {rec.priority}
+                                    </span>
+                                  </div>
+                                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">{rec.rationale}</p>
+                                  {rec.foods?.length > 0 && (
+                                    <div className="flex flex-wrap gap-1 mt-1.5">
+                                      {rec.foods.map((f, fi) => (
+                                        <span key={fi} className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">{f}</span>
+                                      ))}
+                                    </div>
+                                  )}
+                                  {rec.health_link && (
+                                    <p className="text-[11px] text-slate-400 mt-1 flex items-center gap-1">
+                                      <ArrowRight className="w-3 h-3" />{rec.health_link}
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      {/* Foods to prioritize & limit */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        {nutritionIntel.foods_to_prioritize?.length > 0 && (
+                          <div className="p-3 rounded-xl border border-emerald-500/10 bg-emerald-500/5">
+                            <p className="text-xs font-medium text-emerald-600 dark:text-emerald-400 mb-2">Prioritize These Foods</p>
+                            <div className="space-y-1">
+                              {nutritionIntel.foods_to_prioritize.map((f, i) => (
+                                <p key={i} className="text-xs text-slate-600 dark:text-slate-400">
+                                  <span className="text-emerald-500">+</span> <span className="font-medium text-slate-700 dark:text-slate-300">{f.name || f.food}</span> — {f.why}
+                                </p>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        {nutritionIntel.foods_to_limit?.length > 0 && (
+                          <div className="p-3 rounded-xl border border-red-500/10 bg-red-500/5">
+                            <p className="text-xs font-medium text-red-500 mb-2">Limit or Avoid</p>
+                            <div className="space-y-1">
+                              {nutritionIntel.foods_to_limit.map((f, i) => (
+                                <p key={i} className="text-xs text-slate-600 dark:text-slate-400">
+                                  <span className="text-red-400">-</span> <span className="font-medium text-slate-700 dark:text-slate-300">{f.name || f.food}</span> — {f.why}
+                                </p>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  ) : (
+                    <p className="text-slate-600 dark:text-slate-300">
+                      No nutrition logs yet. Log your first meal above.
+                    </p>
+                  )}
+                </div>
               ) : (
                 <div className="space-y-5">
                   {(dailyBreakdown.length ? dailyBreakdown : recent.map((d) => ({ date: d.date, rows: [], total: d })))

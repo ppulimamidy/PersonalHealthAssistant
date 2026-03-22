@@ -533,6 +533,34 @@ export default function MedicationsScreen() {
   const active = medsList.filter((m) => m.is_active);
   const inactive = medsList.filter((m) => !m.is_active);
 
+  // AI medication recommendations (shown when no meds logged)
+  const { data: recsData, isLoading: recsLoading } = useQuery({
+    queryKey: ['med-recommendations'],
+    queryFn: async () => {
+      try {
+        const { data } = await api.get('/api/v1/med-intelligence/recommendations');
+        return data as {
+          recommendations: Array<{
+            name: string;
+            category: string;
+            rationale: string;
+            evidence_level: string;
+            priority: string;
+            discuss_with_doctor: boolean;
+            relevant_data?: string;
+            estimated_cost?: string;
+            efficacy?: string;
+          }>;
+          summary: string;
+          disclaimer: string;
+          data_sources: { conditions: number; lab_results: number; medical_records: number; symptoms: number };
+        };
+      } catch { return null; }
+    },
+    staleTime: 10 * 60_000,
+    enabled: medsList.length === 0,
+  });
+
   return (
     <View className="flex-1 bg-obsidian-900">
       {/* Header */}
@@ -598,16 +626,116 @@ export default function MedicationsScreen() {
           ) : null}
 
           {medsList.length === 0 && (
-            <View className="items-center py-12">
-              <Ionicons name="medical-outline" size={48} color="#526380" />
-              <Text className="text-[#526380] mt-4 text-center">No medications added yet</Text>
-              <TouchableOpacity
-                onPress={() => router.push('/(tabs)/log/new-medication')}
-                className="mt-4 bg-primary-500/20 border border-primary-500/40 rounded-xl px-5 py-3"
-              >
-                <Text className="text-primary-500 font-sansMedium">Add your first medication</Text>
-              </TouchableOpacity>
-            </View>
+            <>
+              {recsLoading ? (
+                <View className="items-center py-12">
+                  <ActivityIndicator color="#00D4AA" />
+                  <Text className="text-[#526380] text-sm mt-3">Analyzing your health profile...</Text>
+                </View>
+              ) : recsData?.recommendations && recsData.recommendations.length > 0 ? (
+                <View>
+                  {/* AI Summary */}
+                  {recsData.summary && (
+                    <View className="bg-[#00D4AA08] border border-[#00D4AA18] rounded-2xl p-4 mb-3">
+                      <View className="flex-row items-center gap-1.5 mb-2">
+                        <Ionicons name="sparkles" size={14} color="#00D4AA" />
+                        <Text className="text-[#00D4AA] text-[10px] font-sansMedium uppercase tracking-wider">AI Recommendations</Text>
+                      </View>
+                      <Text className="text-[#8B9BB4] text-xs leading-5">{recsData.summary}</Text>
+                      {recsData.data_sources && (
+                        <Text className="text-[#3D4F66] text-[10px] mt-2">
+                          Based on {recsData.data_sources.conditions} condition{recsData.data_sources.conditions !== 1 ? 's' : ''}, {recsData.data_sources.lab_results} lab result{recsData.data_sources.lab_results !== 1 ? 's' : ''}, {recsData.data_sources.medical_records} record{recsData.data_sources.medical_records !== 1 ? 's' : ''}
+                        </Text>
+                      )}
+                    </View>
+                  )}
+
+                  {/* Recommendation Cards */}
+                  {recsData.recommendations.map((rec, i) => {
+                    const priorityColor = rec.priority === 'high' ? '#F87171' : rec.priority === 'medium' ? '#FBBF24' : '#60A5FA';
+                    const priorityLabel = rec.priority === 'high' ? 'High Priority' : rec.priority === 'medium' ? 'Medium' : 'Low';
+                    const catIcon = rec.category === 'prescription' ? 'medkit-outline' : rec.category === 'supplement' ? 'flask-outline' : 'medical-outline';
+                    const evidenceColor = rec.evidence_level === 'strong' ? '#6EE7B7' : rec.evidence_level === 'moderate' ? '#FBBF24' : '#60A5FA';
+
+                    return (
+                      <View key={i} className="bg-surface-raised border border-surface-border rounded-xl p-4 mb-2">
+                        <View className="flex-row items-start gap-3">
+                          <View className="w-9 h-9 rounded-lg items-center justify-center" style={{ backgroundColor: `${priorityColor}15` }}>
+                            <Ionicons name={catIcon as any} size={18} color={priorityColor} />
+                          </View>
+                          <View className="flex-1">
+                            <View className="flex-row items-center gap-1.5 flex-wrap mb-0.5">
+                              <Text className="text-[#E8EDF5] font-sansMedium text-sm">{rec.name}</Text>
+                              <View className="rounded-full px-1.5 py-0.5" style={{ backgroundColor: `${priorityColor}15` }}>
+                                <Text className="text-[9px] font-sansMedium" style={{ color: priorityColor }}>{priorityLabel}</Text>
+                              </View>
+                              <View className="rounded-full px-1.5 py-0.5" style={{ backgroundColor: `${evidenceColor}15` }}>
+                                <Text className="text-[9px] font-sansMedium" style={{ color: evidenceColor }}>{rec.evidence_level}</Text>
+                              </View>
+                            </View>
+                            {rec.discuss_with_doctor && (
+                              <View className="flex-row items-center gap-1 mb-1">
+                                <View className="rounded-full px-1.5 py-0.5 bg-purple-500/10">
+                                  <Text className="text-purple-400 text-[9px] font-sansMedium">Rx — discuss with doctor</Text>
+                                </View>
+                              </View>
+                            )}
+                            <Text className="text-[#526380] text-xs leading-5">{rec.rationale}</Text>
+                            {(rec.efficacy || rec.estimated_cost) && (
+                              <View className="flex-row flex-wrap gap-x-3 gap-y-1 mt-1.5">
+                                {rec.efficacy && (
+                                  <View className="flex-row items-center gap-1">
+                                    <Ionicons name="trending-up" size={10} color="#6EE7B7" />
+                                    <Text className="text-[#6EE7B7] text-[10px]">{rec.efficacy}</Text>
+                                  </View>
+                                )}
+                                {rec.estimated_cost && (
+                                  <Text className="text-[#526380] text-[10px]">Cost: {rec.estimated_cost}</Text>
+                                )}
+                              </View>
+                            )}
+                            {rec.relevant_data && (
+                              <View className="flex-row items-center gap-1 mt-1">
+                                <Ionicons name="arrow-forward" size={9} color="#526380" />
+                                <Text className="text-[#526380] text-[10px]">{rec.relevant_data}</Text>
+                              </View>
+                            )}
+                          </View>
+                        </View>
+                      </View>
+                    );
+                  })}
+
+                  {/* Disclaimer */}
+                  <View className="flex-row items-start gap-2 p-3 rounded-xl bg-[#FBBF2408] border border-[#FBBF2415] mb-3">
+                    <Ionicons name="shield-checkmark-outline" size={14} color="#FBBF24" style={{ marginTop: 1 }} />
+                    <Text className="text-[#526380] text-[10px] leading-4 flex-1">{recsData.disclaimer}</Text>
+                  </View>
+
+                  {/* Add medication button */}
+                  <TouchableOpacity
+                    onPress={() => router.push('/(tabs)/log/new-medication')}
+                    className="border border-dashed border-[#3D4F66] rounded-xl py-3 items-center"
+                    activeOpacity={0.7}
+                  >
+                    <Text className="text-[#526380] text-sm">
+                      <Ionicons name="add" size={14} color="#526380" /> Add a medication you're already taking
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <View className="items-center py-12">
+                  <Ionicons name="medical-outline" size={48} color="#526380" />
+                  <Text className="text-[#526380] mt-4 text-center">No medications added yet</Text>
+                  <TouchableOpacity
+                    onPress={() => router.push('/(tabs)/log/new-medication')}
+                    className="mt-4 bg-primary-500/20 border border-primary-500/40 rounded-xl px-5 py-3"
+                  >
+                    <Text className="text-primary-500 font-sansMedium">Add your first medication</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </>
           )}
 
           {active.length > 0 && (

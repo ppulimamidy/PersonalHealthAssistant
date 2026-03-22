@@ -799,54 +799,230 @@ async def generate_meal_plan(
     first_name = ctx.get("demographics", {}).get("first_name") or "there"
     targets = ctx.get("targets", {})
 
-    prompt = f"""Generate a {body.days}-day meal plan for {first_name}.
+    # Cap at 3 days per generation to fit within token limits
+    num_days = min(body.days, 3)
+
+    prompt = f"""Generate a {num_days}-day meal plan for {first_name}.
 
 USER CONTEXT:
 {context_text}
 
 Daily targets: {targets.get('calories', 2000)} cal, {targets.get('protein_g', 100)}g protein, {targets.get('carbs_g', 200)}g carbs, {targets.get('fat_g', 65)}g fat
 
-Return ONLY valid JSON (no markdown fences):
-{{
-  "days": [
-    {{
-      "date": "Day 1",
-      "meals": [
-        {{
-          "meal_type": "breakfast",
-          "name": "Descriptive meal name",
-          "ingredients": [{{"name": "ingredient", "portion": "amount", "unit": "unit"}}],
-          "macros": {{"calories": 0, "protein_g": 0, "carbs_g": 0, "fat_g": 0}},
-          "prep_time_min": 15,
-          "notes": "optional tip"
-        }}
-      ]
-    }}
-  ]
-}}
+Return ONLY valid JSON (no markdown fences, no commentary):
+{{"days": [{{"date": "Day 1", "meals": [{{"meal_type": "breakfast", "name": "meal name", "ingredients": [{{"name": "item", "portion": "2 cups"}}], "macros": {{"calories": 400, "protein_g": 20, "carbs_g": 40, "fat_g": 15}}, "prep_time_min": 15, "notes": "tip"}}]}}]}}
 
 Rules:
-- Each day must have breakfast, lunch, dinner, and optionally a snack
-- Daily totals must approximate the calorie/macro targets
-- Must respect all dietary restrictions and allergies
+- Each day: breakfast, lunch, dinner, 1 snack (4 meals)
+- Daily totals must approximate the targets
+- Respect dietary restrictions and allergies
 - Prioritize nutrients flagged as low in labs
-- If health conditions present, follow condition-specific nutrition guidelines
-- If active experiment, ensure every day complies
-- Vary meals across days — don't repeat the same meal
-- Include specific portions (e.g. "6 oz salmon", "1 cup rice")
-- Keep prep times realistic (most under 30 min)"""
+- Follow condition-specific nutrition guidelines if health conditions present
+- Keep "ingredients" array SHORT — just name+portion, no nested objects
+- Keep "notes" under 15 words
+- Vary meals across days
+- Keep prep times under 30 min"""
 
-    raw = await _call_claude(prompt, max_tokens=3000)
+    raw = await _call_claude(prompt, max_tokens=8000)
 
     try:
-        if "```" in raw:
-            raw = raw[raw.find("{") : raw.rfind("}") + 1]
-        parsed = json.loads(raw)
+        import re
+
+        text = raw.strip()
+        text = re.sub(r"^```(?:json)?\s*\n?", "", text)
+        text = re.sub(r"\n?```\s*$", "", text)
+        start = text.find("{")
+        end = text.rfind("}")
+        if start != -1 and end != -1:
+            text = text[start : end + 1]
+        parsed = json.loads(text)
         days_list = parsed.get("days", [])
-    except (json.JSONDecodeError, ValueError):
-        days_list = []
+    except (json.JSONDecodeError, ValueError) as e:
+        logger.warning("Meal plan JSON parse failed (attempt 1): %s", e)
+        # Try to repair truncated JSON
+        try:
+            repaired = _repair_truncated_json(text if "text" in dir() else raw)
+            parsed = json.loads(repaired)
+            days_list = parsed.get("days", [])
+        except Exception as e2:
+            logger.warning(
+                "Meal plan JSON repair also failed: %s — raw[:200]: %s",
+                e2,
+                raw[:200] if raw else "",
+            )
+            days_list = []
+
+    if not days_list:
+        logger.warning("Meal plan generation returned empty for user %s", user_id)
 
     return MealPlanResponse(days=days_list)
+
+
+def _repair_truncated_json(text: str) -> str:
+    """Attempt to close truncated JSON so it can be parsed."""
+    stack: list[str] = []
+    in_str = False
+    esc = False
+    for ch in text:
+        if esc:
+            esc = False
+            continue
+        if ch == "\\":
+            esc = True
+            continue
+        if ch == '"':
+            in_str = not in_str
+            continue
+        if in_str:
+            continue
+        if ch == "{":
+            stack.append("}")
+        elif ch == "[":
+            stack.append("]")
+        elif ch in ("}", "]") and stack:
+            stack.pop()
+    if in_str:
+        text += '"'
+    text += "".join(reversed(stack))
+    return text
+
+
+# ---------------------------------------------------------------------------
+# Nutrition Intelligence — personalized recommendations from health profile
+# ---------------------------------------------------------------------------
+
+
+@router.get("/nutrition-intelligence")
+async def nutrition_intelligence(
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+):
+    """Generate personalized nutrition recommendations based on the user's
+    full health profile — conditions, labs, medications, medical records,
+    genomic data. Returns what to eat (and avoid) for their specific concerns.
+    Cached until underlying health data changes."""
+    user_id = current_user["id"]
+    bearer = request.headers.get("Authorization")
+    ctx = await _gather_nutrition_context(user_id, bearer)
+
+    conditions = ctx.get("conditions", [])
+    medications = ctx.get("medications", [])
+    abnormal_labs = ctx.get("abnormal_labs", [])
+    experiments = ctx.get("experiments", [])
+    demographics = ctx.get("demographics", {})
+    first_name = demographics.get("first_name") or "there"
+
+    # Check cache
+    import hashlib
+
+    # conditions is a list of strings, medications is a list of dicts
+    cond_str = ",".join(
+        c if isinstance(c, str) else c.get("condition_name", "") for c in conditions
+    )
+    med_str = ",".join(
+        m if isinstance(m, str) else m.get("name", m.get("medication_name", ""))
+        for m in medications
+    )
+    lab_str = ",".join(str(l) for l in abnormal_labs)
+    cache_input = f"{cond_str}|{med_str}|{lab_str}"
+    data_hash = hashlib.md5(cache_input.encode()).hexdigest()
+
+    from ..dependencies.usage_gate import _supabase_get, _supabase_upsert
+
+    cached = await _supabase_get(
+        "ai_analysis_cache",
+        f"user_id=eq.{user_id}&analysis_type=eq.nutrition_intelligence&limit=1",
+    )
+    if cached:
+        c = cached[0]
+        if c.get("data_hash") == data_hash:
+            result = c.get("result_json", {})
+            if isinstance(result, str):
+                try:
+                    result = json.loads(result)
+                except Exception:
+                    result = {}
+            if result.get("recommendations"):
+                result["cached"] = True
+                return result
+
+    if not conditions and not abnormal_labs:
+        return {
+            "recommendations": [],
+            "foods_to_prioritize": [],
+            "foods_to_limit": [],
+            "summary": "Add your health conditions or lab results to get personalized nutrition recommendations.",
+        }
+
+    context_text = _format_context_for_prompt(ctx)
+
+    prompt = f"""You are a clinical nutritionist reviewing a patient's health profile to create personalized nutrition guidance.
+
+{context_text}
+
+Generate a JSON object with:
+- "summary": 2-3 sentence personalized overview for {first_name}
+- "recommendations": array of 4-6 items, each with:
+  - "title": short recommendation (e.g. "Increase omega-3 rich fish")
+  - "rationale": 1 sentence tied to their specific data
+  - "category": "prioritize" | "limit" | "timing" | "supplement_food"
+  - "priority": "high" | "medium" | "low"
+  - "foods": array of 3-5 specific food examples
+  - "health_link": which condition/lab/medication this addresses
+- "foods_to_prioritize": array of 8-10 specific foods with brief "why" for each
+- "foods_to_limit": array of 4-6 foods to reduce/avoid with "why" for each
+- "daily_focus": a single actionable tip for today
+
+RULES:
+- Every recommendation MUST be tied to their conditions, labs, or medications
+- For cancer patients: focus on anti-inflammatory, immune support, caloric density during treatment
+- For diabetes: glycemic index, carb timing, fiber-rich foods
+- For cardiac: heart-healthy fats, sodium limits, potassium-rich foods
+- Account for medication-nutrient interactions (e.g. Metformin → B12, Warfarin → vitamin K consistency)
+- Keep it practical — real foods, simple preparations
+- Return ONLY valid JSON, no markdown fences"""
+
+    try:
+        raw = await _call_claude(prompt, max_tokens=3000)
+        import re
+
+        text = raw.strip()
+        text = re.sub(r"^```(?:json)?\s*\n?", "", text)
+        text = re.sub(r"\n?```\s*$", "", text)
+        start_idx = text.find("{")
+        end_idx = text.rfind("}")
+        if start_idx != -1 and end_idx != -1:
+            text = text[start_idx : end_idx + 1]
+        parsed = json.loads(text)
+    except Exception as e:
+        logger.warning("Nutrition intelligence JSON parse failed: %s", e)
+        parsed = {}
+
+    result = {
+        "recommendations": parsed.get("recommendations", []),
+        "foods_to_prioritize": parsed.get("foods_to_prioritize", []),
+        "foods_to_limit": parsed.get("foods_to_limit", []),
+        "daily_focus": parsed.get("daily_focus", ""),
+        "summary": parsed.get("summary", ""),
+    }
+
+    # Cache result
+    if result["recommendations"]:
+        try:
+            await _supabase_upsert(
+                "ai_analysis_cache",
+                {
+                    "user_id": user_id,
+                    "analysis_type": "nutrition_intelligence",
+                    "result_json": json.dumps(result),
+                    "data_hash": data_hash,
+                },
+                on_conflict="user_id,analysis_type",
+            )
+        except Exception as e:
+            logger.warning("Failed to cache nutrition intel: %s", e)
+
+    return result
 
 
 # ---------------------------------------------------------------------------

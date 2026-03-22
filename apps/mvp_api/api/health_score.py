@@ -54,7 +54,9 @@ async def get_health_score(current_user: dict = Depends(get_user_optional)):
 
     # Primary: canonical scores from summaries
     try:
-        canonical_score, canonical_breakdown = await _compute_score_from_canonical(user_id)
+        canonical_score, canonical_breakdown = await _compute_score_from_canonical(
+            user_id
+        )
         if canonical_score is not None:
             return {
                 "score": round(canonical_score, 1),
@@ -65,6 +67,22 @@ async def get_health_score(current_user: dict = Depends(get_user_optional)):
             }
     except Exception as exc:
         logger.debug("Canonical health score failed, trying timeline: %s", exc)
+
+    # Before falling back to timeline (which may use sandbox mock data),
+    # check if this user actually has any real wearable data.
+    real_data = await _supabase_get(
+        "native_health_data",
+        f"user_id=eq.{user_id}&limit=1&select=id",
+    )
+    if not real_data:
+        # Also check health_metrics_normalized
+        real_data = await _supabase_get(
+            "health_metrics_normalized",
+            f"user_id=eq.{user_id}&limit=1&select=id",
+        )
+    if not real_data:
+        # No real wearable data — don't show fake sandbox scores
+        return _empty_score()
 
     # Fallback: Oura timeline
     from .timeline import get_timeline
@@ -114,7 +132,11 @@ async def _compute_score_from_canonical(user_id: str):
     if not rows:
         return None, {}
 
-    scores = {r["canonical_metric"]: r["canonical_score"] for r in rows if r.get("canonical_score") is not None}
+    scores = {
+        r["canonical_metric"]: r["canonical_score"]
+        for r in rows
+        if r.get("canonical_score") is not None
+    }
 
     sleep_q = scores.get("sleep_quality")
     recovery = scores.get("recovery")
@@ -127,23 +149,39 @@ async def _compute_score_from_canonical(user_id: str):
     if sleep_q is not None:
         w = 0.35
         components.append(sleep_q * w)
-        breakdown["sleep"] = {"score": sleep_q, "weight": w, "weighted": round(sleep_q * w, 1)}
+        breakdown["sleep"] = {
+            "score": sleep_q,
+            "weight": w,
+            "weighted": round(sleep_q * w, 1),
+        }
 
     if recovery is not None:
         w = 0.30
         components.append(recovery * w)
-        breakdown["recovery"] = {"score": recovery, "weight": w, "weighted": round(recovery * w, 1)}
+        breakdown["recovery"] = {
+            "score": recovery,
+            "weight": w,
+            "weighted": round(recovery * w, 1),
+        }
 
     if activity is not None:
         w = 0.25
         components.append(activity * w)
-        breakdown["activity"] = {"score": activity, "weight": w, "weighted": round(activity * w, 1)}
+        breakdown["activity"] = {
+            "score": activity,
+            "weight": w,
+            "weighted": round(activity * w, 1),
+        }
 
     if cardiac is not None:
         w = 0.10
         inverted = 100 - cardiac  # lower stress = higher health
         components.append(inverted * w)
-        breakdown["cardiac"] = {"score": round(inverted, 1), "weight": w, "weighted": round(inverted * w, 1)}
+        breakdown["cardiac"] = {
+            "score": round(inverted, 1),
+            "weight": w,
+            "weighted": round(inverted * w, 1),
+        }
 
     if not components:
         return None, breakdown

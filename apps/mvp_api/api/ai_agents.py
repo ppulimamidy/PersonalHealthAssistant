@@ -432,6 +432,7 @@ class Agent:
         user_message: str,
         context: Dict[str, Any],
         conversation_history: List[Dict],
+        user_id: str | None = None,
     ) -> str:
         """Generate AI response using Anthropic Claude."""
         api_key = _get_anthropic_key()
@@ -480,7 +481,7 @@ class Agent:
                 # Inject closed-loop context (active experiments, proven patterns, etc.)
                 loop_ctx = ""
                 try:
-                    loop_ctx = await get_loop_context(self.user_id)  # type: ignore[attr-defined]
+                    loop_ctx = await get_loop_context(user_id) if user_id else ""
                 except Exception:
                     pass
 
@@ -1560,15 +1561,10 @@ async def send_message(
         agent_type=agent.agent_type,
     )
 
-    # Generate agent response — pass user_id for preference-aware agents
-    if isinstance(agent, NutritionAnalystAgent):
-        response_content = await agent.generate_response(
-            request.message, context, messages, user_id=user_id
-        )
-    else:
-        response_content = await agent.generate_response(
-            request.message, context, messages
-        )
+    # Generate agent response — pass user_id for all agents (loop context, preferences)
+    response_content = await agent.generate_response(
+        request.message, context, messages, user_id=user_id
+    )
 
     # Add agent response
     await _add_message(
