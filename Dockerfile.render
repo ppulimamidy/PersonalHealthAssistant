@@ -47,13 +47,13 @@ RUN useradd --create-home --shell /bin/bash app \
     && chown -R app:app /app
 USER app
 
-# Expose port (Render assigns PORT dynamically)
-EXPOSE ${PORT:-8080}
+# Render uses port 10000 by default for Docker services
+ENV PORT=10000
+EXPOSE 10000
 
-# Health check — use PORT env var so it matches the actual bound port
-HEALTHCHECK --interval=30s --timeout=30s --start-period=60s --retries=5 \
-    CMD curl -f http://localhost:${PORT:-8080}/health || exit 1
+# Health check
+HEALTHCHECK --interval=30s --timeout=30s --start-period=90s --retries=5 \
+    CMD curl -f http://localhost:${PORT}/health || exit 1
 
-# Run the application
-# Render sets PORT env var; default to 8080
-CMD uvicorn apps.mvp_api.main:app --host 0.0.0.0 --port ${PORT:-8080} --workers 1 --timeout-keep-alive 120
+# Run the application — bind to $PORT (Render overrides this env var if needed)
+CMD uvicorn apps.mvp_api.main:app --host 0.0.0.0 --port ${PORT} --workers 1 --timeout-keep-alive 120
