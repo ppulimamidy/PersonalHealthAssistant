@@ -17,10 +17,11 @@ export function useAuth(requireAuth = true) {
     const buildProfile = async (userId: string): Promise<UserProfile> => {
       const { data: row } = await supabase
         .from('profiles')
-        .select('date_of_birth,biological_sex,weight_kg,height_cm,primary_goals,onboarding_completed_at,last_checkin_at,user_role')
+        .select('full_name,date_of_birth,biological_sex,weight_kg,height_cm,primary_goals,onboarding_completed_at,last_checkin_at,user_role')
         .eq('id', userId)
         .single();
       return {
+        full_name: row?.full_name ?? undefined,
         date_of_birth: row?.date_of_birth ?? undefined,
         biological_sex: row?.biological_sex ?? undefined,
         weight_kg: row?.weight_kg ?? undefined,
@@ -46,7 +47,13 @@ export function useAuth(requireAuth = true) {
           });
 
           // Non-blocking: profile and subscription hydrate after auth check
-          buildProfile(session.user.id).then(setProfile).catch(() => {});
+          buildProfile(session.user.id).then((p) => {
+            setProfile(p);
+            // Update user name from profile if auth metadata had a generic fallback
+            if (p.full_name && (!session.user.user_metadata?.name || session.user.user_metadata.name === 'User')) {
+              setUser({ id: session.user.id, email: session.user.email!, name: p.full_name, created_at: session.user.created_at });
+            }
+          }).catch(() => {});
           billingService.getSubscription().then(setSubscription).catch(() => {});
         } else if (requireAuth) {
           router.push('/login');
@@ -68,7 +75,12 @@ export function useAuth(requireAuth = true) {
             name: session.user.user_metadata?.name || 'User',
             created_at: session.user.created_at,
           });
-          buildProfile(session.user.id).then(setProfile).catch(() => {});
+          buildProfile(session.user.id).then((p) => {
+            setProfile(p);
+            if (p.full_name && (!session.user.user_metadata?.name || session.user.user_metadata.name === 'User')) {
+              setUser({ id: session.user.id, email: session.user.email!, name: p.full_name, created_at: session.user.created_at });
+            }
+          }).catch(() => {});
           billingService.getSubscription().then(setSubscription).catch(() => {});
         } else {
           setUser(null);

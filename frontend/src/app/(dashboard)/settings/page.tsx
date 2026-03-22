@@ -503,7 +503,7 @@ export default function SettingsPage() {
                 <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
                   Name
                 </label>
-                <p className="text-slate-900 dark:text-slate-100">{user?.name || 'Not set'}</p>
+                <p className="text-slate-900 dark:text-slate-100">{user?.name && user.name !== 'User' ? user.name : profile?.full_name || 'Not set'}</p>
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">

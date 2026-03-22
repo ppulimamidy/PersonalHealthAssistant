@@ -389,7 +389,7 @@ export default function DoctorPrepScreen() {
 
   const generateMutation = useMutation({
     mutationFn: async (d: number) => {
-      const { data } = await api.post('/api/v1/doctor-prep/generate', { days: d });
+      const { data } = await api.post('/api/v1/doctor-prep/generate', { days: d }, { timeout: 90_000 });
       return data as HealthReport;
     },
     onSuccess: (report) => {
