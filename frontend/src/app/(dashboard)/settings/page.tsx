@@ -51,6 +51,7 @@ const ALL_PERMISSIONS: { key: SharePermission; label: string }[] = [
   { key: 'doctor_prep', label: 'Visit Prep Report' },
   { key: 'specialist_recs', label: 'Specialist Recommendations' },
   { key: 'cycle_tracking', label: 'Cycle Data' },
+  { key: 'clinical_research', label: 'Clinical Research' },
 ];
 
 // ── Data Sources Card ─────────────────────────────────────────────────────────

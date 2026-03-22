@@ -37,6 +37,7 @@ const PERMISSIONS: Array<{ key: SharePermission; label: string; description: str
   { key: 'doctor_prep',      label: 'Visit Prep Report',          description: 'Comprehensive doctor visit report' },
   { key: 'specialist_recs',  label: 'Specialist Recommendations', description: 'AI specialist consultation summaries' },
   { key: 'cycle_tracking',   label: 'Cycle Data',                 description: 'Menstrual cycle phases & predictions' },
+  { key: 'clinical_research', label: 'Clinical Research',          description: 'Personalized research topics & saved reports' },
 ];
 
 const EXPIRY_OPTIONS = [

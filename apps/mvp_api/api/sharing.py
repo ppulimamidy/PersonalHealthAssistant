@@ -69,6 +69,7 @@ _DEFAULT_PERMISSIONS = [
     "doctor_prep",
     "specialist_recs",
     "cycle_tracking",
+    "clinical_research",
 ]
 
 
@@ -579,5 +580,34 @@ async def get_shared_summary(token: str):
             }
             for r in (cycles or [])
         ]
+
+    # Clinical Research — saved reports + personalized topics
+    if "clinical_research" in permissions:
+        # Saved research reports
+        reports = await _supabase_get(
+            "saved_research_reports",
+            f"user_id=eq.{grantor_id}&order=created_at.desc"
+            f"&select=id,query,report_type,created_at&limit=10",
+        )
+        # Personalized research topics (generated on-demand)
+        research_topics = None
+        try:
+            from .clinical_research import personalized_research_topics as _topics_fn
+
+            research_topics = await _topics_fn(current_user={"id": grantor_id})
+        except Exception as e:
+            logger.warning("Sharing: clinical research topics failed: %s", e)
+
+        summary["clinical_research"] = {
+            "saved_reports": [
+                {
+                    "query": r.get("query", ""),
+                    "report_type": r.get("report_type", ""),
+                    "created_at": r.get("created_at", ""),
+                }
+                for r in (reports or [])
+            ],
+            "personalized_topics": research_topics if research_topics else None,
+        }
 
     return summary

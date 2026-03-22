@@ -29,7 +29,8 @@ export type SharePermission =
   | 'nutrition'
   | 'doctor_prep'
   | 'specialist_recs'
-  | 'cycle_tracking';
+  | 'cycle_tracking'
+  | 'clinical_research';
 
 export interface ShareLink {
   id: string;
@@ -125,6 +126,10 @@ export interface SharedHealthSummary {
     period_length?: number;
     notes?: string;
   }>;
+  clinical_research?: {
+    saved_reports: Array<{ query: string; report_type: string; created_at: string }>;
+    personalized_topics?: Record<string, unknown>;
+  };
 }
 
 // ── Caregiver / managed profiles ──────────────────────────────────────────────
