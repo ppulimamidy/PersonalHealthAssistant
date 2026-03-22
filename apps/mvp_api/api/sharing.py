@@ -63,6 +63,12 @@ _DEFAULT_PERMISSIONS = [
     "insights",
     "interventions",
     "intelligence",
+    "wearable_data",
+    "medical_records",
+    "nutrition",
+    "doctor_prep",
+    "specialist_recs",
+    "cycle_tracking",
 ]
 
 
@@ -432,6 +438,146 @@ async def get_shared_summary(token: str):
                 "report_date": r.get("report_date", ""),
             }
             for r in (med_records or [])
+        ]
+
+    # Wearable Health Data — sleep, HRV, HR, recovery, activity trends (30 days)
+    if "wearable_data" in permissions:
+        from datetime import timedelta
+
+        _30d_ago = (datetime.utcnow() - timedelta(days=30)).strftime("%Y-%m-%d")
+        wearable_rows = await _supabase_get(
+            "health_metric_summaries",
+            f"user_id=eq.{grantor_id}"
+            f"&canonical_metric=not.is.null"
+            f"&select=canonical_metric,canonical_score,latest_value,unit,avg_30d,trend"
+            f"&limit=50",
+        )
+        if not wearable_rows:
+            # Fallback to native_health_data for recent metrics
+            wearable_rows = await _supabase_get(
+                "native_health_data",
+                f"user_id=eq.{grantor_id}&recorded_at=gte.{_30d_ago}"
+                f"&select=metric_type,value,unit,source,recorded_at"
+                f"&order=recorded_at.desc&limit=200",
+            )
+            summary["wearable_data"] = [
+                {
+                    "metric": r.get("metric_type", ""),
+                    "value": r.get("value"),
+                    "unit": r.get("unit", ""),
+                    "source": r.get("source", ""),
+                    "date": (r.get("recorded_at") or "")[:10],
+                }
+                for r in (wearable_rows or [])
+            ]
+        else:
+            summary["wearable_data"] = [
+                {
+                    "metric": r.get("canonical_metric", ""),
+                    "score": r.get("canonical_score"),
+                    "latest_value": r.get("latest_value"),
+                    "unit": r.get("unit", ""),
+                    "avg_30d": r.get("avg_30d"),
+                    "trend": r.get("trend", ""),
+                }
+                for r in wearable_rows
+            ]
+
+    # Medical Records (standalone — unbundled from intelligence)
+    if "medical_records" in permissions and "medical_records" not in summary:
+        med_records = await _supabase_get(
+            "medical_records",
+            f"user_id=eq.{grantor_id}&order=created_at.desc"
+            f"&select=record_type,title,ai_summary,report_date&limit=20",
+        )
+        summary["medical_records"] = [
+            {
+                "record_type": r.get("record_type", ""),
+                "title": r.get("title", ""),
+                "ai_summary": r.get("ai_summary", ""),
+                "report_date": r.get("report_date", ""),
+            }
+            for r in (med_records or [])
+        ]
+
+    # Nutrition & Meal Logs (past 14 days)
+    if "nutrition" in permissions:
+        from datetime import timedelta
+
+        _14d_ago = (datetime.utcnow() - timedelta(days=14)).strftime(
+            "%Y-%m-%dT00:00:00"
+        )
+        meal_rows = await _supabase_get(
+            "meal_logs",
+            f"user_id=eq.{grantor_id}&timestamp=gte.{_14d_ago}"
+            f"&select=meal_type,food_items,calories,protein_g,carbs_g,fat_g,timestamp"
+            f"&order=timestamp.desc&limit=100",
+        )
+        summary["nutrition"] = [
+            {
+                "meal_type": r.get("meal_type", ""),
+                "food_items": r.get("food_items", []),
+                "calories": r.get("calories"),
+                "protein_g": r.get("protein_g"),
+                "carbs_g": r.get("carbs_g"),
+                "fat_g": r.get("fat_g"),
+                "date": (r.get("timestamp") or "")[:10],
+            }
+            for r in (meal_rows or [])
+        ]
+
+    # Doctor Prep / Visit Report (generates on-demand)
+    if "doctor_prep" in permissions:
+        try:
+            from .doctor_prep import generate_report, GenerateReportRequest
+
+            report = await generate_report(
+                request=GenerateReportRequest(days=30),
+                http_request=None,
+                current_user={"id": grantor_id},
+            )
+            summary["doctor_prep"] = (
+                report.dict() if hasattr(report, "dict") else report
+            )
+        except Exception as e:
+            logger.warning("Sharing: doctor prep failed: %s", e)
+            summary["doctor_prep"] = None
+
+    # Specialist Agent Recommendations
+    if "specialist_recs" in permissions:
+        convos = await _supabase_get(
+            "agent_conversations",
+            f"user_id=eq.{grantor_id}&order=updated_at.desc"
+            f"&select=agent_id,agent_name,summary,updated_at"
+            f"&limit=10",
+        )
+        summary["specialist_recs"] = [
+            {
+                "agent_name": r.get("agent_name", ""),
+                "summary": r.get("summary", ""),
+                "last_updated": r.get("updated_at", ""),
+            }
+            for r in (convos or [])
+            if r.get("summary")
+        ]
+
+    # Cycle / Menstrual Data
+    if "cycle_tracking" in permissions:
+        cycles = await _supabase_get(
+            "cycle_logs",
+            f"user_id=eq.{grantor_id}&order=cycle_start.desc"
+            f"&select=cycle_start,cycle_end,cycle_length,period_length,notes"
+            f"&limit=6",
+        )
+        summary["cycle_tracking"] = [
+            {
+                "cycle_start": r.get("cycle_start", ""),
+                "cycle_end": r.get("cycle_end", ""),
+                "cycle_length": r.get("cycle_length"),
+                "period_length": r.get("period_length"),
+                "notes": r.get("notes", ""),
+            }
+            for r in (cycles or [])
         ]
 
     return summary

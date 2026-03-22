@@ -23,7 +23,13 @@ export type SharePermission =
   | 'care_plans'
   | 'insights'
   | 'interventions'
-  | 'intelligence';
+  | 'intelligence'
+  | 'wearable_data'
+  | 'medical_records'
+  | 'nutrition'
+  | 'doctor_prep'
+  | 'specialist_recs'
+  | 'cycle_tracking';
 
 export interface ShareLink {
   id: string;
@@ -84,6 +90,40 @@ export interface SharedHealthSummary {
     title: string;
     ai_summary: string;
     report_date: string;
+  }>;
+  // New sharing categories
+  wearable_data?: Array<{
+    metric: string;
+    score?: number;
+    latest_value?: number;
+    unit?: string;
+    avg_30d?: number;
+    trend?: string;
+    value?: number;
+    source?: string;
+    date?: string;
+  }>;
+  nutrition?: Array<{
+    meal_type: string;
+    food_items: unknown[];
+    calories?: number;
+    protein_g?: number;
+    carbs_g?: number;
+    fat_g?: number;
+    date: string;
+  }>;
+  doctor_prep?: Record<string, unknown>;
+  specialist_recs?: Array<{
+    agent_name: string;
+    summary: string;
+    last_updated: string;
+  }>;
+  cycle_tracking?: Array<{
+    cycle_start: string;
+    cycle_end?: string;
+    cycle_length?: number;
+    period_length?: number;
+    notes?: string;
   }>;
 }
 

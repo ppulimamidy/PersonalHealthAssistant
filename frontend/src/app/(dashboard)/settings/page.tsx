@@ -43,6 +43,14 @@ const ALL_PERMISSIONS: { key: SharePermission; label: string }[] = [
   { key: 'symptoms', label: 'Symptoms' },
   { key: 'care_plans', label: 'Care Plans' },
   { key: 'insights', label: 'AI Insights' },
+  { key: 'interventions', label: 'Experiments' },
+  { key: 'intelligence', label: 'Treatment Recommendations' },
+  { key: 'wearable_data', label: 'Wearable Health Data' },
+  { key: 'medical_records', label: 'Medical Records' },
+  { key: 'nutrition', label: 'Nutrition & Meals' },
+  { key: 'doctor_prep', label: 'Visit Prep Report' },
+  { key: 'specialist_recs', label: 'Specialist Recommendations' },
+  { key: 'cycle_tracking', label: 'Cycle Data' },
 ];
 
 // ── Data Sources Card ─────────────────────────────────────────────────────────

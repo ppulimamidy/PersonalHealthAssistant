@@ -23,13 +23,20 @@ import type { ShareLink, SharePermission, CreateShareRequest } from '@/types';
 // ─── Constants ─────────────────────────────────────────────────────────────────
 
 const PERMISSIONS: Array<{ key: SharePermission; label: string; description: string }> = [
-  { key: 'summary',       label: 'Health Summary',    description: 'Overall health score and profile' },
-  { key: 'medications',   label: 'Medications',       description: 'Current medications & adherence' },
-  { key: 'lab_results',   label: 'Lab Results',       description: 'Blood work and test results' },
-  { key: 'symptoms',      label: 'Symptom Journal',   description: 'Logged symptoms and severity' },
-  { key: 'care_plans',    label: 'Care Plans',        description: 'Active care plans and goals' },
-  { key: 'insights',      label: 'AI Insights',       description: 'AI-generated health patterns' },
-  { key: 'interventions', label: 'Experiments',       description: 'N-of-1 intervention results' },
+  { key: 'summary',          label: 'Health Summary',             description: 'Overall health score and profile' },
+  { key: 'medications',      label: 'Medications',                description: 'Current medications & adherence' },
+  { key: 'lab_results',      label: 'Lab Results',                description: 'Blood work and test results' },
+  { key: 'symptoms',         label: 'Symptom Journal',            description: 'Logged symptoms and severity' },
+  { key: 'care_plans',       label: 'Care Plans',                 description: 'Active care plans and goals' },
+  { key: 'insights',         label: 'AI Insights',                description: 'AI-generated health patterns' },
+  { key: 'interventions',    label: 'Experiments',                description: 'N-of-1 intervention results' },
+  { key: 'intelligence',     label: 'Treatment Recommendations',  description: 'AI medication & supplement recs' },
+  { key: 'wearable_data',    label: 'Wearable Health Data',       description: 'Sleep, HRV, activity, recovery trends' },
+  { key: 'medical_records',  label: 'Medical Records',            description: 'Pathology, genomic & imaging reports' },
+  { key: 'nutrition',        label: 'Nutrition & Meals',          description: 'Meal logs with macros & calories' },
+  { key: 'doctor_prep',      label: 'Visit Prep Report',          description: 'Comprehensive doctor visit report' },
+  { key: 'specialist_recs',  label: 'Specialist Recommendations', description: 'AI specialist consultation summaries' },
+  { key: 'cycle_tracking',   label: 'Cycle Data',                 description: 'Menstrual cycle phases & predictions' },
 ];
 
 const EXPIRY_OPTIONS = [
