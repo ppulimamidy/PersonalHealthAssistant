@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
-import { Activity, AlertTriangle, HeartPulse, TrendingUp, TrendingDown, FlaskConical, UserPlus, CheckCircle2, Sparkles, Stethoscope, Pill, Microscope, Dna, ScanLine, ShieldCheck } from 'lucide-react';
+import { Activity, AlertTriangle, HeartPulse, TrendingUp, TrendingDown, FlaskConical, UserPlus, CheckCircle2, Sparkles, Stethoscope, Pill, Microscope, Dna, ScanLine, ShieldCheck, Watch, Apple, FileText, MessageSquare, Calendar, BookOpen } from 'lucide-react';
 import { sharingService } from '@/services/sharing';
 import { supabase } from '@/lib/supabase';
 import { api } from '@/services/api';
@@ -476,6 +476,172 @@ export default function SharePage() {
                     AI-generated suggestions for clinical discussion. Not a substitute for professional medical advice.
                   </p>
                 </div>
+              </Section>
+            )}
+
+            {/* Wearable Health Data */}
+            {data.wearable_data && data.wearable_data.length > 0 && (
+              <Section title="Wearable Health Data">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                  {data.wearable_data.map((m: any, i: number) => {
+                    const trendIcon = m.trend === 'up' ? TrendingUp : m.trend === 'down' ? TrendingDown : null;
+                    const trendColor = m.trend === 'up' ? '#6EE7B7' : m.trend === 'down' ? '#F87171' : '#526380';
+                    return (
+                      <div key={i} className="rounded-lg p-3" style={{ backgroundColor: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.05)' }}>
+                        <div className="flex items-center gap-1.5 mb-1">
+                          <Watch className="w-3 h-3" style={{ color: '#818CF8' }} />
+                          <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: '#818CF8' }}>
+                            {(m.metric || '').replace(/_/g, ' ')}
+                          </span>
+                        </div>
+                        <p className="text-lg font-medium" style={{ color: '#E8EDF5' }}>
+                          {m.latest_value ?? m.value ?? m.score ?? '—'}{m.unit ? ` ${m.unit}` : ''}
+                        </p>
+                        <div className="flex items-center gap-2 mt-1">
+                          {m.avg_30d != null && <span className="text-[11px]" style={{ color: '#526380' }}>30d avg: {Math.round(m.avg_30d)}</span>}
+                          {trendIcon && (() => { const TIcon = trendIcon; return <TIcon className="w-3 h-3" style={{ color: trendColor }} />; })()}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </Section>
+            )}
+
+            {/* Specialist Recommendations */}
+            {data.specialist_recs && data.specialist_recs.length > 0 && (
+              <Section title="Specialist AI Recommendations">
+                <div className="space-y-3">
+                  {data.specialist_recs.map((rec: any, i: number) => (
+                    <div key={i} className="border-b last:border-b-0 pb-3 last:pb-0" style={{ borderColor: 'rgba(255,255,255,0.05)' }}>
+                      <div className="flex items-center gap-2 mb-1">
+                        <MessageSquare className="w-3.5 h-3.5" style={{ color: '#00D4AA' }} />
+                        <span className="text-sm font-medium" style={{ color: '#C8D5E8' }}>{rec.agent_name}</span>
+                        {rec.last_updated && <span className="text-[11px] ml-auto" style={{ color: '#3D4F66' }}>{new Date(rec.last_updated).toLocaleDateString()}</span>}
+                      </div>
+                      <p className="text-xs leading-relaxed" style={{ color: '#8B97A8' }}>{rec.summary}</p>
+                    </div>
+                  ))}
+                </div>
+              </Section>
+            )}
+
+            {/* Nutrition & Meals */}
+            {data.nutrition && data.nutrition.length > 0 && (
+              <Section title="Nutrition & Meals (14 days)">
+                <div className="space-y-2">
+                  {data.nutrition.slice(0, 20).map((meal: any, i: number) => (
+                    <div key={i} className="flex items-center justify-between gap-2 border-b last:border-b-0 pb-2 last:pb-0" style={{ borderColor: 'rgba(255,255,255,0.05)' }}>
+                      <div className="flex items-center gap-2">
+                        <Apple className="w-3.5 h-3.5" style={{ color: '#6EE7B7' }} />
+                        <div>
+                          <span className="text-sm" style={{ color: '#C8D5E8' }}>
+                            {meal.meal_type}{meal.food_items?.length ? ` · ${Array.isArray(meal.food_items) ? meal.food_items.map((f: any) => typeof f === 'string' ? f : f.name || f.food_name || '').filter(Boolean).slice(0, 3).join(', ') : ''}` : ''}
+                          </span>
+                          <p className="text-[11px]" style={{ color: '#526380' }}>{meal.date}</p>
+                        </div>
+                      </div>
+                      {meal.calories != null && (
+                        <span className="text-xs whitespace-nowrap" style={{ color: '#8B97A8' }}>
+                          {Math.round(meal.calories)} cal · {Math.round(meal.protein_g ?? 0)}P / {Math.round(meal.carbs_g ?? 0)}C / {Math.round(meal.fat_g ?? 0)}F
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </Section>
+            )}
+
+            {/* Cycle Tracking */}
+            {data.cycle_tracking && data.cycle_tracking.length > 0 && (
+              <Section title="Menstrual Cycle Data">
+                <div className="space-y-2">
+                  {data.cycle_tracking.map((c: any, i: number) => (
+                    <div key={i} className="flex items-center justify-between border-b last:border-b-0 pb-2 last:pb-0" style={{ borderColor: 'rgba(255,255,255,0.05)' }}>
+                      <div className="flex items-center gap-2">
+                        <Calendar className="w-3.5 h-3.5" style={{ color: '#F9A8D4' }} />
+                        <span className="text-sm" style={{ color: '#C8D5E8' }}>{c.cycle_start}{c.cycle_end ? ` — ${c.cycle_end}` : ''}</span>
+                      </div>
+                      <div className="flex gap-3">
+                        {c.cycle_length && <span className="text-xs" style={{ color: '#8B97A8' }}>{c.cycle_length}d cycle</span>}
+                        {c.period_length && <span className="text-xs" style={{ color: '#F9A8D4' }}>{c.period_length}d period</span>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </Section>
+            )}
+
+            {/* Clinical Research */}
+            {data.clinical_research && (
+              <Section title="Clinical Research">
+                {data.clinical_research.personalized_topics?.topics && data.clinical_research.personalized_topics.topics.length > 0 && (
+                  <div className="mb-4">
+                    <p className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: '#818CF8' }}>Personalized Research Topics</p>
+                    <div className="space-y-2">
+                      {(data.clinical_research.personalized_topics.topics as any[]).map((t: any, i: number) => (
+                        <div key={i} className="rounded-lg p-3" style={{ backgroundColor: 'rgba(129,140,248,0.05)', border: '1px solid rgba(129,140,248,0.1)' }}>
+                          <div className="flex items-center gap-2 mb-1">
+                            <BookOpen className="w-3.5 h-3.5" style={{ color: '#818CF8' }} />
+                            <span className="text-sm font-medium" style={{ color: '#C8D5E8' }}>{t.title}</span>
+                          </div>
+                          {t.description && <p className="text-xs leading-relaxed" style={{ color: '#8B97A8' }}>{t.description}</p>}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {data.clinical_research.saved_reports && data.clinical_research.saved_reports.length > 0 && (
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: '#526380' }}>Saved Research Reports</p>
+                    <div className="space-y-2">
+                      {data.clinical_research.saved_reports.map((r: any, i: number) => (
+                        <div key={i} className="flex items-center justify-between border-b last:border-b-0 pb-2 last:pb-0" style={{ borderColor: 'rgba(255,255,255,0.05)' }}>
+                          <span className="text-sm" style={{ color: '#C8D5E8' }}>{r.query}</span>
+                          <span className="text-[11px]" style={{ color: '#3D4F66' }}>{r.created_at ? new Date(r.created_at).toLocaleDateString() : ''}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </Section>
+            )}
+
+            {/* Doctor Prep Report */}
+            {data.doctor_prep && (
+              <Section title="Visit Prep Report">
+                <div className="flex items-start gap-2 p-3 rounded-lg mb-3" style={{ backgroundColor: 'rgba(0,212,170,0.05)', border: '1px solid rgba(0,212,170,0.1)' }}>
+                  <FileText className="w-4 h-4 mt-0.5 shrink-0" style={{ color: '#00D4AA' }} />
+                  <p className="text-xs leading-relaxed" style={{ color: '#8B97A8' }}>
+                    A comprehensive health report was generated for this patient. Key data points from the report are included throughout other sections above.
+                  </p>
+                </div>
+                {(data.doctor_prep as any)?.summary?.concerns?.length > 0 && (
+                  <div className="mb-3">
+                    <p className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: '#F5A623' }}>Concerns</p>
+                    <ul className="space-y-1">
+                      {((data.doctor_prep as any).summary.concerns as string[]).map((c, i) => (
+                        <li key={i} className="text-xs flex items-start gap-1.5" style={{ color: '#8B97A8' }}>
+                          <AlertTriangle className="w-3 h-3 mt-0.5 shrink-0" style={{ color: '#F5A623' }} />
+                          {c}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {(data.doctor_prep as any)?.summary?.improvements?.length > 0 && (
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: '#6EE7B7' }}>Positive Progress</p>
+                    <ul className="space-y-1">
+                      {((data.doctor_prep as any).summary.improvements as string[]).map((imp, i) => (
+                        <li key={i} className="text-xs flex items-start gap-1.5" style={{ color: '#8B97A8' }}>
+                          <CheckCircle2 className="w-3 h-3 mt-0.5 shrink-0" style={{ color: '#6EE7B7' }} />
+                          {imp}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
               </Section>
             )}
 
