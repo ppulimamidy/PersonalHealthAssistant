@@ -512,24 +512,30 @@ function ReportView({ report }: { report: DoctorPrepReport }) {
         </Card>
       )}
 
-      {/* Overall Score */}
-      <Card>
-        <div className="flex items-center gap-8">
-          <HealthScoreRing
-            score={report.summary.overall_health_score}
-            size="lg"
-            label="Overall Health"
-          />
-          <div className="flex-1">
-            <h3 className="font-semibold text-slate-900 dark:text-slate-100 mb-4">Key Metrics</h3>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              {report.summary.key_metrics.map((metric, idx) => (
-                <MetricCard key={idx} metric={metric} />
-              ))}
-            </div>
+      {/* Overall Score + Key Metrics — only show when data exists */}
+      {(report.summary.overall_health_score != null && report.summary.overall_health_score > 0) || report.summary.key_metrics.length > 0 ? (
+        <Card>
+          <div className="flex items-center gap-8">
+            {report.summary.overall_health_score != null && report.summary.overall_health_score > 0 && (
+              <HealthScoreRing
+                score={report.summary.overall_health_score}
+                size="lg"
+                label="Overall Health"
+              />
+            )}
+            {report.summary.key_metrics.length > 0 && (
+              <div className="flex-1">
+                <h3 className="font-semibold text-slate-900 dark:text-slate-100 mb-4">Key Metrics</h3>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  {report.summary.key_metrics.map((metric, idx) => (
+                    <MetricCard key={idx} metric={metric} />
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
-        </div>
-      </Card>
+        </Card>
+      ) : null}
 
       {/* Health Intelligence Indicators */}
       {report.health_intelligence && (
@@ -637,20 +643,22 @@ function ReportView({ report }: { report: DoctorPrepReport }) {
         </Card>
       )}
 
-      {/* Trends */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <Card>
-          <CardHeader>
-            <CardTitle>Trends</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="divide-y divide-slate-100 dark:divide-slate-700">
-              {report.summary.trends.map((trend, idx) => (
-                <TrendItem key={idx} trend={trend} />
-              ))}
-            </div>
-          </CardContent>
-        </Card>
+      {/* Trends + Questions grid */}
+      <div className={`grid grid-cols-1 ${report.summary.trends.length > 0 ? 'md:grid-cols-2' : ''} gap-6`}>
+        {report.summary.trends.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Trends</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="divide-y divide-slate-100 dark:divide-slate-700">
+                {report.summary.trends.map((trend, idx) => (
+                  <TrendItem key={idx} trend={trend} />
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         <div className="space-y-6">
           {/* Questions */}

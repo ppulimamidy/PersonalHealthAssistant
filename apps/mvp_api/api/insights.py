@@ -494,12 +494,33 @@ async def get_insights(
         except ValueError:
             pass  # Invalid timestamp — fall through to normal generation
 
-    # Fetch recent health data
-    try:
-        timeline = await get_timeline(days=14, current_user=current_user)
-    except Exception as e:
-        logger.error(f"Failed to fetch timeline for insights: {e}")
-        timeline = []
+    # Gate: only fetch timeline if user has real device data (avoid sandbox mock insights)
+    user_id = current_user.get("id", "")
+    real_data = None
+    if user_id and user_id != "sandbox-user-123":
+        real_data = await _supabase_get(
+            "native_health_data",
+            f"user_id=eq.{user_id}&limit=1&select=id",
+        )
+        if not real_data:
+            real_data = await _supabase_get(
+                "health_metrics_normalized",
+                f"user_id=eq.{user_id}&limit=1&select=id",
+            )
+        if not real_data:
+            real_data = await _supabase_get(
+                "oura_connections",
+                f"user_id=eq.{user_id}&is_active=eq.true&limit=1&select=id",
+            )
+
+    # Fetch recent health data (skip for users with no real device data)
+    timeline = []
+    if real_data or user_id == "sandbox-user-123":
+        try:
+            timeline = await get_timeline(days=14, current_user=current_user)
+        except Exception as e:
+            logger.error(f"Failed to fetch timeline for insights: {e}")
+            timeline = []
 
     # Advanced insights path (AI Insights + Knowledge Graph). Best-effort with safe fallback.
     if ADVANCED_INSIGHTS_ENABLED and timeline:
