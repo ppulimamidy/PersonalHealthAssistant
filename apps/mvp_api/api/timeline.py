@@ -149,6 +149,28 @@ async def get_timeline(
     end_date = datetime.utcnow()
     start_date = end_date - timedelta(days=days)
 
+    # Gate: return empty for users with no real device data (avoid sandbox mock data)
+    _uid = current_user.get("id", "")
+    if USE_SANDBOX and _uid and _uid != "sandbox-user-123":
+        from ..dependencies.usage_gate import _supabase_get
+
+        _has_data = await _supabase_get(
+            "oura_connections",
+            f"user_id=eq.{_uid}&is_active=eq.true&limit=1&select=id",
+        )
+        if not _has_data:
+            _has_data = await _supabase_get(
+                "native_health_data",
+                f"user_id=eq.{_uid}&limit=1&select=id",
+            )
+        if not _has_data:
+            _has_data = await _supabase_get(
+                "health_metrics_normalized",
+                f"user_id=eq.{_uid}&limit=1&select=id",
+            )
+        if not _has_data:
+            return []
+
     # Narrow the fetch window when since_timestamp is provided
     # Guard against FastAPI Query objects being passed when called programmatically
     if since_timestamp and isinstance(since_timestamp, str):
