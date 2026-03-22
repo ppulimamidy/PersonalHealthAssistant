@@ -575,11 +575,11 @@ export default function SharePage() {
             {/* Clinical Research */}
             {data.clinical_research && (
               <Section title="Clinical Research">
-                {data.clinical_research.personalized_topics?.topics && data.clinical_research.personalized_topics.topics.length > 0 && (
+                {Array.isArray((data.clinical_research?.personalized_topics as any)?.topics) && ((data.clinical_research?.personalized_topics as any).topics as any[]).length > 0 && (
                   <div className="mb-4">
                     <p className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: '#818CF8' }}>Personalized Research Topics</p>
                     <div className="space-y-2">
-                      {(data.clinical_research.personalized_topics.topics as any[]).map((t: any, i: number) => (
+                      {((data.clinical_research?.personalized_topics as any).topics as any[]).map((t: any, i: number) => (
                         <div key={i} className="rounded-lg p-3" style={{ backgroundColor: 'rgba(129,140,248,0.05)', border: '1px solid rgba(129,140,248,0.1)' }}>
                           <div className="flex items-center gap-2 mb-1">
                             <BookOpen className="w-3.5 h-3.5" style={{ color: '#818CF8' }} />
