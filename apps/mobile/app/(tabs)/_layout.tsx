@@ -1,6 +1,7 @@
 import { Tabs } from 'expo-router';
 import { Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { CommonActions } from '@react-navigation/native';
 import { colors } from '@/constants/theme';
 
 type IconName = React.ComponentProps<typeof Ionicons>['name'];
@@ -16,6 +17,24 @@ const TAB_ICON: Record<string, { active: IconName; inactive: IconName }> = {
 export default function TabsLayout() {
   return (
     <Tabs
+      screenListeners={({ navigation, route }) => ({
+        tabPress: (e) => {
+          // When user taps the already-active tab, reset its stack to the root screen
+          const state = navigation.getState();
+          const currentRoute = state.routes[state.index];
+          if (currentRoute.name === route.name && currentRoute.state?.index && currentRoute.state.index > 0) {
+            e.preventDefault();
+            navigation.dispatch(
+              CommonActions.reset({
+                index: state.index,
+                routes: state.routes.map((r: any) =>
+                  r.name === route.name ? { ...r, state: undefined } : r
+                ),
+              })
+            );
+          }
+        },
+      })}
       screenOptions={({ route }) => ({
         headerShown: false,
         tabBarStyle: {
