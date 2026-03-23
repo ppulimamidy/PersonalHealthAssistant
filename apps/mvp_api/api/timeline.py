@@ -150,8 +150,10 @@ async def get_timeline(
     start_date = end_date - timedelta(days=days)
 
     # Gate: return empty for users with no real device data (avoid sandbox mock data)
+    # Always check — regardless of USE_SANDBOX — because the OuraAPIClient
+    # falls back to sandbox when access_token is empty.
     _uid = current_user.get("id", "")
-    if USE_SANDBOX and _uid and _uid != "sandbox-user-123":
+    if _uid and _uid != "sandbox-user-123":
         _has_data = await _supabase_get(
             "oura_connections",
             f"user_id=eq.{_uid}&is_active=eq.true&limit=1&select=id",
