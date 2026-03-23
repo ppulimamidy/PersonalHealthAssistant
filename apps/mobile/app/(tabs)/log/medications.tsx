@@ -431,7 +431,7 @@ function ScanPrescriptionModal({ visible, onClose, onSaved }: { visible: boolean
 
       const asset = picked.assets[0];
       const formData = new FormData();
-      formData.append('file', {
+      formData.append('image', {
         uri: asset.uri,
         type: asset.mimeType ?? 'image/jpeg',
         name: asset.fileName ?? 'scan.jpg',
