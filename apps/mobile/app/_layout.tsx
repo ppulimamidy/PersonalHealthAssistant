@@ -11,7 +11,7 @@ import { DMSans_400Regular, DMSans_500Medium } from '@expo-google-fonts/dm-sans'
 import * as SplashScreen from 'expo-splash-screen';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/authStore';
-import { api, refreshTokenCache } from '@/services/api';
+import { api, refreshTokenCache, forceLogout } from '@/services/api';
 import { setupNotificationListeners } from '@/services/notifications';
 
 // Keep splash visible until fonts are ready
@@ -108,11 +108,17 @@ function AppStateListener() {
       'change',
       async (nextState: AppStateStatus) => {
         if (nextState === 'active') {
-          // Refresh token cache immediately on foreground resume
+          // Refresh token cache and verify session is still valid
           try {
-            await refreshTokenCache();
+            const isValid = await refreshTokenCache();
+            if (!isValid) {
+              // Session truly expired — force logout
+              useAuthStore.getState().logout();
+              forceLogout();
+              return;
+            }
           } catch {
-            // Token refresh failed — queries will trigger 401 → auto-refresh
+            // Network error during refresh — let queries handle 401
           }
           // Invalidate all data queries so screens show fresh data
           queryClient.invalidateQueries();
