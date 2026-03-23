@@ -469,8 +469,8 @@ function ScanPrescriptionModal({ visible, onClose, onSaved }: { visible: boolean
         await api.post('/api/v1/medications', {
           medication_name: name.trim(),
           generic_name: genericName.trim() || undefined,
-          dosage: dosage.trim() || undefined,
-          frequency: frequency.trim() || undefined,
+          dosage: dosage.trim() || 'As directed',
+          frequency: frequency.trim() || 'As directed',
           route: routeVal || 'oral',
           indication: indication.trim() || undefined,
           is_active: true,
