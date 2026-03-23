@@ -1,7 +1,6 @@
-import { Tabs } from 'expo-router';
+import { Tabs, useRouter } from 'expo-router';
 import { Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { CommonActions } from '@react-navigation/native';
 import { colors } from '@/constants/theme';
 
 type IconName = React.ComponentProps<typeof Ionicons>['name'];
@@ -15,32 +14,25 @@ const TAB_ICON: Record<string, { active: IconName; inactive: IconName }> = {
 };
 
 export default function TabsLayout() {
+  const router = useRouter();
+
+  // When tapping an already-focused tab, navigate to its root screen
+  function makeTabListeners(tabRoot: string) {
+    return ({ navigation }: any) => ({
+      tabPress: (e: any) => {
+        const state = navigation.getState();
+        const tabRoute = state.routes.find((r: any) => r.name === tabRoot);
+        // If this tab has a nested stack with depth > 0, go to root
+        if (tabRoute?.state && tabRoute.state.routes && tabRoute.state.routes.length > 1) {
+          e.preventDefault();
+          router.replace(`/(tabs)/${tabRoot}` as any);
+        }
+      },
+    });
+  }
+
   return (
     <Tabs
-      screenListeners={({ navigation, route }) => ({
-        tabPress: (e) => {
-          // When user taps an already-focused tab, reset its nested stack to root
-          const state = navigation.getState();
-          const currentTab = state.routes[state.index];
-          if (currentTab.name !== route.name) return;
-
-          // Check if nested stack has depth > 0 (screens pushed beyond root)
-          const nested = currentTab.state as any;
-          const hasDepth = nested && ((nested.index != null && nested.index > 0) || (nested.routes?.length > 1));
-          if (hasDepth) {
-            e.preventDefault();
-            // Clear the nested state entirely — forces remount of root screen
-            navigation.dispatch(
-              CommonActions.reset({
-                index: state.index,
-                routes: state.routes.map((r: any) =>
-                  r.name === route.name ? { ...r, state: undefined } : r
-                ),
-              })
-            );
-          }
-        },
-      })}
       screenOptions={({ route }) => ({
         headerShown: false,
         tabBarStyle: {
@@ -65,11 +57,11 @@ export default function TabsLayout() {
         },
       })}
     >
-      <Tabs.Screen name="home" options={{ title: 'Home' }} />
-      <Tabs.Screen name="log" options={{ title: 'Track' }} />
-      <Tabs.Screen name="insights" options={{ title: 'Insights' }} />
-      <Tabs.Screen name="chat" options={{ title: 'Ask AI' }} />
-      <Tabs.Screen name="profile" options={{ title: 'Profile' }} />
+      <Tabs.Screen name="home" options={{ title: 'Home' }} listeners={makeTabListeners('home')} />
+      <Tabs.Screen name="log" options={{ title: 'Track' }} listeners={makeTabListeners('log')} />
+      <Tabs.Screen name="insights" options={{ title: 'Insights' }} listeners={makeTabListeners('insights')} />
+      <Tabs.Screen name="chat" options={{ title: 'Ask AI' }} listeners={makeTabListeners('chat')} />
+      <Tabs.Screen name="profile" options={{ title: 'Profile' }} listeners={makeTabListeners('profile')} />
     </Tabs>
   );
 }
