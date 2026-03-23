@@ -19,28 +19,25 @@ export default function TabsLayout() {
     <Tabs
       screenListeners={({ navigation, route }) => ({
         tabPress: (e) => {
-          // When user taps the already-active tab, pop its nested stack to root
+          // When user taps an already-focused tab, reset its nested stack to root
           const state = navigation.getState();
           const currentTab = state.routes[state.index];
+          if (currentTab.name !== route.name) return;
 
-          // Only act if tapping the tab we're already on AND it has nested navigation
-          if (currentTab.name === route.name) {
-            const nestedState = currentTab.state;
-            // Check if we're deeper than the root screen in the nested stack
-            if (nestedState && nestedState.index != null && nestedState.index > 0) {
-              e.preventDefault();
-              // Reset this tab's nested stack to just the first route
-              navigation.dispatch({
-                ...CommonActions.reset({
-                  index: state.index,
-                  routes: state.routes.map((r: any) =>
-                    r.name === route.name
-                      ? { ...r, state: { ...nestedState, index: 0, routes: [nestedState.routes[0]] } }
-                      : r
-                  ),
-                }),
-              });
-            }
+          // Check if nested stack has depth > 0 (screens pushed beyond root)
+          const nested = currentTab.state as any;
+          const hasDepth = nested && ((nested.index != null && nested.index > 0) || (nested.routes?.length > 1));
+          if (hasDepth) {
+            e.preventDefault();
+            // Clear the nested state entirely — forces remount of root screen
+            navigation.dispatch(
+              CommonActions.reset({
+                index: state.index,
+                routes: state.routes.map((r: any) =>
+                  r.name === route.name ? { ...r, state: undefined } : r
+                ),
+              })
+            );
           }
         },
       })}
