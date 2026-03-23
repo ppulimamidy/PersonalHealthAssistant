@@ -19,19 +19,28 @@ export default function TabsLayout() {
     <Tabs
       screenListeners={({ navigation, route }) => ({
         tabPress: (e) => {
-          // When user taps the already-active tab, reset its stack to the root screen
+          // When user taps the already-active tab, pop its nested stack to root
           const state = navigation.getState();
-          const currentRoute = state.routes[state.index];
-          if (currentRoute.name === route.name && currentRoute.state?.index && currentRoute.state.index > 0) {
-            e.preventDefault();
-            navigation.dispatch(
-              CommonActions.reset({
-                index: state.index,
-                routes: state.routes.map((r: any) =>
-                  r.name === route.name ? { ...r, state: undefined } : r
-                ),
-              })
-            );
+          const currentTab = state.routes[state.index];
+
+          // Only act if tapping the tab we're already on AND it has nested navigation
+          if (currentTab.name === route.name) {
+            const nestedState = currentTab.state;
+            // Check if we're deeper than the root screen in the nested stack
+            if (nestedState && nestedState.index != null && nestedState.index > 0) {
+              e.preventDefault();
+              // Reset this tab's nested stack to just the first route
+              navigation.dispatch({
+                ...CommonActions.reset({
+                  index: state.index,
+                  routes: state.routes.map((r: any) =>
+                    r.name === route.name
+                      ? { ...r, state: { ...nestedState, index: 0, routes: [nestedState.routes[0]] } }
+                      : r
+                  ),
+                }),
+              });
+            }
           }
         },
       })}
